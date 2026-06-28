@@ -1,0 +1,8 @@
+bin/
+obj/
+*.user
+*.suo
+*.DotSettings
+.vs/
+.DS_Store
+appsettings.json
