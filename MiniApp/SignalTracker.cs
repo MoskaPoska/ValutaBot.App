@@ -58,6 +58,8 @@ public static class SignalTracker
             : 0;
     }
 
+    public static int GetTotalPredictions() => _totalPredictions;
+
     public static (string name, double agreeRate, double weight, int count)[] GetSignalStats()
     {
         return _signalHistory.Select(kv =>

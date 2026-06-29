@@ -564,19 +564,25 @@ public static class MiniAppController
             double mom5 = mainPrices.Length >= 6
                 ? (mainPrices[^1] - mainPrices[^6]) / mainPrices[^6] * 100 : 0;
             int momentumSignal = 0;
-            if (mom3 > 0.15 && mom5 > 0.2) momentumSignal = 1;
-            else if (mom3 < -0.15 && mom5 < -0.2) momentumSignal = -1;
+            if (mom3 > 0.2 && mom5 > 0.3) momentumSignal = 1;
+            else if (mom3 < -0.2 && mom5 < -0.3) momentumSignal = -1;
+
+            // Overall trend for the full window
+            double overallChange = mainPrices.Length >= 2
+                ? (mainPrices[^1] - mainPrices[0]) / mainPrices[0] * 100 : 0;
+            int overallTrend = overallChange > 0.1 ? 1 : overallChange < -0.1 ? -1 : 0;
 
             int rawProb = totalWeight > 0
                 ? (int)Math.Clamp(totalConfidence / totalWeight * conflictPenalty, 62, 98)
                 : 75;
 
-            // ─── Калибровка вероятности ───
+            // ─── Калибровка вероятности (только после 10+ предсказаний) ───
             double accuracy = SignalTracker.GetOverallAccuracy() / 100.0;
+            int totalPreds = SignalTracker.GetTotalPredictions();
             int probability;
-            if (accuracy > 0)
+            if (accuracy > 0 && totalPreds >= 10)
             {
-                probability = (int)Math.Round(rawProb * Math.Max(accuracy, 0.5));
+                probability = (int)Math.Round(rawProb * Math.Max(accuracy, 0.55));
                 probability = Math.Clamp(probability, 55, 98);
             }
             else
@@ -584,13 +590,13 @@ public static class MiniAppController
                 probability = rawProb;
             }
 
-            // ─── Направление: при слабых сигналах — чистый момент ───
+            // ─── Направление ───
             string direction;
-            if (probability < 70 && momentumSignal != 0)
+            if (probability < 50 && momentumSignal != 0 && momentumSignal == overallTrend)
             {
                 direction = momentumSignal > 0 ? "BUY" : "PUT";
-                probability = Math.Clamp(75 + (int)(Math.Abs(mom3) * 5), 55, 85);
-                Console.WriteLine($"[Override] low-prob ({probability}%) -> momentum {direction}");
+                probability = 68;
+                Console.WriteLine($"[Override] weak indicators, momentum={direction}");
             }
             else
             {
