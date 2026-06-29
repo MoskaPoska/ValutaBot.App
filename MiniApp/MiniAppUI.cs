@@ -10,7 +10,7 @@ public static class MiniAppUI
 <head>
     <meta charset='utf-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>
-    <title>TradeBE bot</title>
+    <title>TradeBE бот — анализ рынка</title>
     <script src='https://telegram.org/js/telegram-web-app.js'></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Inter:wght@400;600;700;800&display=swap');
@@ -1643,12 +1643,11 @@ public static class MiniAppUI
                     }
 
                     const isUnclear = data.unclear === true;
-                    document.getElementById('resDir').innerText = data.direction === 'BUY' ? 'ВВЕРХ' : data.direction === 'PUT' ? 'ВНИЗ' : 'НЕ ЯСНО';
-                    document.getElementById('resDir').style.color = data.direction === 'BUY' ? '#00e676' : data.direction === 'PUT' ? '#ff1744' : '#555';
+                    document.getElementById('resDir').innerText = data.direction === 'BUY' ? 'ВВЕРХ' : 'ВНИЗ';
+                    document.getElementById('resDir').style.color = data.direction === 'BUY' ? '#00e676' : '#ff1744';
 
-                    const probEl = document.getElementById('resProb');
-                    probEl.innerText = isUnclear ? '—' : data.probability + '%';
-                    probEl.style.color = isUnclear ? '#555' : data.probability >= 90 ? '#00e676' : data.probability >= 85 ? '#ffd600' : 'var(--accent)';
+                    document.getElementById('resProb').innerText = data.probability + '%';
+                    document.getElementById('resProb').style.color = data.probability >= 90 ? '#00e676' : data.probability >= 85 ? '#ffd600' : 'var(--accent)';
 
                     document.getElementById('resDur').innerText = data.duration;
 

@@ -338,16 +338,17 @@ public static class MiniAppController
         double bbZ = ComputeBollingerZscore(prices, 20);
         var (bullDiv, bearDiv) = DetectRsiDivergence(prices, RsiPeriod);
 
-        double tw = adx > 25 ? 1.5 : 0.7;
-        double mw = adx < 20 ? 1.5 : 0.7;
+        double tw = adx > 25 ? 1.5 : 1.0;
+        double mw = adx < 20 ? 1.5 : 1.0;
 
         double signals = 0, total = 0;
 
-        // EMA trend signals
-        if (lastPrice > emaS) signals += tw; else signals -= tw; total += tw;
-        if (lastPrice > emaL) signals += tw; else signals -= tw; total += tw;
-        if (emaS > emaL) signals += tw; else signals -= tw; total += tw;
-        if (emaS > prevEmaS) signals += tw; else signals -= tw; total += tw;
+        // EMA trend — только при консенсусе (>=3 из 4)
+        int emaBullish = (lastPrice > emaS ? 1 : 0) + (lastPrice > emaL ? 1 : 0)
+                       + (emaS > emaL ? 1 : 0) + (emaS > prevEmaS ? 1 : 0);
+        if (emaBullish >= 3) signals += tw;
+        else if (emaBullish <= 1) signals -= tw;
+        total += tw;
 
         // RSI
         if (rsi < 30) signals += 2 * mw; else if (rsi < 40) signals += 1 * mw;
@@ -541,7 +542,15 @@ public static class MiniAppController
             totalConfidence += mainResult.confidence * tfWeights[0];
             totalWeight += tfWeights[0];
 
-            string direction = totalScore >= 0 ? "BUY" : "PUT";
+            // ─── Short-term momentum (3-bar + 5-bar) ───
+            double mom3 = mainPrices.Length >= 4
+                ? (mainPrices[^1] - mainPrices[^4]) / mainPrices[^4] * 100 : 0;
+            double mom5 = mainPrices.Length >= 6
+                ? (mainPrices[^1] - mainPrices[^6]) / mainPrices[^6] * 100 : 0;
+            int momentumSignal = 0;
+            if (mom3 > 0.15 && mom5 > 0.2) momentumSignal = 1;
+            else if (mom3 < -0.15 && mom5 < -0.2) momentumSignal = -1;
+
             int rawProb = totalWeight > 0
                 ? (int)Math.Clamp(totalConfidence / totalWeight * conflictPenalty, 62, 98)
                 : 75;
@@ -549,50 +558,47 @@ public static class MiniAppController
             // ─── Калибровка вероятности ───
             double accuracy = SignalTracker.GetOverallAccuracy() / 100.0;
             int probability;
-            if (accuracy > 0 && SignalTracker.GetOverallAccuracy() > 50)
+            if (accuracy > 0)
             {
-                probability = (int)Math.Round(rawProb * accuracy);
+                probability = (int)Math.Round(rawProb * Math.Max(accuracy, 0.5));
                 probability = Math.Clamp(probability, 55, 98);
-                Console.WriteLine($"[Calibrate] raw={rawProb}% acc={accuracy:P0} -> calibrated={probability}%");
             }
             else
             {
                 probability = rawProb;
             }
 
-            // ─── Режим "НЕ ЯСНО" ───
-            bool lowConfidence = probability < 65;
-            bool signalsConflicting = Math.Abs(totalScore) < 4;
-            bool unclear = lowConfidence && signalsConflicting;
-            if (unclear)
+            // ─── Направление: при слабых сигналах — чистый момент ───
+            string direction;
+            if (probability < 70 && momentumSignal != 0)
             {
-                direction = "NEUTRAL";
-                probability = Math.Min(probability, 55);
-                Console.WriteLine($"[UNCLEAR] low confidence signals, returning NEUTRAL");
+                direction = momentumSignal > 0 ? "BUY" : "PUT";
+                probability = Math.Clamp(75 + (int)(Math.Abs(mom3) * 5), 55, 85);
+                Console.WriteLine($"[Override] low-prob ({probability}%) -> momentum {direction}");
+            }
+            else
+            {
+                direction = totalScore >= 0 ? "BUY" : "PUT";
             }
 
             // ─── Signal Tracker ───
-            if (direction != "NEUTRAL")
-            {
-                SignalTracker.RecordPrediction(direction, asset, timeframe, mainPrices[^1]);
-                double finalDir = direction == "BUY" ? 1 : -1;
-                double mainDir = mainResult.score >= 0 ? 1 : -1;
-                double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
-                double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
-                double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
-                    ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
+            SignalTracker.RecordPrediction(direction, asset, timeframe, mainPrices[^1]);
+            double finalDir = direction == "BUY" ? 1 : -1;
+            double mainDir = mainResult.score >= 0 ? 1 : -1;
+            double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
+            double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
+            double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
+                ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
 
-                SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
-                if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
-                if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
-                if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
-            }
+            SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
+            if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
+            if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
+            if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
 
             return new
             {
                 direction,
                 probability,
-                unclear,
                 duration = timeframe.ToUpper(),
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),
