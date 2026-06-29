@@ -412,10 +412,26 @@ public static class MiniAppController
     {
         try
         {
-            string symbol = asset.Replace("/", "").Replace(" ", "");
-            if (symbol == "GOLD") symbol = "PAXGUSDT";
-            if (symbol == "SILVER") symbol = "XAGUSDT";
-            if (!symbol.EndsWith("USDT")) symbol += "USDT";
+            string raw = asset.Replace(" OTC", "").Replace("/", "").Trim();
+            string symbol = raw switch
+            {
+                // Forex — прямые пары на Binance
+                "EURUSD" => "EURUSDT",
+                "GBPUSD" => "GBPUSDT",
+                "AUDUSD" => "AUDUSDT",
+                "NZDUSD" => "NZDUSDT",
+                "USDJPY" => "JPYUSDT",
+                // Коммодити
+                "GOLD" => "PAXGUSDT",
+                "SILVER" => "XAGUSDT",
+                "BRENT" => "BRENTUSDT",
+                "OIL" => "OILUSDT",
+                // Крипта
+                "BTCUSDT" or "BTC" => "BTCUSDT",
+                "ETHUSDT" or "ETH" => "ETHUSDT",
+                "SOLUSDT" or "SOL" => "SOLUSDT",
+                _ => raw + "USDT"
+            };
 
             string mainInterval = IntervalMap(timeframe);
             string? higherTf = HigherTf(timeframe);
@@ -634,6 +650,17 @@ public static class MiniAppController
         else if (asset.Contains("AAPL")) { startPrice = 180.50; volatility = 0.3; }
         else if (asset.Contains("GOLD")) { startPrice = 2300; volatility = 1.5; }
         else if (asset.Contains("JPY")) { startPrice = 150.00; volatility = 0.05; }
+        else if (asset.Contains("BRL")) { startPrice = 5.50; volatility = 0.005; }
+        else if (asset.Contains("IDR")) { startPrice = 16000; volatility = 10.0; }
+        else if (asset.Contains("PKR")) { startPrice = 280; volatility = 0.5; }
+        else if (asset.Contains("NGN")) { startPrice = 1500; volatility = 5.0; }
+        else if (asset.Contains("LBP")) { startPrice = 15000; volatility = 20.0; }
+        else if (asset.Contains("TND")) { startPrice = 3.10; volatility = 0.002; }
+        else if (asset.Contains("DZD")) { startPrice = 135; volatility = 0.3; }
+        else if (asset.Contains("JOD") || asset.Contains("OMR") || asset.Contains("SAR")) { startPrice = 10.0; volatility = 0.01; }
+        else if (asset.Contains("CHF")) { startPrice = 0.95; volatility = 0.002; }
+        else if (asset.Contains("CAD")) { startPrice = 1.35; volatility = 0.002; }
+        else if (asset.Contains("NZD")) { startPrice = 0.60; volatility = 0.002; }
 
         var chartData = new double[15];
         double currentPrice = startPrice;
