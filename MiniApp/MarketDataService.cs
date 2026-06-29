@@ -8,8 +8,14 @@ namespace ValutaBot.MiniApp;
 public sealed class MarketDataService : BackgroundService
 {
     private static readonly ConcurrentDictionary<string, (double price, double vol, DateTime time)> LatestPrices = new();
+    private static readonly ConcurrentDictionary<string, double> LatestImbalance = new();
     private static readonly ConcurrentQueue<string> RecentAlerts = new();
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
+
+    public static double GetBookImbalance(string symbol)
+    {
+        return LatestImbalance.TryGetValue(symbol, out var val) ? val : 0;
+    }
 
     public static Dictionary<string, object> GetLatestPrices()
     {
@@ -36,8 +42,10 @@ public sealed class MarketDataService : BackgroundService
 
     private async Task RunBinanceWebSocket(CancellationToken ct)
     {
-        var streams = new[] { "btcusdt@ticker", "ethusdt@ticker", "bnbusdt@ticker", "solusdt@ticker", "xrpusdt@ticker", "adausdt@ticker", "dogeusdt@ticker", "dotusdt@ticker" };
-        string url = $"wss://stream.binance.com:9443/stream?streams={string.Join("/", streams)}";
+        var tickers = new[] { "btcusdt@ticker", "ethusdt@ticker", "bnbusdt@ticker", "solusdt@ticker", "xrpusdt@ticker", "adausdt@ticker", "dogeusdt@ticker", "dotusdt@ticker" };
+        var books = new[] { "btcusdt@bookTicker", "ethusdt@bookTicker", "solusdt@bookTicker" };
+        var allStreams = tickers.Concat(books).ToArray();
+        string url = $"wss://stream.binance.com:9443/stream?streams={string.Join("/", allStreams)}";
 
         while (!ct.IsCancellationRequested)
         {
@@ -55,7 +63,10 @@ public sealed class MarketDataService : BackgroundService
                     if (result.MessageType != WebSocketMessageType.Text) continue;
 
                     var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    ParseTicker(json);
+                    if (json.Contains("\"e\":\"bookTicker\"") || json.Contains("\"bookTicker\""))
+                        ParseBookTicker(json);
+                    else
+                        ParseTicker(json);
                 }
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -83,6 +94,26 @@ public sealed class MarketDataService : BackgroundService
         catch { /* malformed ticker, skip */ }
     }
 
+    private static void ParseBookTicker(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var data = root.TryGetProperty("data", out var d) ? d : root;
+            var symbol = data.GetProperty("s").GetString()!;
+            var bidQty = double.Parse(data.GetProperty("B").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+            var askQty = double.Parse(data.GetProperty("A").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+
+            double total = bidQty + askQty;
+            double imbalance = total > 0 ? (bidQty - askQty) / total : 0;
+
+            var key = symbol.Replace("USDT", "/USDT");
+            LatestImbalance[key] = Math.Clamp(imbalance, -1, 1);
+        }
+        catch { /* malformed bookTicker, skip */ }
+    }
+
     /* ─── Volume anomaly monitor ─── */
 
     private async Task RunVolumeMonitor(CancellationToken ct)
@@ -106,12 +137,30 @@ public sealed class MarketDataService : BackgroundService
                     {
                         double change = (prices[^1] - prices[^2]) / prices[^2] * 100;
                         string dir = change >= 0 ? "\u2B06" : "\u2B07";
-                        string alert = $"\u26A0\uFE0F {sym.Replace("USDT", "/USDT")} | \u0420\u0435\u0437\u043A\u0438\u0439 \u0432\u0441\u043F\u043B\u0435\u0441\u043A \u043E\u0431\u044A\u0451\u043C\u0430: x{ratio:F1} ({dir} {Math.Abs(change):F2}%)";
-                        Console.WriteLine($"[MDS] {alert}");
+                        string alertMsg = $"\u26A0\uFE0F {sym.Replace("USDT", "/USDT")} | \u0420\u0435\u0437\u043A\u0438\u0439 \u0432\u0441\u043F\u043B\u0435\u0441\u043A \u043E\u0431\u044A\u0451\u043C\u0430: x{ratio:F1} ({dir} {Math.Abs(change):F2}%)";
+                        Console.WriteLine($"[MDS] {alertMsg}");
 
-                        RecentAlerts.Enqueue($"{DateTime.UtcNow:HH:mm:ss} {alert}");
+                        RecentAlerts.Enqueue($"{DateTime.UtcNow:HH:mm:ss} {alertMsg}");
                         if (RecentAlerts.Count > 20) RecentAlerts.TryDequeue(out _);
                     }
+
+                    // ─── Check user alerts ───
+                    double lastPrice = prices[^1];
+                    double rsi = ComputeRsi(prices, 14);
+                    double volRatio = lastVol / avgVol;
+                    string asset = sym.Replace("USDT", "/USDT");
+
+                    var triggered = AlertService.CheckAll(lastPrice, rsi, volRatio, asset);
+                    foreach (var rule in triggered)
+                    {
+                        string dirEmoji = lastPrice >= prices[^2] ? "\u2B06" : "\u2B07";
+                        string body = $"{asset} | \u0426\u0435\u043D\u0430: {lastPrice:F2} {dirEmoji}\nRSI: {rsi:F1}\n\u041E\u0431\u044A\u0451\u043C: x{volRatio:F1}";
+                        await TelegramNotifier.SendAlert(rule.ChatId, $"\uD83D\uDD14 \u0421\u0438\u0433\u043D\u0430\u043B: {rule.Label}", body);
+                        Console.WriteLine($"[TG] Alert sent: {rule.Label}");
+                    }
+
+                    // ─── Check prediction outcomes ───
+                    CheckPredictionOutcomes(sym, prices[^1]);
                 }
             }
             catch { /* retry next cycle */ }
@@ -129,5 +178,42 @@ public sealed class MarketDataService : BackgroundService
         var prices = arr.Select(k => double.Parse(k[4].GetString()!, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
         var volumes = arr.Select(k => double.Parse(k[5].GetString()!, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
         return (prices, volumes);
+    }
+
+    private static double ComputeRsi(double[] data, int period)
+    {
+        if (data.Length < period + 1) return 50;
+        int idx = data.Length - 1;
+        double gain = 0, loss = 0;
+        for (int i = idx - period + 1; i <= idx; i++)
+        {
+            double diff = data[i] - data[i - 1];
+            if (diff > 0) gain += diff; else loss -= diff;
+        }
+        double avgGain = gain / period;
+        double avgLoss = loss / period;
+        if (avgLoss < 1e-12) return 100;
+        return 100 - 100 / (1 + avgGain / avgLoss);
+    }
+
+    private static void CheckPredictionOutcomes(string symbol, double currentPrice)
+    {
+        try
+        {
+            string asset = symbol.Replace("USDT", "/USDT");
+            var pending = SignalTracker.GetPending();
+            foreach (var pred in pending)
+            {
+                if (pred.Asset != asset) continue;
+                double elapsed = (DateTime.UtcNow - pred.CreatedAt).TotalMinutes;
+                if (elapsed < 1.5) continue;
+
+                double change = (currentPrice - pred.Price) / pred.Price;
+                bool correct = pred.Direction == "BUY" ? change > 0 : change < 0;
+                SignalTracker.MarkChecked(pred, correct);
+                Console.WriteLine($"[Tracker] {pred.Asset} pred={pred.Direction} actual={(change > 0 ? "UP" : "DOWN")} ({(correct ? "CORRECT" : "WRONG")}) acc={SignalTracker.GetOverallAccuracy()}%");
+            }
+        }
+        catch { }
     }
 }

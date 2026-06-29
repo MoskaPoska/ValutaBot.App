@@ -32,6 +32,10 @@ public static class MiniAppController
             options.AddPolicy("AllowMiniApp", p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
         });
         builder.Services.AddHostedService<MarketDataService>();
+        builder.Services.AddHostedService<LiquidationHeatmapService>();
+
+        // Init Telegram notifier from env (set in Railway dashboard)
+        TelegramNotifier.Init(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
 
         var app = builder.Build();
         app.UseCors("AllowMiniApp");
@@ -79,6 +83,45 @@ public static class MiniAppController
             var latest = MarketDataService.GetLatestPrices();
             var alerts = MarketDataService.GetRecentAlerts();
             return Results.Json(new { prices = latest, alerts });
+        });
+
+        app.MapGet("/api/liquidations", () =>
+        {
+            return Results.Json(LiquidationHeatmapService.GetHeatmapData());
+        });
+
+        app.MapGet("/api/signal-stats", () =>
+        {
+            return Results.Json(new
+            {
+                accuracy = SignalTracker.GetOverallAccuracy(),
+                signals = SignalTracker.GetSignalStats()
+            });
+        });
+
+        /* ─── Alerts ─── */
+        app.MapGet("/api/alerts", () => Results.Json(AlertService.GetAll()));
+
+        app.MapPost("/api/alerts", async (HttpContext ctx) =>
+        {
+            var rule = await ctx.Request.ReadFromJsonAsync<AlertRule>();
+            if (rule == null) return Results.BadRequest();
+            var created = AlertService.Add(rule);
+            return Results.Json(created);
+        });
+
+        app.MapDelete("/api/alerts/{id}", (string id) =>
+        {
+            bool ok = AlertService.Remove(id);
+            return ok ? Results.Ok() : Results.NotFound();
+        });
+
+        app.MapPost("/api/alerts/chatid", async (HttpContext ctx) =>
+        {
+            var body = await ctx.Request.ReadFromJsonAsync<Dictionary<string, long>>();
+            if (body != null && body.TryGetValue("chatId", out var chatId))
+                AlertService.SetDefaultChatId(chatId);
+            return Results.Ok();
         });
 
         app.Run($"http://0.0.0.0:{port}");
@@ -208,10 +251,74 @@ public static class MiniAppController
         return volStrength * 2; // scale to -2..+2 influence range
     }
 
+    /* ─── ADX ─── */
+
+    private static double ComputeAdx(double[] data, int period)
+    {
+        if (data.Length < period * 2) return 20;
+        double avgUp = 0, avgDown = 0;
+        for (int i = data.Length - period; i < data.Length; i++)
+        {
+            double diff = data[i] - data[i - 1];
+            if (diff > 0) avgUp += diff; else avgDown -= diff;
+        }
+        avgUp /= period;
+        avgDown /= period;
+        if (avgUp + avgDown < 1e-10) return 20;
+        return Math.Min(Math.Abs(avgUp - avgDown) / (avgUp + avgDown) * 100, 60);
+    }
+
+    /* ─── Bollinger z-score ─── */
+
+    private static double ComputeBollingerZscore(double[] data, int period)
+    {
+        if (data.Length < period) return 0;
+        var window = data.TakeLast(period).ToArray();
+        double mean = window.Average();
+        double variance = window.Sum(v => Math.Pow(v - mean, 2)) / period;
+        double std = Math.Sqrt(variance);
+        if (std < 1e-10) return 0;
+        return (data[^1] - mean) / std;
+    }
+
+    /* ─── RSI divergence ─── */
+
+    private static (bool bullish, bool bearish) DetectRsiDivergence(double[] data, int period)
+    {
+        int n = data.Length;
+        if (n < period * 2 + 5) return (false, false);
+        int mid = n - period;
+        double priceMin1 = data.Skip(mid - period).Take(period).Min();
+        double priceMax1 = data.Skip(mid - period).Take(period).Max();
+        double priceMin2 = data.Skip(n - period).Take(period).Min();
+        double priceMax2 = data.Skip(n - period).Take(period).Max();
+        double rsi1 = ComputeRsi(data, period, mid);
+        double rsi2 = ComputeRsi(data, period, n - 1);
+        bool bullish = priceMin2 < priceMin1 && rsi2 > rsi1 + 5;
+        bool bearish = priceMax2 > priceMax1 && rsi2 < rsi1 - 5;
+        return (bullish, bearish);
+    }
+
+    /* ─── Linear regression slope ─── */
+
+    private static double LinearRegressionSlope(double[] data, int len)
+    {
+        int n = Math.Min(len, data.Length);
+        if (n < 3) return 0;
+        var segment = data.TakeLast(n).ToArray();
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        for (int i = 0; i < n; i++)
+        {
+            sumX += i; sumY += segment[i]; sumXY += i * segment[i]; sumX2 += i * i;
+        }
+        double slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        return slope / (segment.Average() + 1e-10) * 100;
+    }
+
     /* ─── Scoring Engine ─── */
 
     private static (int score, double confidence, double rsiVal, double emaVal, double volStrengthVal)
-        ScoreTimeframe(double[] prices, double[] volumes, double weight)
+        ScoreTimeframe(double[] prices, double[] volumes)
     {
         int n = prices.Length;
         if (n < EmaLong + 5) return (0, 0, 50, 0, 0);
@@ -225,52 +332,64 @@ public static class MiniAppController
         double emaL = emaLongArr[^1];
         double prevEmaS = emaShortArr[^2];
         double change = (prices[^1] - prices[0]) / prices[0];
-
         double volStrength = VolumeStrength(prices, volumes);
 
-        int signals = 0, total = 0;
+        double adx = ComputeAdx(prices, 14);
+        double bbZ = ComputeBollingerZscore(prices, 20);
+        var (bullDiv, bearDiv) = DetectRsiDivergence(prices, RsiPeriod);
 
-        // 1. Price vs EMA9 (short trend)
-        if (lastPrice > emaS) signals++; else signals--;
-        total++;
+        double tw = adx > 25 ? 1.5 : 0.7;
+        double mw = adx < 20 ? 1.5 : 0.7;
 
-        // 2. Price vs EMA21 (medium trend)
-        if (lastPrice > emaL) signals++; else signals--;
-        total++;
+        double signals = 0, total = 0;
 
-        // 3. EMA9 vs EMA21 (trend direction)
-        if (emaS > emaL) signals++; else signals--;
-        total++;
+        // EMA trend signals
+        if (lastPrice > emaS) signals += tw; else signals -= tw; total += tw;
+        if (lastPrice > emaL) signals += tw; else signals -= tw; total += tw;
+        if (emaS > emaL) signals += tw; else signals -= tw; total += tw;
+        if (emaS > prevEmaS) signals += tw; else signals -= tw; total += tw;
 
-        // 4. EMA9 slope
-        if (emaS > prevEmaS) signals++; else signals--;
-        total++;
+        // RSI
+        if (rsi < 30) signals += 2 * mw; else if (rsi < 40) signals += 1 * mw;
+        else if (rsi > 70) signals -= 2 * mw; else if (rsi > 60) signals -= 1 * mw;
+        total += 2 * mw;
 
-        // 5. RSI (weighted)
-        if (rsi < 30) signals += 2;       // oversold → strong buy signal
-        else if (rsi < 40) signals += 1;   // near oversold
-        else if (rsi > 70) signals -= 2;   // overbought → strong sell signal
-        else if (rsi > 60) signals -= 1;   // near overbought
-        total += 2;
+        // MACD
+        if (macd > signal) signals++; else signals--; total++;
 
-        // 6. MACD
-        if (macd > signal) signals++; else signals--;
-        total++;
+        // Overall change
+        if (change > 0.001) signals++; else if (change < -0.001) signals--; total++;
 
-        // 7. Overall change
-        if (change > 0.001) signals++; else if (change < -0.001) signals--;
-        total++;
+        // Volume
+        signals += Math.Round(volStrength); total += 2;
 
-        // 8. Volume confirmation (adds -2..+2 range)
-        signals += (int)Math.Round(volStrength);
-        total += 2;
+        // ADX trend confirmation
+        if (adx > 25)
+        {
+            double trendDir = lastPrice - prices[n / 2];
+            if (trendDir > 0) signals += tw; else signals -= tw; total += tw;
+        }
 
-        double rawRatio = (double)signals / total;
-        double score = rawRatio * weight;
-        double confidence = Math.Abs(rawRatio) * 100;
-        confidence = Math.Clamp(confidence, 62, 98);
+        // Bollinger mean reversion
+        if (Math.Abs(bbZ) > 2.0)
+        {
+            if (bbZ > 0) signals -= 2 * mw; else signals += 2 * mw;
+            total += 2 * mw;
+        }
+        else if (Math.Abs(bbZ) > 1.5)
+        {
+            if (bbZ > 0) signals -= 1 * mw; else signals += 1 * mw;
+            total += 1 * mw;
+        }
 
-        return ((int)Math.Round(score * 10), confidence, rsi, emaS, volStrength);
+        // RSI divergence
+        if (bullDiv) { signals += 2 * mw; total += 2 * mw; }
+        if (bearDiv) { signals -= 2 * mw; total += 2 * mw; }
+
+        double rawRatio = signals / total;
+        double confidence = Math.Clamp(Math.Abs(rawRatio) * 100, 62, 98);
+
+        return ((int)Math.Round(rawRatio * 10), confidence, rsi, emaS, volStrength);
     }
 
     /* ─── Multi-TF conflict penalty ─── */
@@ -323,9 +442,9 @@ public static class MiniAppController
             double totalConfidence = 0;
             double totalWeight = 0;
 
-            // ─── ML.Forecast ───
+            // ─── ML Ensemble ───
             var (mlDirection, mlConfidence, mlPredicted) = MLForecastService.PredictNextCandles(mainPrices);
-            double mlWeight = 1.5; // ML signal carries extra weight
+            double mlWeight = 1.5;
 
             if (mlDirection != "NEUTRAL")
             {
@@ -333,16 +452,75 @@ public static class MiniAppController
                 totalScore += mlSign * (int)(mlConfidence / 20 * mlWeight);
                 totalConfidence += mlConfidence * mlWeight;
                 totalWeight += mlWeight;
-                Console.WriteLine($"[ML] forecast={mlDirection} conf={mlConfidence:F0}% last={mainPrices[^1]:F2} -> pred={mlPredicted[^1]:F2}");
+                Console.WriteLine($"[ML] SSA forecast={mlDirection} conf={mlConfidence:F0}%");
+            }
+
+            // Linear regression on 20 bars → second ML model
+            double linregSlope = LinearRegressionSlope(mainPrices, 20);
+            if (Math.Abs(linregSlope) > 0.005)
+            {
+                double linregConf = Math.Clamp(Math.Abs(linregSlope) * 2000, 55, 90);
+                string linregDir = linregSlope > 0 ? "BUY" : "PUT";
+                int lrSign = linregDir == "BUY" ? 1 : -1;
+                totalScore += lrSign * (int)(linregConf / 30 * 0.8);
+                totalConfidence += linregConf * 0.8;
+                totalWeight += 0.8;
+                Console.WriteLine($"[ML] LinReg slope={linregSlope:F4} dir={linregDir} conf={linregConf:F0}%");
+            }
+
+            // Momentum score over multiple windows
+            double momScore = 0;
+            foreach (int window in new[] { 3, 5, 10, 20 })
+            {
+                if (mainPrices.Length > window)
+                {
+                    double roc = (mainPrices[^1] - mainPrices[^(window + 1)]) / mainPrices[^(window + 1)];
+                    if (roc > 0.002) momScore++; else if (roc < -0.002) momScore--;
+                }
+            }
+            if (Math.Abs(momScore) >= 2)
+            {
+                double momConf = Math.Clamp(Math.Abs(momScore) * 15, 55, 85);
+                int momSign = momScore > 0 ? 1 : -1;
+                totalScore += momSign * (int)(momConf / 30);
+                totalConfidence += momConf;
+                totalWeight += 1.0;
+                Console.WriteLine($"[ML] Momentum={momScore:F0} dir={(momScore > 0 ? "BUY" : "PUT")} conf={momConf:F0}%");
+            }
+
+            // ─── News Analysis ───
+            var newsResult = NewsAnalysisService.Analyze(asset);
+            if (Math.Abs(newsResult.score) > 0.1)
+            {
+                totalScore += (int)(newsResult.score * 3);
+                totalConfidence += Math.Abs(newsResult.score) * 20;
+                totalWeight += 2.0;
+                Console.WriteLine($"[News] sentiment={newsResult.sentiment} score={newsResult.score:F1}");
+            }
+
+            // ─── Bid/Ask Imbalance из WebSocket ───
+            string imbalanceKey = symbol.EndsWith("USDT") ? symbol.Replace("USDT", "/USDT") : "";
+            if (!string.IsNullOrEmpty(imbalanceKey))
+            {
+                double imbalance = MarketDataService.GetBookImbalance(imbalanceKey);
+                if (Math.Abs(imbalance) > 0.1)
+                {
+                    double imbWeight = Math.Min(Math.Abs(imbalance) * 5, 2.0);
+                    int imbSign = imbalance > 0 ? 1 : -1;
+                    totalScore += imbSign * (int)(imbWeight * 3);
+                    totalConfidence += Math.Abs(imbalance) * 40;
+                    totalWeight += imbWeight;
+                    Console.WriteLine($"[OrderBook] {imbalanceKey} imbalance={imbalance:F3} weight={imbWeight:F1}");
+                }
             }
 
             // Store results for conflict detection
-            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, tfWeights[0]);
+            var mainResult = ScoreTimeframe(mainPrices, mainVolumes);
             double conflictPenalty = 1.0;
 
             if (results.Length >= 2 && higherTf != null)
             {
-                var higherResult = ScoreTimeframe(results[1].prices, results[1].volumes, tfWeights[1]);
+                var higherResult = ScoreTimeframe(results[1].prices, results[1].volumes);
                 conflictPenalty = MfConflictPenalty(mainResult, higherResult);
 
                 totalScore += higherResult.score;
@@ -351,7 +529,7 @@ public static class MiniAppController
             }
             if (results.Length >= 3 && lowerTf != null)
             {
-                var lowerResult = ScoreTimeframe(results[2].prices, results[2].volumes, tfWeights[2]);
+                var lowerResult = ScoreTimeframe(results[2].prices, results[2].volumes);
 
                 totalScore += lowerResult.score;
                 totalConfidence += lowerResult.confidence * tfWeights[2];
@@ -364,14 +542,57 @@ public static class MiniAppController
             totalWeight += tfWeights[0];
 
             string direction = totalScore >= 0 ? "BUY" : "PUT";
-            int probability = totalWeight > 0
+            int rawProb = totalWeight > 0
                 ? (int)Math.Clamp(totalConfidence / totalWeight * conflictPenalty, 62, 98)
                 : 75;
+
+            // ─── Калибровка вероятности ───
+            double accuracy = SignalTracker.GetOverallAccuracy() / 100.0;
+            int probability;
+            if (accuracy > 0 && SignalTracker.GetOverallAccuracy() > 50)
+            {
+                probability = (int)Math.Round(rawProb * accuracy);
+                probability = Math.Clamp(probability, 55, 98);
+                Console.WriteLine($"[Calibrate] raw={rawProb}% acc={accuracy:P0} -> calibrated={probability}%");
+            }
+            else
+            {
+                probability = rawProb;
+            }
+
+            // ─── Режим "НЕ ЯСНО" ───
+            bool lowConfidence = probability < 65;
+            bool signalsConflicting = Math.Abs(totalScore) < 4;
+            bool unclear = lowConfidence && signalsConflicting;
+            if (unclear)
+            {
+                direction = "NEUTRAL";
+                probability = Math.Min(probability, 55);
+                Console.WriteLine($"[UNCLEAR] low confidence signals, returning NEUTRAL");
+            }
+
+            // ─── Signal Tracker ───
+            if (direction != "NEUTRAL")
+            {
+                SignalTracker.RecordPrediction(direction, asset, timeframe, mainPrices[^1]);
+                double finalDir = direction == "BUY" ? 1 : -1;
+                double mainDir = mainResult.score >= 0 ? 1 : -1;
+                double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
+                double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
+                double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
+                    ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
+
+                SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
+                if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
+                if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
+                if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
+            }
 
             return new
             {
                 direction,
                 probability,
+                unclear,
                 duration = timeframe.ToUpper(),
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),
@@ -379,7 +600,11 @@ public static class MiniAppController
                 volumeStrength = Math.Round(mainResult.volStrengthVal, 2),
                 tfConflict = conflictPenalty < 1.0,
                 mlDirection = mlDirection,
-                mlConfidence = Math.Round(mlConfidence, 0)
+                mlConfidence = Math.Round(mlConfidence, 0),
+                newsSentiment = newsResult.sentiment,
+                newsScore = Math.Round(newsResult.score, 1),
+                newsSummary = newsResult.summary,
+                newsHeadlines = newsResult.headlines
             };
         }
         catch (Exception ex)
@@ -428,9 +653,13 @@ public static class MiniAppController
             ema = Math.Round(startPrice + (rnd.NextDouble() - 0.5) * volatility, 2),
             volumeStrength = 0.0,
             tfConflict = false,
-            mlDirection = "NEUTRAL",
-            mlConfidence = 0
-        };
+                mlDirection = "NEUTRAL",
+                mlConfidence = 0,
+                newsSentiment = "Нейтральной",
+                newsScore = 0,
+                newsSummary = "Анализ недоступен (режим fallback)",
+                newsHeadlines = Array.Empty<string>()
+            };
     }
 
     /* ─── Fear & Greed Index ─── */

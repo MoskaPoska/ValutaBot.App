@@ -747,6 +747,67 @@ public static class MiniAppUI
         .ml-dir { font-size: 16px; font-weight: 800; font-family: 'Unbounded', sans-serif; }
         .ml-conf { font-size: 14px; font-weight: 800; font-family: 'Unbounded', sans-serif; color: var(--accent); }
 
+        /* ─── News Card ─── */
+        .news-card {
+            margin-top: 12px;
+            background: linear-gradient(135deg, rgba(0,229,255,0.04), rgba(124,77,255,0.02));
+            border: 1px solid rgba(0,229,255,0.10);
+            border-radius: 16px;
+            padding: 14px 18px;
+        }
+        .news-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .news-badge { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: rgba(0,229,255,0.12); color: #00e5ff; }
+        .news-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; flex: 1; }
+        .news-sentiment { font-size: 13px; font-weight: 800; font-family: 'Unbounded', sans-serif; }
+        .news-summary { font-size: 11px; color: var(--subtext); line-height: 1.5; }
+        .news-headlines { margin-top: 10px; }
+        .news-toggle { font-size: 10px; color: var(--accent); cursor: pointer; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; user-select: none; }
+        .news-toggle:hover { opacity: 0.8; }
+        .news-list { margin-top: 8px; display: none; flex-direction: column; gap: 4px; }
+        .news-list.open { display: flex; }
+        .news-list-item { font-size: 10px; color: var(--dim); padding: 4px 8px; background: rgba(124,77,255,0.04); border-radius: 6px; line-height: 1.4; }
+
+        /* ─── Alerts Panel ─── */
+        .alert-section {
+            margin-top: 16px;
+            background: linear-gradient(135deg, rgba(124,77,255,0.03), rgba(0,229,255,0.01));
+            border: 1px solid rgba(124,77,255,0.08);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        .alert-toggle {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 16px; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text);
+        }
+        .alert-toggle:hover { background: rgba(124,77,255,0.04); }
+        .alert-arrow { transition: transform 0.3s; font-size: 10px; color: var(--dim); }
+        .alert-arrow.open { transform: rotate(90deg); }
+        .alert-body { padding: 0 16px 16px; }
+        .alert-form { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+        .alert-input {
+            background: rgba(124,77,255,0.08); border: 1px solid rgba(124,77,255,0.12);
+            border-radius: 8px; padding: 6px 10px; color: var(--text); font-size: 11px;
+            font-family: inherit; outline: none;
+        }
+        .alert-input:focus { border-color: var(--accent); }
+        .alert-input select { min-width: 80px; }
+        .alert-input[type=number] { width: 50px; }
+        .alert-btn {
+            background: var(--accent); border: none; border-radius: 8px;
+            padding: 6px 14px; color: #fff; font-weight: 700; font-size: 14px;
+            cursor: pointer; transition: 0.2s;
+        }
+        .alert-btn:hover { filter: brightness(1.2); }
+        .alert-list { display: flex; flex-direction: column; gap: 6px; }
+        .alert-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 12px; background: rgba(124,77,255,0.04);
+            border: 1px solid rgba(124,77,255,0.06); border-radius: 8px;
+            font-size: 11px;
+        }
+        .alert-item .del { cursor: pointer; color: var(--red); font-weight: 700; font-size: 14px; opacity: 0.6; }
+        .alert-item .del:hover { opacity: 1; }
+
         /* ─── Candle Countdown ─── */
         .candle-countdown {
             background: linear-gradient(90deg, rgba(124,77,255,0.04), rgba(0,229,255,0.02));
@@ -819,7 +880,7 @@ public static class MiniAppUI
             -webkit-backdrop-filter: blur(30px);
             border-top: 1px solid var(--panel-border);
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             padding: 14px 0;
             padding-bottom: max(14px, env(safe-area-inset-bottom));
             z-index: 10;
@@ -909,6 +970,35 @@ public static class MiniAppUI
 
         /* ─── Top asset star ─── */
         .top-star { font-size: 13px; line-height: 1; color: var(--gold); margin-left: 5px; display: inline-block; filter: drop-shadow(0 0 4px rgba(255,215,0,0.5)); }
+
+        /* ─── Liquidation Heatmap ─── */
+        .heatmap-header {
+            font-family: 'Unbounded', sans-serif;
+            font-size: 16px;
+            font-weight: 800;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #ff6b6b, #ffd700);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .heatmap-controls { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+        .heatmap-sym-btn {
+            background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border);
+            color: var(--dim); padding: 8px 14px; border-radius: 10px;
+            font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.25s;
+        }
+        .heatmap-sym-btn.active { background: rgba(255,107,107,0.12); border-color: #ff6b6b; color: #fff; }
+        .heatmap-canvas-wrap {
+            background: rgba(12,10,35,0.6); border: 1px solid var(--panel-border);
+            border-radius: 18px; padding: 16px; position: relative;
+        }
+        .heatmap-canvas-wrap canvas { display: block; width: 100%; height: auto; }
+        .heatmap-empty { text-align: center; padding: 40px 0; color: var(--dim); font-size: 13px; }
+        .heatmap-legend { display: flex; align-items: center; gap: 16px; margin-top: 10px; font-size: 10px; color: var(--dim); }
+        .heatmap-legend .bar { width: 20px; height: 8px; border-radius: 2px; display: inline-block; }
+        .heatmap-legend .bar.long { background: var(--green); }
+        .heatmap-legend .bar.short { background: var(--red); }
     </style>
 </head>
 <body>
@@ -1077,6 +1167,19 @@ public static class MiniAppUI
             </div>
         </div>
 
+        <div class='news-card' id='newsCard' style='display:none'>
+            <div class='news-header'>
+                <span class='news-badge'>📰 LLM</span>
+                <span class='news-label'>Анализ новостей</span>
+                <span class='news-sentiment' id='newsSentiment'>--</span>
+            </div>
+            <div class='news-summary' id='newsSummary'></div>
+            <div class='news-headlines'>
+                <span class='news-toggle' id='newsToggle' onclick='toggleNews()'>▸ Заголовки</span>
+                <div class='news-list' id='newsList'></div>
+            </div>
+        </div>
+
         <div class='levels-bar' id='levelsBar'>
             <div class='level-line' id='ll1'><span class='tag l1'>L1</span><span class='info'>Индикаторы</span><span class='result' id='ll1res'></span></div>
             <div class='level-line' id='ll2'><span class='tag l2'>L2</span><span class='info'>S/R + Объём</span><span class='result' id='ll2res'></span></div>
@@ -1088,6 +1191,30 @@ public static class MiniAppUI
             <canvas id='priceChart' style='display:block;width:100%;height:160px'></canvas>
             <div style='margin-top:10px;padding:8px 10px;font-size:10.5px;line-height:1.45;color:var(--dim);background:rgba(124,77,255,0.05);border:1px solid rgba(124,77,255,0.1);border-radius:10px'>
                 Данные: Binance (крипта) / Yahoo Finance (форекс, акции, сырьё). Котировки могут отличаться от Pocket Option, особенно на OTC-парах. Анализ не является финансовой рекомендацией.
+            </div>
+        </div>
+
+        <div class='alert-section' id='alertSection'>
+            <div class='alert-toggle' onclick='toggleAlerts()'>
+                <span>\uD83D\uDD14 Умные оповещения</span>
+                <span class='alert-arrow' id='alertArrow'>▶</span>
+            </div>
+            <div class='alert-body' id='alertBody' style='display:none'>
+                <div class='alert-form'>
+                    <select class='alert-input' id='alertAsset'><option>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option></select>
+                    <select class='alert-input' id='alertIndicator'>
+                        <option value='rsi'>RSI</option>
+                        <option value='price'>Цена</option>
+                        <option value='volume'>Объём (x3+)</option>
+                    </select>
+                    <select class='alert-input' id='alertCondition'>
+                        <option value='below'>Ниже</option>
+                        <option value='above'>Выше</option>
+                    </select>
+                    <input class='alert-input' id='alertThreshold' type='number' value='30' step='1'>
+                    <button class='alert-btn' onclick='addAlert()'>+</button>
+                </div>
+                <div class='alert-list' id='alertList'></div>
             </div>
         </div>
     </div>
@@ -1104,6 +1231,23 @@ public static class MiniAppUI
         <div class='history-list' id='historyList'><div class='history-empty'>Пока нет записей</div></div>
     </div>
 
+    <div id='screen-heatmap' class='app-screen' style='padding-bottom:80px'>
+        <div class='heatmap-header'>\uD83D\uDD25 Тепловая карта ликвидаций</div>
+        <div class='heatmap-controls' id='heatmapControls'>
+            <div class='heatmap-sym-btn active' data-hsym='BTC/USDT' onclick='setHeatmapSymbol(this)'>BTC/USDT</div>
+            <div class='heatmap-sym-btn' data-hsym='ETH/USDT' onclick='setHeatmapSymbol(this)'>ETH/USDT</div>
+            <div class='heatmap-sym-btn' data-hsym='SOL/USDT' onclick='setHeatmapSymbol(this)'>SOL/USDT</div>
+        </div>
+        <div class='heatmap-canvas-wrap'>
+            <canvas id='heatmapCanvas'></canvas>
+        </div>
+        <div class='heatmap-legend'>
+            <span><span class='bar long'></span> Лонг ликвидации (\u2191)</span>
+            <span><span class='bar short'></span> Шорт ликвидации (\u2193)</span>
+            <span style='margin-left:auto' id='heatmapCount'>0 событий</span>
+        </div>
+    </div>
+
     <div class='nav-bar'>
         <div class='nav-item active' data-tab='home' onclick='switchTab(this)'>
             <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12l9-9 9 9'/><path d='M5 10v10a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V10'/></svg>
@@ -1112,6 +1256,10 @@ public static class MiniAppUI
         <div class='nav-item' data-tab='profile' onclick='switchTab(this)'>
             <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>
             <span>Профиль</span>
+        </div>
+        <div class='nav-item' data-tab='heatmap' onclick='switchTab(this)'>
+            <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/><polyline points='3.27 6.96 12 12.01 20.73 6.96'/><line x1='12' y1='22.08' x2='12' y2='12'/></svg>
+            <span>Карта</span>
         </div>
     </div>
 
@@ -1260,6 +1408,7 @@ public static class MiniAppUI
             document.getElementById('durChart').innerHTML = '';
             document.getElementById('levelsBar').style.display = 'none';
             document.getElementById('mlCard').style.display = 'none';
+            document.getElementById('newsCard').style.display = 'none';
             document.getElementById('welcomeSec').classList.remove('compact');
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
         }
@@ -1493,11 +1642,13 @@ public static class MiniAppUI
                         return;
                     }
 
-                    document.getElementById('resProb').innerText = data.probability + '%';
-                    document.getElementById('resProb').style.color = data.probability >= 90 ? '#00e676' : data.probability >= 85 ? '#ffd600' : 'var(--accent)';
+                    const isUnclear = data.unclear === true;
+                    document.getElementById('resDir').innerText = data.direction === 'BUY' ? 'ВВЕРХ' : data.direction === 'PUT' ? 'ВНИЗ' : 'НЕ ЯСНО';
+                    document.getElementById('resDir').style.color = data.direction === 'BUY' ? '#00e676' : data.direction === 'PUT' ? '#ff1744' : '#555';
 
-                    document.getElementById('resDir').innerText = data.direction === 'BUY' ? 'ВВЕРХ' : data.direction === 'PUT' ? 'ВНИЗ' : 'NEUTRAL';
-                    document.getElementById('resDir').style.color = data.direction === 'BUY' ? '#00e676' : data.direction === 'PUT' ? '#ff1744' : '#999';
+                    const probEl = document.getElementById('resProb');
+                    probEl.innerText = isUnclear ? '—' : data.probability + '%';
+                    probEl.style.color = isUnclear ? '#555' : data.probability >= 90 ? '#00e676' : data.probability >= 85 ? '#ffd600' : 'var(--accent)';
 
                     document.getElementById('resDur').innerText = data.duration;
 
@@ -1525,6 +1676,23 @@ public static class MiniAppUI
                         dirEl.innerText = data.mlDirection === 'BUY' ? '\u2191 ВВЕРХ' : '\u2193 ВНИЗ';
                         dirEl.style.color = data.mlDirection === 'BUY' ? '#00e676' : '#ff1744';
                         document.getElementById('mlConf').innerText = data.mlConfidence + '%';
+                    }
+
+                    if (data.newsScore !== undefined) {
+                        const nc = document.getElementById('newsCard');
+                        nc.style.display = 'block';
+                        const senEl = document.getElementById('newsSentiment');
+                        senEl.innerText = data.newsSentiment;
+                        if (data.newsScore > 0.5) { senEl.style.color = '#00e676'; }
+                        else if (data.newsScore < -0.5) { senEl.style.color = '#ff1744'; }
+                        else { senEl.style.color = 'var(--subtext)'; }
+                        document.getElementById('newsSummary').innerText = data.newsSummary;
+                        const nl = document.getElementById('newsList');
+                        if (data.newsHeadlines && data.newsHeadlines.length) {
+                            nl.innerHTML = data.newsHeadlines.map(h => `<div class='news-list-item'>${h}</div>`).join('');
+                        } else {
+                            nl.innerHTML = '';
+                        }
                     }
 
                     const probBars = pricesToBars(data.chartData, 16);
@@ -1563,6 +1731,171 @@ public static class MiniAppUI
                 sphere.classList.remove('analyzing');
                 btn.disabled = false;
                 btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
+            }
+        };
+
+        /* ─── Alerts ─── */
+        let tgChatId = 0;
+
+        function toggleAlerts() {
+            const body = document.getElementById('alertBody');
+            const arrow = document.getElementById('alertArrow');
+            const show = body.style.display !== 'block';
+            body.style.display = show ? 'block' : 'none';
+            arrow.classList.toggle('open', show);
+            if (show) loadAlerts();
+        }
+
+        async function loadAlerts() {
+            try {
+                const res = await fetch('/api/alerts');
+                const data = await res.json();
+                const list = document.getElementById('alertList');
+                if (!data.length) { list.innerHTML = '<div style=\'color:var(--dim);font-size:11px\'>Нет оповещений</div>'; return; }
+                list.innerHTML = data.map(a => '<div class=\'alert-item\'><span>' + a.label + '</span><span class=\'del\' onclick=\'deleteAlert(\""' + a.id + '\"")\'>\u2716</span></div>').join('');
+            } catch {}
+        }
+
+        async function addAlert() {
+            const asset = document.getElementById('alertAsset').value;
+            const ind = document.getElementById('alertIndicator').value;
+            const cond = document.getElementById('alertCondition').value;
+            const thresh = parseFloat(document.getElementById('alertThreshold').value);
+            await fetch('/api/alerts', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ asset, indicator: ind, condition: cond, threshold: thresh })
+            });
+            loadAlerts();
+        }
+
+        async function deleteAlert(id) {
+            await fetch('/api/alerts/' + id, { method: 'DELETE' });
+            loadAlerts();
+        }
+
+        // Set chat ID from Telegram init
+        try {
+            if (window.Telegram && window.Telegram.WebApp) {
+                tgChatId = window.Telegram.WebApp.initDataUnsafe?.user?.id || 0;
+                if (tgChatId) fetch('/api/alerts/chatid', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({chatId: tgChatId}) });
+            }
+        } catch {}
+
+        /* ─── News toggle ─── */
+        function toggleNews() {
+            const list = document.getElementById('newsList');
+            const toggle = document.getElementById('newsToggle');
+            const open = list.classList.toggle('open');
+            toggle.innerText = open ? '\u25BD Заголовки' : '\u25B8 Заголовки';
+        }
+
+        /* ─── Liquidation Heatmap ─── */
+        let currentHeatmapSymbol = 'BTC/USDT';
+        let heatmapTimer = null;
+
+        function setHeatmapSymbol(el) {
+            document.querySelectorAll('.heatmap-sym-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            currentHeatmapSymbol = el.getAttribute('data-hsym');
+            fetchAndRenderHeatmap();
+        }
+
+        async function fetchAndRenderHeatmap() {
+            try {
+                const res = await fetch('/api/liquidations');
+                const data = await res.json();
+                const levels = data[currentHeatmapSymbol] || [];
+                document.getElementById('heatmapCount').innerText = levels.length + ' уровней';
+                renderHeatmapCanvas('heatmapCanvas', levels);
+            } catch { return; }
+        }
+
+        function renderHeatmapCanvas(canvasId, levels) {
+            const c = document.getElementById(canvasId);
+            if (!c) return;
+            if (!levels || levels.length === 0) {
+                c.style.display = 'none';
+                document.querySelector('.heatmap-canvas-wrap').innerHTML = '<div class=\'heatmap-empty\'>Нет данных о ликвидациях. Ожидание событий...</div>';
+                return;
+            }
+            c.style.display = 'block';
+
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = c.parentNode.clientWidth || 320;
+            const maxBars = 30;
+            const barH = 18;
+            const pad = { l: 60, r: 10, t: 8, b: 8 };
+            const cssH = Math.max(120, Math.min(levels.length, maxBars) * barH + pad.t + pad.b);
+            c.width = Math.round(cssW * dpr);
+            c.height = Math.round(cssH * dpr);
+            c.style.width = cssW + 'px';
+            c.style.height = cssH + 'px';
+            const ctx = c.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cssW, cssH);
+
+            const display = levels.slice(0, maxBars);
+            const maxVol = Math.max(1, ...display.map(l => Math.max(l.longVol || 0, l.shortVol || 0)));
+            const w = cssW - pad.l - pad.r;
+            const chartMid = pad.l + w / 2;
+
+            display.forEach((l, i) => {
+                const y = pad.t + i * barH;
+                const longW = ((l.longVol || 0) / maxVol) * (w / 2);
+                const shortW = ((l.shortVol || 0) / maxVol) * (w / 2);
+
+                // Short liquidations (red, go left)
+                if (shortW > 0) {
+                    const g = ctx.createLinearGradient(chartMid - shortW, 0, chartMid, 0);
+                    g.addColorStop(0, 'rgba(255,23,68,0.9)');
+                    g.addColorStop(1, 'rgba(255,23,68,0.1)');
+                    ctx.fillStyle = g;
+                    ctx.beginPath();
+                    ctx.roundRect(chartMid - shortW, y + 1, shortW, barH - 4, [0, 3, 3, 0]);
+                    ctx.fill();
+                }
+
+                // Long liquidations (green, go right)
+                if (longW > 0) {
+                    const g = ctx.createLinearGradient(chartMid, 0, chartMid + longW, 0);
+                    g.addColorStop(0, 'rgba(0,230,118,0.1)');
+                    g.addColorStop(1, 'rgba(0,230,118,0.9)');
+                    ctx.fillStyle = g;
+                    ctx.beginPath();
+                    ctx.roundRect(chartMid, y + 1, longW, barH - 4, [3, 0, 0, 3]);
+                    ctx.fill();
+                }
+
+                // Price label
+                ctx.fillStyle = '#a89fd4';
+                ctx.font = '600 10px Inter, sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(l.price.toFixed(l.price > 1000 ? 0 : 2), pad.l - 6, y + barH / 2 + 3);
+            });
+
+            // Center line
+            ctx.strokeStyle = 'rgba(124,77,255,0.15)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(chartMid, pad.t);
+            ctx.lineTo(chartMid, cssH - pad.b);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Fetch heatmap on tab switch
+        const origSwitchTab = switchTab;
+        switchTab = function(el) {
+            origSwitchTab(el);
+            const tab = el.getAttribute('data-tab');
+            if (tab === 'heatmap') {
+                if (heatmapTimer) clearInterval(heatmapTimer);
+                fetchAndRenderHeatmap();
+                heatmapTimer = setInterval(fetchAndRenderHeatmap, 15000);
+            } else {
+                if (heatmapTimer) { clearInterval(heatmapTimer); heatmapTimer = null; }
             }
         };
 
