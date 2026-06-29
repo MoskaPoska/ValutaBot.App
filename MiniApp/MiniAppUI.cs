@@ -405,6 +405,26 @@ public static class MiniAppUI
             padding: 0 10px;
         }
 
+        /* ─── Market Bar (F&G + ticker) ─── */
+        .market-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 12px;
+            margin-bottom: 14px;
+            background: linear-gradient(135deg, rgba(124,77,255,0.03), rgba(0,229,255,0.01));
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(124,77,255,0.08);
+            border-radius: 14px;
+            font-size: 11px;
+        }
+        .mb-item { display: flex; align-items: center; gap: 5px; }
+        .mb-label { color: var(--dim); font-weight: 600; }
+        .mb-price { color: var(--text); font-weight: 700; font-family: 'Unbounded', sans-serif; font-size: 10px; }
+        .mb-divider { width: 1px; height: 16px; background: rgba(124,77,255,0.12); flex-shrink: 0; }
+        .mb-fng { margin-left: auto; font-weight: 700; font-size: 12px; white-space: nowrap; }
+
         /* ─── Top Categories ─── */
         .top-categories {
             display: flex;
@@ -709,6 +729,24 @@ public static class MiniAppUI
         }
         .res-card.flash { animation: resultFlash 0.7s ease-out; }
 
+        /* ─── ML Forecast Card ─── */
+        .ml-card {
+            margin-top: 12px;
+            background: linear-gradient(135deg, rgba(124,77,255,0.05), rgba(0,229,255,0.02));
+            border: 1px solid rgba(124,77,255,0.12);
+            border-radius: 16px;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .ml-header { display: flex; align-items: center; gap: 10px; }
+        .ml-badge { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: rgba(124,77,255,0.15); color: #b388ff; }
+        .ml-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+        .ml-body { display: flex; align-items: center; gap: 12px; }
+        .ml-dir { font-size: 16px; font-weight: 800; font-family: 'Unbounded', sans-serif; }
+        .ml-conf { font-size: 14px; font-weight: 800; font-family: 'Unbounded', sans-serif; color: var(--accent); }
+
         /* ─── Candle Countdown ─── */
         .candle-countdown {
             background: linear-gradient(90deg, rgba(124,77,255,0.04), rgba(0,229,255,0.02));
@@ -916,6 +954,14 @@ public static class MiniAppUI
             </div>
         </div>
 
+        <div class='market-bar' id='marketBar'>
+            <div class='mb-item'><span class='mb-label'>BTC</span><span class='mb-price' id='mbBtc'>--</span></div>
+            <div class='mb-item'><span class='mb-label'>ETH</span><span class='mb-price' id='mbEth'>--</span></div>
+            <div class='mb-item'><span class='mb-label'>SOL</span><span class='mb-price' id='mbSol'>--</span></div>
+            <div class='mb-divider'></div>
+            <div class='mb-fng' id='mbFng'>😐 50</div>
+        </div>
+
         <div class='top-categories'>
             <div class='top-cat-btn active' data-cat='fiat' onclick='changeTopCategory(this)'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><path d='M7 9h6a2 2 0 0 1 0 4H7'/><path d='M10 5v2m0 8v2'/></svg>
@@ -1006,6 +1052,28 @@ public static class MiniAppUI
                 <div class='res-label'>Время</div>
                 <div class='res-value' id='resDur' style='color:var(--subtext)'>--</div>
                 <div class='res-chart' id='durChart'></div>
+            </div>
+            <div class='res-card'>
+                <div class='res-label'>RSI</div>
+                <div class='res-value' id='resRsi' style='color:var(--subtext);font-size:16px'>--</div>
+                <div class='res-chart' id='rsiChart'></div>
+            </div>
+            <div class='res-card'>
+                <div class='res-label'>EMA (9)</div>
+                <div class='res-value' id='resEma' style='color:var(--subtext);font-size:16px'>--</div>
+                <div class='res-chart' id='emaChart'></div>
+            </div>
+            <div class='res-card'>
+                <div class='res-label'>Объём</div>
+                <div class='res-value' id='resVol' style='color:var(--subtext);font-size:16px'>--</div>
+                <div class='res-chart' id='volChart'></div>
+            </div>
+        </div>
+        <div class='ml-card' id='mlCard' style='display:none'>
+            <div class='ml-header'><span class='ml-badge'>🧠 ML</span><span class='ml-label'>Прогноз нейросети</span></div>
+            <div class='ml-body'>
+                <span class='ml-dir' id='mlDir'>--</span>
+                <span class='ml-conf' id='mlConf'>--%</span>
             </div>
         </div>
 
@@ -1182,10 +1250,16 @@ public static class MiniAppUI
             document.getElementById('resDir').innerText = '--';
             document.getElementById('resDir').style.color = 'var(--subtext)';
             document.getElementById('resDur').innerText = '--';
+            document.getElementById('resRsi').innerText = '--';
+            document.getElementById('resRsi').style.color = 'var(--subtext)';
+            document.getElementById('resEma').innerText = '--';
+            document.getElementById('resVol').innerText = '--';
+            document.getElementById('resVol').style.color = 'var(--subtext)';
             document.getElementById('probChart').innerHTML = '';
             document.getElementById('dirChart').innerHTML = '<svg viewBox=\'0 0 80 40\'><path d=\'M10 35 L40 5 L70 35\' stroke=\'var(--dim)\' stroke-width=\'2.5\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\' opacity=\'0.3\'/></svg>';
             document.getElementById('durChart').innerHTML = '';
             document.getElementById('levelsBar').style.display = 'none';
+            document.getElementById('mlCard').style.display = 'none';
             document.getElementById('welcomeSec').classList.remove('compact');
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
         }
@@ -1427,6 +1501,32 @@ public static class MiniAppUI
 
                     document.getElementById('resDur').innerText = data.duration;
 
+                    if (data.rsi !== undefined) {
+                        const rsiEl = document.getElementById('resRsi');
+                        rsiEl.innerText = data.rsi;
+                        rsiEl.style.color = data.rsi > 70 ? '#ff1744' : data.rsi < 30 ? '#00e676' : 'var(--subtext)';
+                    }
+                    if (data.ema !== undefined) {
+                        document.getElementById('resEma').innerText = data.ema;
+                    }
+                    if (data.volumeStrength !== undefined) {
+                        const volEl = document.getElementById('resVol');
+                        const vs = data.volumeStrength;
+                        volEl.innerText = vs > 0 ? '\u2B06 ' + vs.toFixed(1) : vs < 0 ? '\u2B07 ' + Math.abs(vs).toFixed(1) : '\u2014';
+                        volEl.style.color = vs > 0.5 ? '#00e676' : vs < -0.5 ? '#ff1744' : 'var(--subtext)';
+                    }
+                    if (data.tfConflict) {
+                        document.getElementById('resProb').innerText += ' \u26A0\uFE0F';
+                    }
+                    if (data.mlDirection && data.mlDirection !== 'NEUTRAL') {
+                        const mc = document.getElementById('mlCard');
+                        mc.style.display = 'flex';
+                        const dirEl = document.getElementById('mlDir');
+                        dirEl.innerText = data.mlDirection === 'BUY' ? '\u2191 ВВЕРХ' : '\u2193 ВНИЗ';
+                        dirEl.style.color = data.mlDirection === 'BUY' ? '#00e676' : '#ff1744';
+                        document.getElementById('mlConf').innerText = data.mlConfidence + '%';
+                    }
+
                     const probBars = pricesToBars(data.chartData, 16);
                     if (probBars.length) renderMiniChart('probChart', probBars, '');
 
@@ -1465,6 +1565,41 @@ public static class MiniAppUI
                 btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
             }
         };
+
+        /* ─── Fear & Greed ─── */
+        async function fetchFearGreed() {
+            try {
+                const res = await fetch('/api/fear-greed');
+                const data = await res.json();
+                const el = document.getElementById('mbFng');
+                if (!el) return;
+                const v = data.value;
+                const emoji = v <= 25 ? '\uD83D\uDE28' : v <= 40 ? '\uD83D\uDE41' : v <= 55 ? '\uD83D\uDE10' : v <= 70 ? '\uD83D\uDE0A' : '\uD83D\uDE0E';
+                el.innerText = `${emoji} ${v} · ${data.classification}`;
+                el.style.color = v <= 25 ? '#ff1744' : v <= 40 ? '#ff9100' : v <= 55 ? '#ffd600' : v <= 70 ? '#aeea00' : '#00e676';
+            } catch {}
+        }
+
+        /* ─── Market ticker ─── */
+        async function fetchMarketStatus() {
+            try {
+                const res = await fetch('/api/market-status');
+                const data = await res.json();
+                const prices = data.prices || {};
+                for (const [sym, info] of Object.entries(prices)) {
+                    const id = 'mb' + sym.split('/')[0];
+                    const el = document.getElementById(id);
+                    if (!el) continue;
+                    const p = info.price;
+                    el.innerText = p > 100 ? p.toFixed(0) : p > 1 ? p.toFixed(2) : p.toFixed(4);
+                }
+            } catch {}
+        }
+
+        fetchFearGreed();
+        fetchMarketStatus();
+        setInterval(fetchFearGreed, 60000);
+        setInterval(fetchMarketStatus, 5000);
     </script>
 </body>
 </html>";
