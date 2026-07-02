@@ -388,7 +388,7 @@ public static class MiniAppController
         if (bearDiv) { signals -= 2 * mw; total += 2 * mw; }
 
         double rawRatio = signals / total;
-        double confidence = Math.Clamp(Math.Abs(rawRatio) * 100, 62, 98);
+        double confidence = Math.Clamp(Math.Abs(rawRatio) * 100, 50, 98);
 
         return ((int)Math.Round(rawRatio * 10), confidence, rsi, emaS, volStrength);
     }
@@ -459,33 +459,31 @@ public static class MiniAppController
             double totalConfidence = 0;
             double totalWeight = 0;
 
-            // ─── ML Ensemble ───
+            // ─── ML Ensemble (max ±3) ───
             var (mlDirection, mlConfidence, mlPredicted) = MLForecastService.PredictNextCandles(mainPrices);
-            double mlWeight = 1.5;
+            int mlScoreTotal = 0;
 
             if (mlDirection != "NEUTRAL")
             {
                 int mlSign = mlDirection == "BUY" ? 1 : -1;
-                totalScore += mlSign * (int)(mlConfidence / 20 * mlWeight);
-                totalConfidence += mlConfidence * mlWeight;
-                totalWeight += mlWeight;
+                int val = mlSign * (int)(mlConfidence / 20 * 1.5);
+                mlScoreTotal += Math.Clamp(val, -3, 3);
+                totalConfidence += mlConfidence * 1.5;
                 Console.WriteLine($"[ML] SSA forecast={mlDirection} conf={mlConfidence:F0}%");
             }
 
-            // Linear regression on 20 bars → second ML model
             double linregSlope = LinearRegressionSlope(mainPrices, 20);
             if (Math.Abs(linregSlope) > 0.005)
             {
                 double linregConf = Math.Clamp(Math.Abs(linregSlope) * 2000, 55, 90);
                 string linregDir = linregSlope > 0 ? "BUY" : "PUT";
                 int lrSign = linregDir == "BUY" ? 1 : -1;
-                totalScore += lrSign * (int)(linregConf / 30 * 0.8);
+                int val = lrSign * (int)(linregConf / 30 * 0.8);
+                mlScoreTotal += Math.Clamp(val, -2, 2);
                 totalConfidence += linregConf * 0.8;
-                totalWeight += 0.8;
                 Console.WriteLine($"[ML] LinReg slope={linregSlope:F4} dir={linregDir} conf={linregConf:F0}%");
             }
 
-            // Momentum score over multiple windows
             double momScore = 0;
             foreach (int window in new[] { 3, 5, 10, 20 })
             {
@@ -499,19 +497,26 @@ public static class MiniAppController
             {
                 double momConf = Math.Clamp(Math.Abs(momScore) * 15, 55, 85);
                 int momSign = momScore > 0 ? 1 : -1;
-                totalScore += momSign * (int)(momConf / 30);
+                int val = momSign * (int)(momConf / 30);
+                mlScoreTotal += Math.Clamp(val, -2, 2);
                 totalConfidence += momConf;
-                totalWeight += 1.0;
                 Console.WriteLine($"[ML] Momentum={momScore:F0} dir={(momScore > 0 ? "BUY" : "PUT")} conf={momConf:F0}%");
             }
 
-            // ─── News Analysis ───
+            mlScoreTotal = Math.Clamp(mlScoreTotal, -3, 3);
+            if (mlScoreTotal != 0)
+            {
+                totalScore += mlScoreTotal;
+                totalWeight += 1.5;
+            }
+
+            // ─── News Analysis (max ±2) ───
             var newsResult = NewsAnalysisService.Analyze(asset);
             if (Math.Abs(newsResult.score) > 0.1)
             {
-                totalScore += (int)(newsResult.score * 3);
-                totalConfidence += Math.Abs(newsResult.score) * 20;
-                totalWeight += 2.0;
+                totalScore += Math.Clamp((int)(newsResult.score * 2), -2, 2);
+                totalConfidence += Math.Abs(newsResult.score) * 15;
+                totalWeight += 1.0;
                 Console.WriteLine($"[News] sentiment={newsResult.sentiment} score={newsResult.score:F1}");
             }
 
@@ -542,6 +547,12 @@ public static class MiniAppController
                 totalScore += higherResult.score;
                 totalConfidence += higherResult.confidence * tfWeights[1];
                 totalWeight += tfWeights[1];
+
+                if (conflictPenalty < 1.0)
+                {
+                    totalScore -= Math.Abs(higherResult.score) / 2;
+                    Console.WriteLine($"[TF] Higher TF conflict: score reduced by {Math.Abs(higherResult.score) / 2:F0}");
+                }
             }
             if (results.Length >= 3 && lowerTf != null)
             {
@@ -572,10 +583,10 @@ public static class MiniAppController
             if (claudeResult.direction != "NEUTRAL")
             {
                 int claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
-                double claudeWeight = Math.Clamp(claudeResult.probability / 50.0, 0.5, 1.5);
-                totalScore += claudeSign * (int)(claudeWeight * 2);
-                totalConfidence += claudeResult.probability * claudeWeight;
-                totalWeight += claudeWeight;
+                int claudeScore = Math.Clamp(claudeSign * 2, -2, 2);
+                totalScore += claudeScore;
+                totalConfidence += claudeResult.probability;
+                totalWeight += 1.0;
                 Console.WriteLine($"[Claude] dir={claudeResult.direction} prob={claudeResult.probability:F0}% reasoning={claudeResult.reasoning}");
             }
 
@@ -594,8 +605,8 @@ public static class MiniAppController
             int overallTrend = overallChange > 0.1 ? 1 : overallChange < -0.1 ? -1 : 0;
 
             int rawProb = totalWeight > 0
-                ? (int)Math.Clamp(totalConfidence / totalWeight * conflictPenalty, 62, 98)
-                : 75;
+                ? (int)Math.Clamp(totalConfidence / totalWeight * conflictPenalty, 50, 98)
+                : 50;
 
             // ─── Калибровка вероятности (только после 10+ предсказаний) ───
             double accuracy = SignalTracker.GetOverallAccuracy() / 100.0;

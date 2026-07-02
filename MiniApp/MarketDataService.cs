@@ -209,7 +209,7 @@ public sealed class MarketDataService : BackgroundService
                 if (elapsed < 1.5) continue;
 
                 double change = (currentPrice - pred.Price) / pred.Price;
-                bool correct = pred.Direction == "BUY" ? change > 0 : change < 0;
+                bool correct = pred.Direction == "BUY" ? change > 0.001 : change < -0.001;
                 SignalTracker.MarkChecked(pred, correct);
                 Console.WriteLine($"[Tracker] {pred.Asset} pred={pred.Direction} actual={(change > 0 ? "UP" : "DOWN")} ({(correct ? "CORRECT" : "WRONG")}) acc={SignalTracker.GetOverallAccuracy()}%");
             }
