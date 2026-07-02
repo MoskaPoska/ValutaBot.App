@@ -170,7 +170,7 @@ public static class MiniAppController
         return (prices, volumes);
     }
 
-    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string symbol, string interval)
+    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string symbol, string interval, string? originalAsset = null)
     {
         try
         {
@@ -178,6 +178,17 @@ public static class MiniAppController
         }
         catch
         {
+            // Try Twelve Data for forex pairs
+            if (originalAsset != null)
+            {
+                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval);
+                if (tdResult != null)
+                {
+                    Console.WriteLine($"[Fetch] Binance {symbol} not found, got from TwelveData ({originalAsset})");
+                    return tdResult.Value;
+                }
+            }
+
             var fallback = symbol switch
             {
                 "EURJPYUSDT" or "EURGBPUSDT" or "EURNZDUSDT" or "EURCHFUSDT" => "EURUSDT",
@@ -471,17 +482,17 @@ public static class MiniAppController
             string? higherTf = HigherTf(timeframe);
             string? lowerTf = LowerTf(timeframe);
 
-            var tasks = new List<Task<(double[] prices, double[] volumes)>> { FetchBinanceWithFallback(symbol, mainInterval) };
+            var tasks = new List<Task<(double[] prices, double[] volumes)>> { FetchBinanceWithFallback(symbol, mainInterval, asset) };
             var tfWeights = new List<double> { 1.0 };
 
             if (higherTf != null)
             {
-                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(higherTf)));
+                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(higherTf), asset));
                 tfWeights.Add(2.0);
             }
             if (lowerTf != null)
             {
-                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(lowerTf)));
+                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(lowerTf), asset));
                 tfWeights.Add(0.5);
             }
 

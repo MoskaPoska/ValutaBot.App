@@ -1101,6 +1101,9 @@ public static class MiniAppUI
                     <button class='tf-btn' data-tf='S5' onclick='setTf(this)'>S5</button>
                     <button class='tf-btn' data-tf='S15' onclick='setTf(this)'>S15</button>
                     <button class='tf-btn' data-tf='S30' onclick='setTf(this)'>S30</button>
+                    <button class='tf-btn' data-tf='S5' onclick='setTf(this)'>S5</button>
+                    <button class='tf-btn' data-tf='S15' onclick='setTf(this)'>S15</button>
+                    <button class='tf-btn' data-tf='S30' onclick='setTf(this)'>S30</button>
                     <button class='tf-btn active' data-tf='M1' onclick='setTf(this)'>M1</button>
                     <button class='tf-btn' data-tf='M2' onclick='setTf(this)'>M2</button>
                     <button class='tf-btn' data-tf='M3' onclick='setTf(this)'>M3</button>
@@ -1389,7 +1392,7 @@ public static class MiniAppUI
         }
 
         function getTfSeconds() {
-            const map = { m1:60, m2:120, m3:180, m5:300, m15:900, m30:1800, h1:3600, h4:14400, d1:86400 };
+            const map = { s5:5, s15:15, s30:30, m1:60, m2:120, m3:180, m5:300, m15:900, m30:1800, h1:3600, h4:14400, d1:86400 };
             return map[currentTf] || 60;
         }
 
