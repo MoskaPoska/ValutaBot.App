@@ -1,0 +1,130 @@
+using System.Text;
+using System.Text.Json;
+
+namespace ValutaBot.MiniApp;
+
+public static class ClaudeSignalService
+{
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private static string? _lastRawResponse;
+    private static readonly Dictionary<string, (string direction, double probability, string reasoning, long cachedAt)> _cache = new();
+
+    public static string? GetLastRawResponse() => _lastRawResponse;
+
+    public static (string direction, double probability, string reasoning) AnalyzeSignal(
+        string asset, double[] prices, double[] volumes,
+        double rsi, double ema, double macd, double macdSignal,
+        double adx, double bbZ, double volStrength, double imbalance)
+    {
+        string key = $"{asset}_{prices.Length}";
+        if (_cache.TryGetValue(key, out var cached) && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - cached.cachedAt < 60)
+            return (cached.direction, cached.probability, cached.reasoning);
+
+        try
+        {
+            string apiKey = Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                Console.WriteLine("[Claude] No OpenRouterApiKey in env");
+                return ("NEUTRAL", 50, "Ключ OpenRouter не настроен");
+            }
+
+            double change = prices.Length >= 2
+                ? (prices[^1] - prices[0]) / prices[0] * 100 : 0;
+
+            double mom3 = prices.Length >= 4
+                ? (prices[^1] - prices[^4]) / prices[^4] * 100 : 0;
+
+            double mom5 = prices.Length >= 6
+                ? (prices[^1] - prices[^6]) / prices[^6] * 100 : 0;
+
+            double volatility = 0;
+            for (int i = 1; i < prices.Length; i++)
+                volatility += Math.Abs(prices[i] - prices[i - 1]);
+            volatility /= prices.Length;
+
+            string indicators = JsonSerializer.Serialize(new
+            {
+                asset,
+                current_price = Math.Round(prices[^1], 5),
+                change_percent = Math.Round(change, 2),
+                mom3_percent = Math.Round(mom3, 3),
+                mom5_percent = Math.Round(mom5, 3),
+                rsi_14 = Math.Round(rsi, 1),
+                ema_9 = Math.Round(ema, 5),
+                macd = Math.Round(macd, 6),
+                macd_signal = Math.Round(macdSignal, 6),
+                adx_14 = Math.Round(adx, 1),
+                bollinger_zscore = Math.Round(bbZ, 2),
+                volume_strength = Math.Round(volStrength, 2),
+                bid_ask_imbalance = Math.Round(imbalance, 3),
+                volatility_per_candle = Math.Round(volatility, 6),
+                high_52w = Math.Round(prices.Max(), 5),
+                low_52w = Math.Round(prices.Min(), 5)
+            });
+
+            string systemPrompt = "You are a professional quantitative analyst with 20 years of experience. "
+                + "Analyze the technical indicators below and predict the most likely short-term price direction. "
+                + "Respond in Russian with ONLY valid JSON (no markdown, no code blocks): "
+                + "{\"direction\": \"BUY\" or \"PUT\" or \"NEUTRAL\", "
+                + "\"probability\": 55-95, "
+                + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
+
+            var body = new
+            {
+                model = "anthropic/claude-opus-4.8",
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = $"Technical indicators for {asset}:\n{indicators}" }
+                },
+                temperature = 0.2,
+                max_tokens = 300
+            };
+
+            var json = JsonSerializer.Serialize(body);
+            var request = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            request.Headers.Add("HTTP-Referer", "https://valutabotapp-production.up.railway.app");
+            request.Headers.Add("X-Title", "ValutaBot");
+
+            var response = _http.Send(request);
+            string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            _lastRawResponse = responseBody;
+
+            using var doc = JsonDocument.Parse(responseBody);
+            string content = doc.RootElement
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString() ?? "{}";
+
+            content = content.Trim();
+            if (content.StartsWith("```")) content = content.Substring(content.IndexOf('\n') + 1);
+            if (content.EndsWith("```")) content = content.Substring(0, content.LastIndexOf("```"));
+            content = content.Trim();
+
+            using var resultDoc = JsonDocument.Parse(content);
+            var root = resultDoc.RootElement;
+            string direction = root.TryGetProperty("direction", out var d) ? d.GetString() ?? "NEUTRAL" : "NEUTRAL";
+            double probability = root.TryGetProperty("probability", out var p) ? p.GetDouble() : 50;
+            string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
+
+            direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
+            probability = Math.Clamp(probability, 50, 98);
+
+            var result = (direction, probability, reasoning);
+            _cache[key] = (direction, probability, reasoning, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Claude] Analysis failed: {ex.Message}");
+            _lastRawResponse = $"ERROR: {ex.Message}";
+            return ("NEUTRAL", 50, "Ошибка запроса к Claude");
+        }
+    }
+}

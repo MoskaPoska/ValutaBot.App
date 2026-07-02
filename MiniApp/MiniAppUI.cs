@@ -1180,6 +1180,15 @@ public static class MiniAppUI
             </div>
         </div>
 
+        <div class='news-card' id='claudeCard' style='display:none'>
+            <div class='news-header'>
+                <span class='news-badge'>🧠 Claude Opus</span>
+                <span class='news-label'>AI анализ графика</span>
+                <span class='news-sentiment' id='claudeSentiment'>--</span>
+            </div>
+            <div class='news-summary' id='claudeReasoning'></div>
+        </div>
+
         <div class='levels-bar' id='levelsBar'>
             <div class='level-line' id='ll1'><span class='tag l1'>L1</span><span class='info'>Индикаторы</span><span class='result' id='ll1res'></span></div>
             <div class='level-line' id='ll2'><span class='tag l2'>L2</span><span class='info'>S/R + Объём</span><span class='result' id='ll2res'></span></div>
@@ -1408,6 +1417,7 @@ public static class MiniAppUI
             document.getElementById('durChart').innerHTML = '';
             document.getElementById('levelsBar').style.display = 'none';
             document.getElementById('mlCard').style.display = 'none';
+            document.getElementById('claudeCard').style.display = 'none';
             document.getElementById('newsCard').style.display = 'none';
             document.getElementById('welcomeSec').classList.remove('compact');
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
@@ -1692,6 +1702,19 @@ public static class MiniAppUI
                         } else {
                             nl.innerHTML = '';
                         }
+                    }
+
+                    if (data.claudeDirection && data.claudeReasoning) {
+                        const cc = document.getElementById('claudeCard');
+                        cc.style.display = 'block';
+                        const senEl = document.getElementById('claudeSentiment');
+                        senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
+                        senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
+                        let reasoningText = data.claudeReasoning;
+                        if (data.claudeProbability) {
+                            reasoningText += ` (вероятность: ${data.claudeProbability}%)`;
+                        }
+                        document.getElementById('claudeReasoning').innerText = reasoningText;
                     }
 
                     const probBars = pricesToBars(data.chartData, 16);

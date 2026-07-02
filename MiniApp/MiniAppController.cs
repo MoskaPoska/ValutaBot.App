@@ -517,7 +517,6 @@ public static class MiniAppController
 
             // ─── Bid/Ask Imbalance из WebSocket ───
             string imbalanceKey = symbol.EndsWith("USDT") ? symbol.Replace("USDT", "/USDT") : "";
-            if (!string.IsNullOrEmpty(imbalanceKey))
             {
                 double imbalance = MarketDataService.GetBookImbalance(imbalanceKey);
                 if (Math.Abs(imbalance) > 0.1)
@@ -557,6 +556,28 @@ public static class MiniAppController
             totalScore += mainResult.score;
             totalConfidence += mainResult.confidence * tfWeights[0];
             totalWeight += tfWeights[0];
+
+            // ─── Claude Opus 4.8 AI Signal ───
+            var (macdLine, macdSig) = ComputeMacd(mainPrices, mainPrices.Length - 1);
+            double adxVal = ComputeAdx(mainPrices, 14);
+            double bbZscore = ComputeBollingerZscore(mainPrices, 20);
+            double claudeImbalance = !string.IsNullOrEmpty(imbalanceKey)
+                ? MarketDataService.GetBookImbalance(imbalanceKey) : 0;
+
+            var claudeResult = ClaudeSignalService.AnalyzeSignal(
+                asset, mainPrices, mainVolumes,
+                mainResult.rsiVal, mainResult.emaVal, macdLine, macdSig,
+                adxVal, bbZscore, mainResult.volStrengthVal, claudeImbalance);
+
+            if (claudeResult.direction != "NEUTRAL")
+            {
+                int claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
+                double claudeWeight = Math.Clamp(claudeResult.probability / 50.0, 0.5, 1.5);
+                totalScore += claudeSign * (int)(claudeWeight * 2);
+                totalConfidence += claudeResult.probability * claudeWeight;
+                totalWeight += claudeWeight;
+                Console.WriteLine($"[Claude] dir={claudeResult.direction} prob={claudeResult.probability:F0}% reasoning={claudeResult.reasoning}");
+            }
 
             // ─── Short-term momentum (3-bar + 5-bar) ───
             double mom3 = mainPrices.Length >= 4
@@ -609,12 +630,14 @@ public static class MiniAppController
             double mainDir = mainResult.score >= 0 ? 1 : -1;
             double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
             double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
+            double claudeDirVal = claudeResult.direction == "BUY" ? 1 : claudeResult.direction == "PUT" ? -1 : 0;
             double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
                 ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
 
             SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
             if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
             if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
+            if (claudeDirVal != 0) SignalTracker.RecordSignalVote("Claude AI", Math.Abs(claudeDirVal - finalDir) < 0.1);
             if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
 
             return new
@@ -632,7 +655,10 @@ public static class MiniAppController
                 newsSentiment = newsResult.sentiment,
                 newsScore = Math.Round(newsResult.score, 1),
                 newsSummary = newsResult.summary,
-                newsHeadlines = newsResult.headlines
+                newsHeadlines = newsResult.headlines,
+                claudeDirection = claudeResult.direction,
+                claudeProbability = Math.Round(claudeResult.probability, 0),
+                claudeReasoning = claudeResult.reasoning
             };
         }
         catch (Exception ex)
