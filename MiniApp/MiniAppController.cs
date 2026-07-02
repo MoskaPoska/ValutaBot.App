@@ -129,13 +129,15 @@ public static class MiniAppController
 
     private static string IntervalMap(string tf) => tf.ToLower() switch
     {
-        "m1" => "1m", "m5" => "5m", "m15" => "15m", "m30" => "30m",
+        "m1" => "1m", "m2" => "1m", "m3" => "3m",
+        "m5" => "5m", "m15" => "15m", "m30" => "30m",
         "h1" => "1h", "h4" => "4h", "d1" => "1d", _ => "1m"
     };
 
     private static string? HigherTf(string tf) => tf.ToLower() switch
     {
-        "m1" => "m5", "m5" => "m15", "m15" => "m30", "m30" => "h1",
+        "m1" => "m5", "m2" => "m5", "m3" => "m5",
+        "m5" => "m15", "m15" => "m30", "m30" => "h1",
         "h1" => "h4", "h4" => "d1", _ => null
     };
 
@@ -166,6 +168,38 @@ public static class MiniAppController
 
         _cache.Set(cacheKey, (prices, volumes), TimeSpan.FromSeconds(15));
         return (prices, volumes);
+    }
+
+    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string symbol, string interval)
+    {
+        try
+        {
+            return await FetchBinanceCandles(symbol, interval);
+        }
+        catch
+        {
+            var fallback = symbol switch
+            {
+                "EURJPYUSDT" or "EURGBPUSDT" or "EURNZDUSDT" or "EURCHFUSDT" => "EURUSDT",
+                "GBPJPYUSDT" or "GBPAUDUSDT" or "GBPCADUSDT" or "GBPCHFUSDT" => "GBPUSDT",
+                "NZDJPYUSDT" or "NZDCADUSDT" or "NZDCHFUSDT" => "NZDUSDT",
+                "AUDCADUSDT" or "AUDCHFUSDT" or "AUDNZDUSDT" => "AUDUSDT",
+                "CADCHFUSDT" or "USDCADUSDT" or "CADJPYUSDT" => "EURUSDT",
+                "USDCHFUSDT" or "CHFJPYUSDT" => "EURUSDT",
+                "USDBRLUSDT" or "USDIDRUSDT" or "USDPKRUSDT" or "USDDZDUSDT" => "GBPUSDT",
+                "NGNUSDUSDT" or "LBPUSDUSDT" or "TNDUSDUSDT" or "JODCNYUSDT" or "OMRCNYUSDT" or "SARCNYUSDT" => "EURUSDT",
+                "BRENTUSDT" or "OILUSDT" => "EURUSDT",
+                _ => null
+            };
+
+            if (fallback != null)
+            {
+                Console.WriteLine($"[Fetch] {symbol} not found, fallback to {fallback}");
+                return await FetchBinanceCandles(fallback, interval);
+            }
+
+            throw;
+        }
     }
 
     /* ─── Indicators ─── */
@@ -437,17 +471,17 @@ public static class MiniAppController
             string? higherTf = HigherTf(timeframe);
             string? lowerTf = LowerTf(timeframe);
 
-            var tasks = new List<Task<(double[] prices, double[] volumes)>> { FetchBinanceCandles(symbol, mainInterval) };
+            var tasks = new List<Task<(double[] prices, double[] volumes)>> { FetchBinanceWithFallback(symbol, mainInterval) };
             var tfWeights = new List<double> { 1.0 };
 
             if (higherTf != null)
             {
-                tasks.Add(FetchBinanceCandles(symbol, IntervalMap(higherTf)));
+                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(higherTf)));
                 tfWeights.Add(2.0);
             }
             if (lowerTf != null)
             {
-                tasks.Add(FetchBinanceCandles(symbol, IntervalMap(lowerTf)));
+                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(lowerTf)));
                 tfWeights.Add(0.5);
             }
 
