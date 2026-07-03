@@ -10,6 +10,7 @@ public static class TelegramNotifier
 
     public static void SetDefaultChatId(long chatId) => _defaultChatId = chatId;
     public static long GetDefaultChatId() => _defaultChatId;
+    public static string? GetToken() => _botToken;
 
     public static void Init(string? token)
     {

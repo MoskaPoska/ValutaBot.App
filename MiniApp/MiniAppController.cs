@@ -37,8 +37,8 @@ public static class MiniAppController
         builder.Services.AddHostedService<AutoAnalysisService>();
         builder.Services.AddHostedService<TelegramBotService>();
 
-        // Init Telegram notifier from env (set in Railway dashboard)
-        TelegramNotifier.Init(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
+        // Init Telegram notifier from config or env (set in Railway dashboard)
+        TelegramNotifier.Init(builder.Configuration["TelegramBotToken"] ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
 
         var app = builder.Build();
         app.UseCors("AllowMiniApp");
