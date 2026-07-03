@@ -144,21 +144,6 @@ public sealed class MarketDataService : BackgroundService
                         if (RecentAlerts.Count > 20) RecentAlerts.TryDequeue(out _);
                     }
 
-                    // ─── Check user alerts ───
-                    double lastPrice = prices[^1];
-                    double rsi = ComputeRsi(prices, 14);
-                    double volRatio = lastVol / avgVol;
-                    string asset = sym.Replace("USDT", "/USDT");
-
-                    var triggered = AlertService.CheckAll(lastPrice, rsi, volRatio, asset);
-                    foreach (var rule in triggered)
-                    {
-                        string dirEmoji = lastPrice >= prices[^2] ? "\u2B06" : "\u2B07";
-                        string body = $"{asset} | \u0426\u0435\u043D\u0430: {lastPrice:F2} {dirEmoji}\nRSI: {rsi:F1}\n\u041E\u0431\u044A\u0451\u043C: x{volRatio:F1}";
-                        await TelegramNotifier.SendAlert(rule.ChatId, $"\uD83D\uDD14 \u0421\u0438\u0433\u043D\u0430\u043B: {rule.Label}", body);
-                        Console.WriteLine($"[TG] Alert sent: {rule.Label}");
-                    }
-
                     // ─── Check prediction outcomes ───
                     CheckPredictionOutcomes(sym, prices[^1]);
                 }

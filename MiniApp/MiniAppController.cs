@@ -14,6 +14,7 @@ public static class MiniAppController
 {
     private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
+    private static readonly Random _rng = new();
     private static readonly AsyncRetryPolicy _retryPolicy = Policy
         .Handle<HttpRequestException>()
         .Or<TaskCanceledException>()
@@ -33,6 +34,8 @@ public static class MiniAppController
         });
         builder.Services.AddHostedService<MarketDataService>();
         builder.Services.AddHostedService<LiquidationHeatmapService>();
+        builder.Services.AddHostedService<AutoAnalysisService>();
+        builder.Services.AddHostedService<TelegramBotService>();
 
         // Init Telegram notifier from env (set in Railway dashboard)
         TelegramNotifier.Init(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
@@ -59,8 +62,9 @@ public static class MiniAppController
             await context.Response.WriteAsync(MiniAppUI.GetHtml());
         });
 
-        app.MapGet("/api/analyze", async (string? asset, string? timeframe) =>
+        app.MapGet("/api/analyze", async (HttpContext context, string? asset, string? timeframe) =>
         {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
 
@@ -72,26 +76,30 @@ public static class MiniAppController
             return Results.Json(result);
         });
 
-        app.MapGet("/api/fear-greed", async () =>
+        app.MapGet("/api/fear-greed", async (HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             var fng = await GetFearGreedIndex();
             return Results.Json(fng);
         });
 
-        app.MapGet("/api/market-status", () =>
+        app.MapGet("/api/market-status", (HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             var latest = MarketDataService.GetLatestPrices();
             var alerts = MarketDataService.GetRecentAlerts();
             return Results.Json(new { prices = latest, alerts });
         });
 
-        app.MapGet("/api/liquidations", () =>
+        app.MapGet("/api/liquidations", (HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             return Results.Json(LiquidationHeatmapService.GetHeatmapData());
         });
 
-        app.MapGet("/api/signal-stats", () =>
+        app.MapGet("/api/signal-stats", (HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             return Results.Json(new
             {
                 accuracy = SignalTracker.GetOverallAccuracy(),
@@ -99,8 +107,18 @@ public static class MiniAppController
             });
         });
 
+        app.MapGet("/api/time", (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            return Results.Json(new { t = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        });
+
         /* ─── Alerts ─── */
-        app.MapGet("/api/alerts", () => Results.Json(AlertService.GetAll()));
+        app.MapGet("/api/alerts", (HttpContext context) => 
+        {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            return Results.Json(AlertService.GetAll());
+        });
 
         app.MapPost("/api/alerts", async (HttpContext ctx) =>
         {
@@ -129,22 +147,23 @@ public static class MiniAppController
 
     private static string IntervalMap(string tf) => tf.ToLower() switch
     {
-        "m1" => "1m", "m2" => "1m", "m3" => "3m",
-        "m5" => "5m", "m15" => "15m", "m30" => "30m",
-        "h1" => "1h", "h4" => "4h", "d1" => "1d", _ => "1m"
+        "m1" => "1m", "s3" or "m3" => "3m",
+        "m5" => "5m", "s15" => "15m", "s30" or "m30" => "30m",
+        "h1" => "1h", "h4" => "4h", _ => "1m"
     };
 
     private static string? HigherTf(string tf) => tf.ToLower() switch
     {
-        "m1" => "m5", "m2" => "m5", "m3" => "m5",
-        "m5" => "m15", "m15" => "m30", "m30" => "h1",
-        "h1" => "h4", "h4" => "d1", _ => null
+        "m1" => "s3", "s3" or "m3" => "m5",
+        "m5" => "s15", "s15" => "s30", "s30" or "m30" => "h1",
+        "h1" => "h4", _ => null
     };
 
     private static string? LowerTf(string tf) => tf.ToLower() switch
     {
-        "m5" => "m1", "m15" => "m5", "m30" => "m15",
-        "h1" => "m30", "h4" => "h1", "d1" => "h4", _ => null
+        "s3" or "m3" => "m1", "m5" => "s3",
+        "s15" => "m5", "s30" or "m30" => "s15",
+        "h1" => "s30", "h4" => "h1", _ => null
     };
 
     private const int RsiPeriod = 14;
@@ -153,28 +172,47 @@ public static class MiniAppController
 
     /* ─── Cached fetch with retry ─── */
 
-    private static async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval)
+    private static async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50)
     {
-        string cacheKey = $"binance_{symbol}_{interval}";
-        if (_cache.TryGetValue(cacheKey, out (double[] prices, double[] volumes) cached))
-            return cached;
-
-        string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit=50";
+        string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
         var response = await _retryPolicy.ExecuteAsync(() => _httpClient.GetStringAsync(url));
         using var doc = JsonDocument.Parse(response);
         var arr = doc.RootElement.EnumerateArray().ToList();
+
+        if (arr.Count > 0)
+        {
+            var lastCandle = arr[^1];
+            long openTimeMs = lastCandle[0].GetInt64();
+            var openTime = DateTimeOffset.FromUnixTimeMilliseconds(openTimeMs).UtcDateTime;
+            if (DateTime.UtcNow - openTime > TimeSpan.FromMinutes(30))
+            {
+                throw new Exception($"Binance symbol {symbol} has stale data from {openTime}");
+            }
+        }
+
         var prices = arr.Select(k => double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture)).ToArray();
         var volumes = arr.Select(k => double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)).ToArray();
 
-        _cache.Set(cacheKey, (prices, volumes), TimeSpan.FromSeconds(15));
         return (prices, volumes);
     }
 
-    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string symbol, string interval, string? originalAsset = null)
+    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50)
     {
+        // Skip Binance for forex pairs not listed on Binance (symbol == null)
+        if (symbol == null)
+        {
+            if (originalAsset != null)
+            {
+                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval);
+                if (tdResult != null)
+                    return tdResult.Value;
+            }
+            throw new Exception($"No Binance symbol for {originalAsset}");
+        }
+
         try
         {
-            return await FetchBinanceCandles(symbol, interval);
+            return await FetchBinanceCandles(symbol, interval, limit);
         }
         catch
         {
@@ -206,7 +244,7 @@ public static class MiniAppController
             if (fallback != null)
             {
                 Console.WriteLine($"[Fetch] {symbol} not found, fallback to {fallback}");
-                return await FetchBinanceCandles(fallback, interval);
+                return await FetchBinanceCandles(fallback, interval, limit);
             }
 
             throw;
@@ -269,7 +307,15 @@ public static class MiniAppController
     private static (double macd, double signal) ComputeMacd(double[] data, int index)
     {
         double macdVal = ComputeEma(data, 12, index) - ComputeEma(data, 26, index);
-        double signalVal = ComputeEma(data, 9, index);
+        // signal line is 9-period EMA of MACD values, not price
+        double[] macdHistory = new double[index + 1];
+        for (int i = 0; i <= index; i++)
+        {
+            double ema12 = ComputeEma(data, 12, i);
+            double ema26 = ComputeEma(data, 26, i);
+            macdHistory[i] = ema12 - ema26;
+        }
+        double signalVal = ComputeEma(macdHistory, 9, index);
         return (macdVal, signalVal);
     }
 
@@ -383,59 +429,90 @@ public static class MiniAppController
         double bbZ = ComputeBollingerZscore(prices, 20);
         var (bullDiv, bearDiv) = DetectRsiDivergence(prices, RsiPeriod);
 
-        double tw = adx > 25 ? 1.5 : 1.0;
-        double mw = adx < 20 ? 1.5 : 1.0;
+        // Adaptive weights based on trendiness (ADX)
+        double tw = adx > 25 ? 1.5 : 1.0;  // Trend weight
+        double mw = adx < 20 ? 1.5 : 1.0;  // Mean reversion weight
 
-        double signals = 0, total = 0;
+        // ─── Group 1: Trend Indicators (Weight in overall score: 35%) ───
+        double trendScore = 0;
+        double trendTotalWeight = 0;
 
-        // EMA trend — только при консенсусе (>=3 из 4)
+        // EMA Consensus
         int emaBullish = (lastPrice > emaS ? 1 : 0) + (lastPrice > emaL ? 1 : 0)
                        + (emaS > emaL ? 1 : 0) + (emaS > prevEmaS ? 1 : 0);
-        if (emaBullish >= 3) signals += tw;
-        else if (emaBullish <= 1) signals -= tw;
-        total += tw;
+        if (emaBullish >= 3) { trendScore += 1 * tw; trendTotalWeight += tw; }
+        else if (emaBullish <= 1) { trendScore -= 1 * tw; trendTotalWeight += tw; }
 
-        // RSI
-        if (rsi < 30) signals += 2 * mw; else if (rsi < 40) signals += 1 * mw;
-        else if (rsi > 70) signals -= 2 * mw; else if (rsi > 60) signals -= 1 * mw;
-        total += 2 * mw;
-
-        // MACD
-        if (macd > signal) signals++; else signals--; total++;
-
-        // Overall change
-        if (change > 0.001) signals++; else if (change < -0.001) signals--; total++;
-
-        // Volume
-        signals += Math.Round(volStrength); total += 2;
-
-        // ADX trend confirmation
+        // ADX Trend confirmation
         if (adx > 25)
         {
             double trendDir = lastPrice - prices[n / 2];
-            if (trendDir > 0) signals += tw; else signals -= tw; total += tw;
+            trendScore += (trendDir > 0 ? 1 : -1) * tw;
+            trendTotalWeight += tw;
         }
 
-        // Bollinger mean reversion
+        // Overall price change
+        if (Math.Abs(change) > 0.001)
+        {
+            trendScore += (change > 0 ? 1 : -1) * 1.0;
+            trendTotalWeight += 1.0;
+        }
+        
+        double finalTrend = trendTotalWeight > 0 ? (trendScore / trendTotalWeight) : 0;
+
+        // ─── Group 2: Oscillators (Weight in overall score: 25%) ───
+        double oscScore = 0;
+        double oscTotalWeight = 0;
+
+        // RSI
+        if (rsi < 30) { oscScore += 2 * mw; oscTotalWeight += 2 * mw; }
+        else if (rsi < 40) { oscScore += 1 * mw; oscTotalWeight += 1 * mw; }
+        else if (rsi > 70) { oscScore -= 2 * mw; oscTotalWeight += 2 * mw; }
+        else if (rsi > 60) { oscScore -= 1 * mw; oscTotalWeight += 1 * mw; }
+
+        // MACD
+        oscScore += (macd > signal ? 1 : -1) * 1.0;
+        oscTotalWeight += 1.0;
+
+        // RSI Divergence
+        if (bullDiv) { oscScore += 2 * mw; oscTotalWeight += 2 * mw; }
+        if (bearDiv) { oscScore -= 2 * mw; oscTotalWeight += 2 * mw; }
+
+        double finalOsc = oscTotalWeight > 0 ? (oscScore / oscTotalWeight) : 0;
+
+        // ─── Group 3: Volatility & Mean Reversion (Weight in overall score: 20%) ───
+        double volRevScore = 0;
+        double volRevTotalWeight = 0;
+
+        // Bollinger Bands Z-score mean reversion
         if (Math.Abs(bbZ) > 2.0)
         {
-            if (bbZ > 0) signals -= 2 * mw; else signals += 2 * mw;
-            total += 2 * mw;
+            volRevScore += (bbZ > 0 ? -2 : 2) * mw;
+            volRevTotalWeight += 2 * mw;
         }
         else if (Math.Abs(bbZ) > 1.5)
         {
-            if (bbZ > 0) signals -= 1 * mw; else signals += 1 * mw;
-            total += 1 * mw;
+            volRevScore += (bbZ > 0 ? -1 : 1) * mw;
+            volRevTotalWeight += 1 * mw;
         }
 
-        // RSI divergence
-        if (bullDiv) { signals += 2 * mw; total += 2 * mw; }
-        if (bearDiv) { signals -= 2 * mw; total += 2 * mw; }
+        double finalVolRev = volRevTotalWeight > 0 ? (volRevScore / volRevTotalWeight) : 0;
 
-        double rawRatio = signals / total;
-        double confidence = Math.Clamp(Math.Abs(rawRatio) * 100, 50, 98);
+        // ─── Group 4: Volume Strength (Weight in overall score: 20%) ───
+        double finalVolume = Math.Clamp(volStrength / 2.0, -1.0, 1.0); // normalize to -1..1
 
-        return ((int)Math.Round(rawRatio * 10), confidence, rsi, emaS, volStrength);
+        // ─── Weighted Ensemble Score (Overall Score normalized to -10..+10) ───
+        double weightedScore = (finalTrend * 0.35) + (finalOsc * 0.25) + (finalVolRev * 0.20) + (finalVolume * 0.20);
+        int score = (int)Math.Round(weightedScore * 10);
+
+        // Confidence calculation based on indicators agreement
+        double agreement = (Math.Sign(finalTrend) == Math.Sign(weightedScore) ? 0.35 : 0) +
+                           (Math.Sign(finalOsc) == Math.Sign(weightedScore) ? 0.25 : 0) +
+                           (Math.Sign(finalVolRev) == Math.Sign(weightedScore) ? 0.20 : 0) +
+                           (Math.Sign(finalVolume) == Math.Sign(weightedScore) ? 0.20 : 0);
+        double confidence = Math.Clamp(50 + agreement * 48, 50, 98);
+
+        return (score, confidence, rsi, emaS, volStrength);
     }
 
     /* ─── Multi-TF conflict penalty ─── */
@@ -453,47 +530,61 @@ public static class MiniAppController
 
     /* ─── Main analysis ─── */
 
-    private static async Task<object> ExecuteBinanceAnalysis(string asset, string timeframe)
+    internal static async Task<object> ExecuteBinanceAnalysis(string asset, string timeframe)
     {
         try
         {
             string raw = asset.Replace(" OTC", "").Replace("/", "").Trim();
-            string symbol = raw switch
+            string? symbol = raw switch
             {
-                // Forex — прямые пары на Binance
                 "EURUSD" => "EURUSDT",
                 "GBPUSD" => "GBPUSDT",
                 "AUDUSD" => "AUDUSDT",
-                "NZDUSD" => "NZDUSDT",
-                "USDJPY" => "JPYUSDT",
-                // Коммодити
                 "GOLD" => "PAXGUSDT",
                 "SILVER" => "XAGUSDT",
                 "BRENT" => "BRENTUSDT",
                 "OIL" => "OILUSDT",
-                // Крипта
                 "BTCUSDT" or "BTC" => "BTCUSDT",
                 "ETHUSDT" or "ETH" => "ETHUSDT",
                 "SOLUSDT" or "SOL" => "SOLUSDT",
-                _ => raw + "USDT"
+                _ => raw.Length == 6 ? null : raw + "USDT"
             };
+
+            bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
+            int limit = isMajor ? 100 : 50;
 
             string mainInterval = IntervalMap(timeframe);
             string? higherTf = HigherTf(timeframe);
             string? lowerTf = LowerTf(timeframe);
 
-            var tasks = new List<Task<(double[] prices, double[] volumes)>> { FetchBinanceWithFallback(symbol, mainInterval, asset) };
+            var tasks = new List<Task<(double[] prices, double[] volumes)>> { FetchBinanceWithFallback(symbol, mainInterval, asset, limit) };
             var tfWeights = new List<double> { 1.0 };
 
             if (higherTf != null)
             {
-                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(higherTf), asset));
+                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(higherTf), asset, limit));
                 tfWeights.Add(2.0);
             }
             if (lowerTf != null)
             {
-                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(lowerTf), asset));
+                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(lowerTf), asset, limit));
                 tfWeights.Add(0.5);
+            }
+
+            // For major pairs: fetch all 7 unique TFs for deep consensus
+            var extraTfScores = new List<(int score, double conf, double rsi, double ema, double vol)>();
+            if (isMajor)
+            {
+                string[] allUniqueTfs = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"];
+                var fetchedIntervals = new HashSet<string> { mainInterval };
+                if (higherTf != null) fetchedIntervals.Add(IntervalMap(higherTf));
+                if (lowerTf != null) fetchedIntervals.Add(IntervalMap(lowerTf));
+
+                foreach (var tf in allUniqueTfs)
+                {
+                    if (!fetchedIntervals.Contains(tf))
+                        tasks.Add(FetchBinanceWithFallback(symbol, tf, asset, limit));
+                }
             }
 
             var results = await Task.WhenAll(tasks);
@@ -525,7 +616,7 @@ public static class MiniAppController
                 int lrSign = linregDir == "BUY" ? 1 : -1;
                 int val = lrSign * (int)(linregConf / 30 * 0.8);
                 mlScoreTotal += Math.Clamp(val, -2, 2);
-                totalConfidence += linregConf * 0.8;
+                totalConfidence += linregConf;
                 Console.WriteLine($"[ML] LinReg slope={linregSlope:F4} dir={linregDir} conf={linregConf:F0}%");
             }
 
@@ -544,7 +635,7 @@ public static class MiniAppController
                 int momSign = momScore > 0 ? 1 : -1;
                 int val = momSign * (int)(momConf / 30);
                 mlScoreTotal += Math.Clamp(val, -2, 2);
-                totalConfidence += momConf;
+                totalConfidence += momConf * 1.5;
                 Console.WriteLine($"[ML] Momentum={momScore:F0} dir={(momScore > 0 ? "BUY" : "PUT")} conf={momConf:F0}%");
             }
 
@@ -560,23 +651,31 @@ public static class MiniAppController
             if (Math.Abs(newsResult.score) > 0.1)
             {
                 totalScore += Math.Clamp((int)(newsResult.score * 2), -2, 2);
-                totalConfidence += Math.Abs(newsResult.score) * 15;
+                totalConfidence += Math.Abs(newsResult.score) * 100;
                 totalWeight += 1.0;
                 Console.WriteLine($"[News] sentiment={newsResult.sentiment} score={newsResult.score:F1}");
             }
 
             // ─── Bid/Ask Imbalance из WebSocket ───
-            string imbalanceKey = symbol.EndsWith("USDT") ? symbol.Replace("USDT", "/USDT") : "";
+            string imbalanceKey = symbol != null && symbol.EndsWith("USDT") ? symbol.Replace("USDT", "/USDT") : "";
             {
                 double imbalance = MarketDataService.GetBookImbalance(imbalanceKey);
                 if (Math.Abs(imbalance) > 0.1)
                 {
-                    double imbWeight = Math.Min(Math.Abs(imbalance) * 5, 2.0);
+                    double timeframeScale = 1.0;
+                    string tfLower = timeframe.ToLower().Trim();
+                    if (tfLower == "m1" || tfLower == "m3" || tfLower == "m5" || tfLower.StartsWith("s"))
+                    {
+                        timeframeScale = 0.5; // Reduce priority by 50% on small TFs to avoid spoofing noise
+                    }
+
+                    double imbWeight = Math.Min(Math.Abs(imbalance) * 5, 2.0) * timeframeScale;
+                    double imbConf = Math.Clamp(55 + Math.Abs(imbalance) * 35, 55, 90);
                     int imbSign = imbalance > 0 ? 1 : -1;
                     totalScore += imbSign * (int)(imbWeight * 3);
-                    totalConfidence += Math.Abs(imbalance) * 40;
-                    totalWeight += imbWeight;
-                    Console.WriteLine($"[OrderBook] {imbalanceKey} imbalance={imbalance:F3} weight={imbWeight:F1}");
+                    totalConfidence += imbConf * timeframeScale;
+                    totalWeight += 1.0 * timeframeScale;
+                    Console.WriteLine($"[OrderBook] {imbalanceKey} imbalance={imbalance:F3} weight={imbWeight:F1} (scaled by {timeframeScale:F1})");
                 }
             }
 
@@ -612,6 +711,21 @@ public static class MiniAppController
             totalScore += mainResult.score;
             totalConfidence += mainResult.confidence * tfWeights[0];
             totalWeight += tfWeights[0];
+
+            // ─── Extra TF scoring for major pairs ───
+            int tfAgreement = 1;
+            if (isMajor)
+            {
+                int extraStart = 1 + (higherTf != null ? 1 : 0) + (lowerTf != null ? 1 : 0);
+                int mainDirSign = mainResult.score >= 0 ? 1 : -1;
+                for (int i = extraStart; i < results.Length; i++)
+                {
+                    var s = ScoreTimeframe(results[i].prices, results[i].volumes);
+                    if ((s.score >= 0 && mainDirSign > 0) || (s.score < 0 && mainDirSign < 0))
+                        tfAgreement++;
+                }
+                Console.WriteLine($"[Major] {asset} TF agreement: {tfAgreement}/{1 + results.Length - extraStart}");
+            }
 
             // ─── Claude Opus 4.8 AI Signal ───
             var (macdLine, macdSig) = ComputeMacd(mainPrices, mainPrices.Length - 1);
@@ -650,8 +764,11 @@ public static class MiniAppController
             int overallTrend = overallChange > 0.1 ? 1 : overallChange < -0.1 ? -1 : 0;
 
             int rawProb = totalWeight > 0
-                ? (int)Math.Clamp(totalConfidence / totalWeight * conflictPenalty, 50, 98)
+                ? (int)Math.Clamp(totalConfidence / totalWeight, 50, 98)
                 : 50;
+
+            if (conflictPenalty < 1.0)
+                rawProb = Math.Max(50, rawProb - 8);
 
             // ─── Калибровка вероятности (только после 10+ предсказаний) ───
             double accuracy = SignalTracker.GetOverallAccuracy() / 100.0;
@@ -659,7 +776,7 @@ public static class MiniAppController
             int probability;
             if (accuracy > 0 && totalPreds >= 10)
             {
-                probability = (int)Math.Round(rawProb * Math.Max(accuracy, 0.55));
+                probability = (int)Math.Round(rawProb * 0.7 + (accuracy * 100) * 0.3);
                 probability = Math.Clamp(probability, 55, 98);
             }
             else
@@ -680,6 +797,13 @@ public static class MiniAppController
                 direction = totalScore >= 0 ? "BUY" : "PUT";
             }
 
+            // ─── TF consensus boost for major pairs ───
+            if (isMajor && tfAgreement >= 5)
+            {
+                probability = Math.Clamp(probability + 8, 55, 98);
+                Console.WriteLine($"[Major] TF agreement {tfAgreement}/7 → probability boosted to {probability}%");
+            }
+
             // ─── Signal Tracker ───
             SignalTracker.RecordPrediction(direction, asset, timeframe, mainPrices[^1]);
             double finalDir = direction == "BUY" ? 1 : -1;
@@ -696,11 +820,14 @@ public static class MiniAppController
             if (claudeDirVal != 0) SignalTracker.RecordSignalVote("Claude AI", Math.Abs(claudeDirVal - finalDir) < 0.1);
             if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
 
+            int expiryCandles = 3; // Default 3 candles (matching ML SSA prediction horizon)
+
             return new
             {
                 direction,
                 probability,
-                duration = timeframe.ToUpper(),
+                duration = $"{timeframe.ToUpper()} ({expiryCandles} свечи)",
+                expiryCandles,
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),
                 ema = Math.Round(mainResult.emaVal, 2),
@@ -728,8 +855,6 @@ public static class MiniAppController
 
     private static object GetMomentumPrediction(string asset, string tf)
     {
-        var rnd = new Random();
-
         double startPrice = 1.1000;
         double volatility = 0.0010;
 
@@ -752,11 +877,11 @@ public static class MiniAppController
 
         var chartData = new double[15];
         double currentPrice = startPrice;
-        double mainTrend = (rnd.NextDouble() - 0.5) * volatility;
+        double mainTrend = (_rng.NextDouble() - 0.5) * volatility;
 
         for (int i = 0; i < 15; i++)
         {
-            currentPrice += mainTrend + (rnd.NextDouble() - 0.5) * (volatility / 2);
+            currentPrice += mainTrend + (_rng.NextDouble() - 0.5) * (volatility / 2);
             chartData[i] = Math.Round(currentPrice, startPrice > 100 ? 2 : 5);
         }
 
@@ -764,14 +889,17 @@ public static class MiniAppController
         double diffPercent = Math.Abs((chartData[14] - chartData[0]) / chartData[0]) * 100;
         int probability = Math.Clamp(82 + (int)(diffPercent * 50), 82, 97);
 
+        int expiryCandles = 3;
+
         return new
         {
             direction,
             probability,
-            duration = tf.ToUpper(),
+            duration = $"{tf.ToUpper()} ({expiryCandles} свечи)",
+            expiryCandles,
             chartData,
-            rsi = Math.Round(50 + (rnd.NextDouble() - 0.5) * 40, 1),
-            ema = Math.Round(startPrice + (rnd.NextDouble() - 0.5) * volatility, 2),
+            rsi = Math.Round(50 + (_rng.NextDouble() - 0.5) * 40, 1),
+            ema = Math.Round(startPrice + (_rng.NextDouble() - 0.5) * volatility, 2),
             volumeStrength = 0.0,
             tfConflict = false,
                 mlDirection = "NEUTRAL",

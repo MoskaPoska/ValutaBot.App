@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace ValutaBot.MiniApp;
@@ -5,6 +6,7 @@ namespace ValutaBot.MiniApp;
 public static class TwelveDataService
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly ConcurrentDictionary<string, (double[] prices, double[] volumes, DateTime fetchedAt)> _cache = new();
     private static string? _apiKey;
 
     private static string GetApiKey()
@@ -15,6 +17,15 @@ public static class TwelveDataService
 
     public static (double[] prices, double[] volumes)? FetchCandles(string rawAsset, string interval)
     {
+        string key = $"{rawAsset}_{interval}";
+
+        // 1. Check cache first for fresh data (less than 30 seconds old)
+        if (_cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < 30)
+        {
+            Console.WriteLine($"[TwelveData] Using cached data for {rawAsset} ({interval}) - fresh");
+            return (cached.prices, cached.volumes);
+        }
+
         string apiKey = GetApiKey();
         if (string.IsNullOrEmpty(apiKey)) return null;
 
@@ -37,13 +48,35 @@ public static class TwelveDataService
             {
                 var msg = doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() : "";
                 Console.WriteLine($"[TwelveData] API error: {msg}");
+
+                if (_cache.TryGetValue(key, out var last))
+                {
+                    Console.WriteLine($"[TwelveData] Using last known data for {rawAsset}");
+                    return (last.prices, last.volumes);
+                }
                 return null;
             }
 
-            if (!doc.RootElement.TryGetProperty("values", out var values)) return null;
+            if (!doc.RootElement.TryGetProperty("values", out var values))
+            {
+                if (_cache.TryGetValue(key, out var last))
+                {
+                    Console.WriteLine($"[TwelveData] No values, using last known data for {rawAsset}");
+                    return (last.prices, last.volumes);
+                }
+                return null;
+            }
 
             var arr = values.EnumerateArray().ToList();
-            if (arr.Count < 10) return null;
+            if (arr.Count < 10)
+            {
+                if (_cache.TryGetValue(key, out var last))
+                {
+                    Console.WriteLine($"[TwelveData] Too few candles ({arr.Count}), using last known data for {rawAsset}");
+                    return (last.prices, last.volumes);
+                }
+                return null;
+            }
 
             var prices = arr
                 .Select(v => double.Parse(v.GetProperty("close").GetString()!, System.Globalization.CultureInfo.InvariantCulture))
@@ -56,12 +89,19 @@ public static class TwelveDataService
                 .Reverse()
                 .ToArray();
 
+            _cache[key] = (prices, volumes, DateTime.UtcNow);
             Console.WriteLine($"[TwelveData] Fetched {prices.Length} candles for {symbol} ({interval})");
             return (prices, volumes);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[TwelveData] Fetch failed: {ex.Message}");
+
+            if (_cache.TryGetValue(key, out var last))
+            {
+                Console.WriteLine($"[TwelveData] Using last known data for {rawAsset}");
+                return (last.prices, last.volumes);
+            }
             return null;
         }
     }

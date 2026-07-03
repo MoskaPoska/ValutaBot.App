@@ -405,26 +405,6 @@ public static class MiniAppUI
             padding: 0 10px;
         }
 
-        /* ─── Market Bar (F&G + ticker) ─── */
-        .market-bar {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 8px 12px;
-            margin-bottom: 14px;
-            background: linear-gradient(135deg, rgba(124,77,255,0.03), rgba(0,229,255,0.01));
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(124,77,255,0.08);
-            border-radius: 14px;
-            font-size: 11px;
-        }
-        .mb-item { display: flex; align-items: center; gap: 5px; }
-        .mb-label { color: var(--dim); font-weight: 600; }
-        .mb-price { color: var(--text); font-weight: 700; font-family: 'Unbounded', sans-serif; font-size: 10px; }
-        .mb-divider { width: 1px; height: 16px; background: rgba(124,77,255,0.12); flex-shrink: 0; }
-        .mb-fng { margin-left: auto; font-weight: 700; font-size: 12px; white-space: nowrap; }
-
         /* ─── Top Categories ─── */
         .top-categories {
             display: flex;
@@ -555,21 +535,10 @@ public static class MiniAppUI
         @keyframes menuIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
         .asset-menu.show, .tf-menu.show { display: block; }
         .asset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .asset-item {
-            background: rgba(255,255,255,0.03);
-            color: var(--subtext);
-            padding: 13px 0;
-            text-align: center;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            margin-bottom: 6px;
-            border: 1px solid transparent;
-            transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
+        .asset-item { background: rgba(255,255,255,0.03); color: var(--subtext); padding: 13px 0; text-align: center; border-radius: 12px; font-size: 12px; font-weight: 700; cursor: pointer; margin-bottom: 6px; border: 1px solid transparent; transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
         .asset-item:hover { background: rgba(124,77,255,0.08); border-color: rgba(124,77,255,0.2); }
         .asset-item.active { background: linear-gradient(135deg, var(--accent), #6a3de8); color: #fff; border-color: var(--accent); box-shadow: 0 4px 20px var(--accent-glow); }
+        .asset-item.major { border-color: rgba(124,77,255,0.25); background: linear-gradient(135deg, rgba(124,77,255,0.08), rgba(0,229,255,0.02)); box-shadow: 0 0 12px rgba(124,77,255,0.08); }
 
         .otc-scroll { max-height: 340px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(124,77,255,0.3) transparent; scroll-behavior: smooth; }
         .otc-scroll::-webkit-scrollbar { width: 3px; }
@@ -767,47 +736,6 @@ public static class MiniAppUI
         .news-list.open { display: flex; }
         .news-list-item { font-size: 10px; color: var(--dim); padding: 4px 8px; background: rgba(124,77,255,0.04); border-radius: 6px; line-height: 1.4; }
 
-        /* ─── Alerts Panel ─── */
-        .alert-section {
-            margin-top: 16px;
-            background: linear-gradient(135deg, rgba(124,77,255,0.03), rgba(0,229,255,0.01));
-            border: 1px solid rgba(124,77,255,0.08);
-            border-radius: 16px;
-            overflow: hidden;
-        }
-        .alert-toggle {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 14px 16px; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text);
-        }
-        .alert-toggle:hover { background: rgba(124,77,255,0.04); }
-        .alert-arrow { transition: transform 0.3s; font-size: 10px; color: var(--dim); }
-        .alert-arrow.open { transform: rotate(90deg); }
-        .alert-body { padding: 0 16px 16px; }
-        .alert-form { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-        .alert-input {
-            background: rgba(124,77,255,0.08); border: 1px solid rgba(124,77,255,0.12);
-            border-radius: 8px; padding: 6px 10px; color: var(--text); font-size: 11px;
-            font-family: inherit; outline: none;
-        }
-        .alert-input:focus { border-color: var(--accent); }
-        .alert-input select { min-width: 80px; }
-        .alert-input[type=number] { width: 50px; }
-        .alert-btn {
-            background: var(--accent); border: none; border-radius: 8px;
-            padding: 6px 14px; color: #fff; font-weight: 700; font-size: 14px;
-            cursor: pointer; transition: 0.2s;
-        }
-        .alert-btn:hover { filter: brightness(1.2); }
-        .alert-list { display: flex; flex-direction: column; gap: 6px; }
-        .alert-item {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 8px 12px; background: rgba(124,77,255,0.04);
-            border: 1px solid rgba(124,77,255,0.06); border-radius: 8px;
-            font-size: 11px;
-        }
-        .alert-item .del { cursor: pointer; color: var(--red); font-weight: 700; font-size: 14px; opacity: 0.6; }
-        .alert-item .del:hover { opacity: 1; }
-
         /* ─── Candle Countdown ─── */
         .candle-countdown {
             background: linear-gradient(90deg, rgba(124,77,255,0.04), rgba(0,229,255,0.02));
@@ -869,59 +797,6 @@ public static class MiniAppUI
         .status-bar .sb-bars .sbb:nth-child(5) { height: 6px; animation-delay: 0.4s; }
         @keyframes sbbWave { 0% { transform: scaleY(0.5); opacity: 0.4; } 100% { transform: scaleY(1); opacity: 1; } }
 
-        /* ─── Navigation ─── */
-        .nav-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background: rgba(7, 5, 26, 0.94);
-            backdrop-filter: blur(30px);
-            -webkit-backdrop-filter: blur(30px);
-            border-top: 1px solid var(--panel-border);
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            padding: 14px 0;
-            padding-bottom: max(14px, env(safe-area-inset-bottom));
-            z-index: 10;
-        }
-        .nav-bar::before {
-            content: '';
-            position: absolute;
-            top: -1px;
-            left: 20%;
-            right: 20%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(124,77,255,0.2), transparent);
-        }
-        .nav-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-            font-weight: 600;
-            font-size: 11px;
-            cursor: pointer;
-            color: var(--dim);
-            transition: all 0.3s;
-            position: relative;
-        }
-        .nav-item.active { color: #fff; }
-        .nav-item svg { width: 22px; height: 22px; opacity: 0.45; transition: 0.3s; }
-        .nav-item.active svg { opacity: 1; filter: drop-shadow(0 0 10px rgba(124,77,255,0.5)); }
-        .nav-item.active svg path { stroke: #b388ff; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            top: -1px;
-            width: 50px;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--accent), var(--cyan), transparent);
-            border-radius: 2px;
-            filter: drop-shadow(0 0 4px rgba(124,77,255,0.4));
-        }
-
         .app-screen { display: none; }
         .app-screen.active { display: block; }
 
@@ -944,61 +819,9 @@ public static class MiniAppUI
             position: relative;
         }
         .filter-btn.active { background: rgba(124,77,255,0.12); border-color: var(--accent); color: #fff; box-shadow: 0 0 12px rgba(124,77,255,0.15); }
-        .history-list { display: flex; flex-direction: column; gap: 6px; }
-        .history-item {
-            background: linear-gradient(135deg, rgba(124,77,255,0.03), transparent);
-            border: 1px solid var(--panel-border);
-            border-radius: 12px; padding: 10px 12px;
-            display: flex; align-items: center; justify-content: space-between;
-            position: relative;
-        }
-        .history-item::before {
-            content: '';
-            position: absolute;
-            top: -1px; left: 10%; right: 10%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(124,77,255,0.1), transparent);
-        }
-        .hi-asset { font-size: 12px; font-weight: 700; }
-        .hi-tf { font-size: 9px; color: var(--dim); font-weight: 600; }
-        .hi-dir { font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 5px; }
-        .hi-dir.buy { background: rgba(0,230,118,0.1); color: var(--green); }
-        .hi-dir.put { background: rgba(255,23,68,0.1); color: var(--red); }
-        .hi-prob { font-size: 13px; font-weight: 800; }
-        .hi-time { font-size: 9px; color: var(--dim); }
-        .history-empty { text-align: center; padding: 30px 0; color: var(--dim); font-size: 13px; }
-
         /* ─── Top asset star ─── */
         .top-star { font-size: 13px; line-height: 1; color: var(--gold); margin-left: 5px; display: inline-block; filter: drop-shadow(0 0 4px rgba(255,215,0,0.5)); }
 
-        /* ─── Liquidation Heatmap ─── */
-        .heatmap-header {
-            font-family: 'Unbounded', sans-serif;
-            font-size: 16px;
-            font-weight: 800;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, #ff6b6b, #ffd700);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        .heatmap-controls { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
-        .heatmap-sym-btn {
-            background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border);
-            color: var(--dim); padding: 8px 14px; border-radius: 10px;
-            font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.25s;
-        }
-        .heatmap-sym-btn.active { background: rgba(255,107,107,0.12); border-color: #ff6b6b; color: #fff; }
-        .heatmap-canvas-wrap {
-            background: rgba(12,10,35,0.6); border: 1px solid var(--panel-border);
-            border-radius: 18px; padding: 16px; position: relative;
-        }
-        .heatmap-canvas-wrap canvas { display: block; width: 100%; height: auto; }
-        .heatmap-empty { text-align: center; padding: 40px 0; color: var(--dim); font-size: 13px; }
-        .heatmap-legend { display: flex; align-items: center; gap: 16px; margin-top: 10px; font-size: 10px; color: var(--dim); }
-        .heatmap-legend .bar { width: 20px; height: 8px; border-radius: 2px; display: inline-block; }
-        .heatmap-legend .bar.long { background: var(--green); }
-        .heatmap-legend .bar.short { background: var(--red); }
     </style>
 </head>
 <body>
@@ -1042,14 +865,6 @@ public static class MiniAppUI
                     <div class='base-bot'></div>
                 </div>
             </div>
-        </div>
-
-        <div class='market-bar' id='marketBar'>
-            <div class='mb-item'><span class='mb-label'>BTC</span><span class='mb-price' id='mbBtc'>--</span></div>
-            <div class='mb-item'><span class='mb-label'>ETH</span><span class='mb-price' id='mbEth'>--</span></div>
-            <div class='mb-item'><span class='mb-label'>SOL</span><span class='mb-price' id='mbSol'>--</span></div>
-            <div class='mb-divider'></div>
-            <div class='mb-fng' id='mbFng'>😐 50</div>
         </div>
 
         <div class='top-categories'>
@@ -1098,21 +913,15 @@ public static class MiniAppUI
 
             <div class='tf-menu' id='tfMenu'>
                 <div class='tf-grid'>
-                    <button class='tf-btn' data-tf='S5' onclick='setTf(this)'>S5</button>
-                    <button class='tf-btn' data-tf='S15' onclick='setTf(this)'>S15</button>
-                    <button class='tf-btn' data-tf='S30' onclick='setTf(this)'>S30</button>
-                    <button class='tf-btn' data-tf='S5' onclick='setTf(this)'>S5</button>
+                    <button class='tf-btn' data-tf='S3' onclick='setTf(this)'>S3</button>
                     <button class='tf-btn' data-tf='S15' onclick='setTf(this)'>S15</button>
                     <button class='tf-btn' data-tf='S30' onclick='setTf(this)'>S30</button>
                     <button class='tf-btn active' data-tf='M1' onclick='setTf(this)'>M1</button>
-                    <button class='tf-btn' data-tf='M2' onclick='setTf(this)'>M2</button>
                     <button class='tf-btn' data-tf='M3' onclick='setTf(this)'>M3</button>
                     <button class='tf-btn' data-tf='M5' onclick='setTf(this)'>M5</button>
-                    <button class='tf-btn' data-tf='M15' onclick='setTf(this)'>M15</button>
                     <button class='tf-btn' data-tf='M30' onclick='setTf(this)'>M30</button>
                     <button class='tf-btn' data-tf='H1' onclick='setTf(this)'>H1</button>
                     <button class='tf-btn' data-tf='H4' onclick='setTf(this)'>H4</button>
-                    <button class='tf-btn' data-tf='D1' onclick='setTf(this)'>D1</button>
                 </div>
             </div>
 
@@ -1209,76 +1018,9 @@ public static class MiniAppUI
                 Данные: Binance (крипта) / Yahoo Finance (форекс, акции, сырьё). Котировки могут отличаться от Pocket Option, особенно на OTC-парах. Анализ не является финансовой рекомендацией.
             </div>
         </div>
-
-        <div class='alert-section' id='alertSection'>
-            <div class='alert-toggle' onclick='toggleAlerts()'>
-                <span>\uD83D\uDD14 Умные оповещения</span>
-                <span class='alert-arrow' id='alertArrow'>▶</span>
-            </div>
-            <div class='alert-body' id='alertBody' style='display:none'>
-                <div class='alert-form'>
-                    <select class='alert-input' id='alertAsset'><option>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option></select>
-                    <select class='alert-input' id='alertIndicator'>
-                        <option value='rsi'>RSI</option>
-                        <option value='price'>Цена</option>
-                        <option value='volume'>Объём (x3+)</option>
-                    </select>
-                    <select class='alert-input' id='alertCondition'>
-                        <option value='below'>Ниже</option>
-                        <option value='above'>Выше</option>
-                    </select>
-                    <input class='alert-input' id='alertThreshold' type='number' value='30' step='1'>
-                    <button class='alert-btn' onclick='addAlert()'>+</button>
-                </div>
-                <div class='alert-list' id='alertList'></div>
-            </div>
-        </div>
     </div>
 
-    <div id='screen-profile' class='app-screen' style='padding-bottom:80px'>
-        <div class='hist-header'>История запросов</div>
-        <div class='filter-row'>
-            <div class='filter-btn active' data-days='0' onclick='setHistoryFilter(this,0)'>Все</div>
-            <div class='filter-btn' data-days='1' onclick='setHistoryFilter(this,1)'>1Д</div>
-            <div class='filter-btn' data-days='5' onclick='setHistoryFilter(this,5)'>5Д</div>
-            <div class='filter-btn' data-days='7' onclick='setHistoryFilter(this,7)'>Нед</div>
-            <div class='filter-btn' data-days='30' onclick='setHistoryFilter(this,30)'>Месяц</div>
-        </div>
-        <div class='history-list' id='historyList'><div class='history-empty'>Пока нет записей</div></div>
-    </div>
-
-    <div id='screen-heatmap' class='app-screen' style='padding-bottom:80px'>
-        <div class='heatmap-header'>\uD83D\uDD25 Тепловая карта ликвидаций</div>
-        <div class='heatmap-controls' id='heatmapControls'>
-            <div class='heatmap-sym-btn active' data-hsym='BTC/USDT' onclick='setHeatmapSymbol(this)'>BTC/USDT</div>
-            <div class='heatmap-sym-btn' data-hsym='ETH/USDT' onclick='setHeatmapSymbol(this)'>ETH/USDT</div>
-            <div class='heatmap-sym-btn' data-hsym='SOL/USDT' onclick='setHeatmapSymbol(this)'>SOL/USDT</div>
-        </div>
-        <div class='heatmap-canvas-wrap'>
-            <canvas id='heatmapCanvas'></canvas>
-        </div>
-        <div class='heatmap-legend'>
-            <span><span class='bar long'></span> Лонг ликвидации (\u2191)</span>
-            <span><span class='bar short'></span> Шорт ликвидации (\u2193)</span>
-            <span style='margin-left:auto' id='heatmapCount'>0 событий</span>
-        </div>
-    </div>
-
-    <div class='nav-bar'>
-        <div class='nav-item active' data-tab='home' onclick='switchTab(this)'>
-            <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12l9-9 9 9'/><path d='M5 10v10a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V10'/></svg>
-            <span>Главная</span>
-        </div>
-        <div class='nav-item' data-tab='profile' onclick='switchTab(this)'>
-            <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>
-            <span>Профиль</span>
-        </div>
-        <div class='nav-item' data-tab='heatmap' onclick='switchTab(this)'>
-            <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/><polyline points='3.27 6.96 12 12.01 20.73 6.96'/><line x1='12' y1='22.08' x2='12' y2='12'/></svg>
-            <span>Карта</span>
-        </div>
-    </div>
-
+    
     <script>
         const tg = window.Telegram.WebApp;
         if(tg) tg.expand();
@@ -1288,7 +1030,7 @@ public static class MiniAppUI
 
         const assetsData = {
             fiat: {
-                otc: ['EUR/USD OTC', 'GBP/USD OTC', 'USD/JPY OTC', 'EUR/JPY OTC', 'GBP/JPY OTC', 'AUD/USD OTC', 'USD/CAD OTC', 'USD/CHF OTC', 'NZD/USD OTC', 'EUR/GBP OTC', 'AUD/CAD OTC', 'CAD/CHF OTC', 'EUR/CHF OTC', 'EUR/NZD OTC', 'NZD/JPY OTC', 'USD/BRL OTC', 'USD/IDR OTC', 'USD/PKR OTC', 'USD/DZD OTC', 'NGN/USD OTC', 'LBP/USD OTC', 'TND/USD OTC', 'JOD/CNY OTC', 'OMR/CNY OTC', 'SAR/CNY OTC']
+                otc: ['EUR/USD OTC', 'GBP/USD OTC', 'AUD/USD OTC', 'USD/JPY OTC', 'EUR/JPY OTC', 'GBP/JPY OTC', 'USD/CAD OTC', 'USD/CHF OTC', 'NZD/USD OTC', 'EUR/GBP OTC', 'AUD/CAD OTC', 'CAD/CHF OTC', 'EUR/CHF OTC', 'EUR/NZD OTC', 'NZD/JPY OTC', 'USD/BRL OTC', 'USD/IDR OTC', 'USD/PKR OTC', 'USD/DZD OTC', 'NGN/USD OTC', 'LBP/USD OTC', 'TND/USD OTC', 'JOD/CNY OTC', 'OMR/CNY OTC', 'SAR/CNY OTC']
             },
             commodities: {
                 otc: ['GOLD OTC', 'SILVER OTC', 'BRENT OTC', 'OIL OTC']
@@ -1312,9 +1054,11 @@ public static class MiniAppUI
 
         function renderAssets(arr) {
             const top = getTopAssets();
+            const majors = ['EUR/USD OTC', 'GBP/USD OTC', 'AUD/USD OTC'];
             return arr.map(function(a) {
                 var star = top.indexOf(a) !== -1 ? '<span class=\x27top-star\x27>★</span>' : '';
-                return '<div class=\x27asset-item\x27 data-asset=\x27' + a + '\x27 onclick=\x27setAsset(this)\x27>' + a + star + '</div>';
+                var cls = majors.indexOf(a) !== -1 ? 'asset-item major' : 'asset-item';
+                return '<div class=\x27' + cls + '\x27 data-asset=\x27' + a + '\x27 onclick=\x27setAsset(this)\x27>' + a + star + '</div>';
             }).join('');
         }
 
@@ -1350,14 +1094,6 @@ public static class MiniAppUI
             document.getElementById('tfMenu').classList.remove('show');
         }
 
-        function switchTab(el) {
-            let tab = el.getAttribute('data-tab');
-            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            el.classList.add('active');
-            document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
-            document.getElementById('screen-' + tab).classList.add('active');
-        }
-
         document.addEventListener('click', function(e) {
             if (!e.target.closest('.selector-section')) {
                 document.querySelectorAll('.asset-menu, .tf-menu').forEach(m => m.classList.remove('show'));
@@ -1378,7 +1114,6 @@ public static class MiniAppUI
         })();
 
         changeTopCategory(document.querySelector('.top-cat-btn'));
-        renderHistory(0);
         syncTime();
 
         var timeOffset = 0;
@@ -1428,54 +1163,6 @@ public static class MiniAppUI
             document.getElementById('newsCard').style.display = 'none';
             document.getElementById('welcomeSec').classList.remove('compact');
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
-        }
-
-        /* ─── History ─── */
-        function getHistory() {
-            try { return JSON.parse(localStorage.getItem('vhistory') || '[]'); } catch(e) { return []; }
-        }
-        function saveToHistory(data) {
-            const h = getHistory();
-            h.unshift({
-                ts: Date.now(),
-                asset: currentAsset,
-                tf: currentTf,
-                direction: data.direction,
-                probability: data.probability,
-                duration: data.duration
-            });
-            if (h.length > 500) h.length = 500;
-            localStorage.setItem('vhistory', JSON.stringify(h));
-            renderHistory(0);
-        }
-        function setHistoryFilter(el, days) {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            el.classList.add('active');
-            renderHistory(days);
-        }
-        function getFilteredHistory(days) {
-            const h = getHistory();
-            if (days <= 0) return h;
-            const cutoff = Date.now() - days * 86400000;
-            return h.filter(e => e.ts >= cutoff);
-        }
-        function renderHistory(days) {
-            const container = document.getElementById('historyList');
-            if (!container) return;
-            const filtered = getFilteredHistory(days);
-            if (filtered.length === 0) {
-                container.innerHTML = '<div class=\x27history-empty\x27>Нет записей</div>';
-                return;
-            }
-            container.innerHTML = filtered.slice(0, 100).map(e => {
-                const d = e.direction === 'BUY' ? 'BUY' : 'PUT';
-                const t = new Date(e.ts);
-                const timeStr = t.toLocaleDateString('ru-RU', {day:'numeric',month:'short'}) + ' ' + t.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
-                return `<div class='history-item'>
-                    <div><div class='hi-asset'>${e.asset}</div><div class='hi-tf'>${e.tf.toUpperCase()} · ${timeStr}</div></div>
-                    <div style='text-align:right'><div class='hi-dir ${d.toLowerCase()}'>${d}</div><div class='hi-prob' style='color:${e.probability >= 90 ? 'var(--green)' : e.probability >= 85 ? '#ffd600' : 'var(--accent)'}'>${e.probability}%</div></div>
-                </div>`;
-            }).join('');
         }
 
         function flashResults() {
@@ -1642,13 +1329,17 @@ public static class MiniAppUI
                 btn.innerText = 'СКАНИРОВАНИЕ...';
             });
 
+            const startTime = Date.now();
+
             try {
-                const res = await fetch(`/api/analyze?asset=${encodeURIComponent(currentAsset)}&timeframe=${currentTf}`);
+                const res = await fetch(`/api/analyze?asset=${encodeURIComponent(currentAsset)}&timeframe=${currentTf}&_=${Date.now()}`);
                 const data = await res.json();
 
-                stopStatusBar();
+                const elapsed = Date.now() - startTime;
+                const remainingDelay = Math.max(0, 2000 - elapsed);
 
                 setTimeout(() => {
+                    stopStatusBar();
                     sphere.classList.remove('analyzing');
                     btn.disabled = false;
                     btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
@@ -1751,10 +1442,9 @@ public static class MiniAppUI
                         document.getElementById('levelsBar').style.display = 'block';
                     }
 
-                    saveToHistory(data);
                     flashResults();
 
-                }, 2000);
+                }, remainingDelay);
             } catch(e) {
                 stopStatusBar();
                 sphere.classList.remove('analyzing');
@@ -1762,54 +1452,6 @@ public static class MiniAppUI
                 btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
             }
         };
-
-        /* ─── Alerts ─── */
-        let tgChatId = 0;
-
-        function toggleAlerts() {
-            const body = document.getElementById('alertBody');
-            const arrow = document.getElementById('alertArrow');
-            const show = body.style.display !== 'block';
-            body.style.display = show ? 'block' : 'none';
-            arrow.classList.toggle('open', show);
-            if (show) loadAlerts();
-        }
-
-        async function loadAlerts() {
-            try {
-                const res = await fetch('/api/alerts');
-                const data = await res.json();
-                const list = document.getElementById('alertList');
-                if (!data.length) { list.innerHTML = '<div style=\'color:var(--dim);font-size:11px\'>Нет оповещений</div>'; return; }
-                list.innerHTML = data.map(a => '<div class=\'alert-item\'><span>' + a.label + '</span><span class=\'del\' onclick=\'deleteAlert(\""' + a.id + '\"")\'>\u2716</span></div>').join('');
-            } catch {}
-        }
-
-        async function addAlert() {
-            const asset = document.getElementById('alertAsset').value;
-            const ind = document.getElementById('alertIndicator').value;
-            const cond = document.getElementById('alertCondition').value;
-            const thresh = parseFloat(document.getElementById('alertThreshold').value);
-            await fetch('/api/alerts', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ asset, indicator: ind, condition: cond, threshold: thresh })
-            });
-            loadAlerts();
-        }
-
-        async function deleteAlert(id) {
-            await fetch('/api/alerts/' + id, { method: 'DELETE' });
-            loadAlerts();
-        }
-
-        // Set chat ID from Telegram init
-        try {
-            if (window.Telegram && window.Telegram.WebApp) {
-                tgChatId = window.Telegram.WebApp.initDataUnsafe?.user?.id || 0;
-                if (tgChatId) fetch('/api/alerts/chatid', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({chatId: tgChatId}) });
-            }
-        } catch {}
 
         /* ─── News toggle ─── */
         function toggleNews() {
@@ -1819,149 +1461,6 @@ public static class MiniAppUI
             toggle.innerText = open ? '\u25BD Заголовки' : '\u25B8 Заголовки';
         }
 
-        /* ─── Liquidation Heatmap ─── */
-        let currentHeatmapSymbol = 'BTC/USDT';
-        let heatmapTimer = null;
-
-        function setHeatmapSymbol(el) {
-            document.querySelectorAll('.heatmap-sym-btn').forEach(b => b.classList.remove('active'));
-            el.classList.add('active');
-            currentHeatmapSymbol = el.getAttribute('data-hsym');
-            fetchAndRenderHeatmap();
-        }
-
-        async function fetchAndRenderHeatmap() {
-            try {
-                const res = await fetch('/api/liquidations');
-                const data = await res.json();
-                const levels = data[currentHeatmapSymbol] || [];
-                document.getElementById('heatmapCount').innerText = levels.length + ' уровней';
-                renderHeatmapCanvas('heatmapCanvas', levels);
-            } catch { return; }
-        }
-
-        function renderHeatmapCanvas(canvasId, levels) {
-            const c = document.getElementById(canvasId);
-            if (!c) return;
-            if (!levels || levels.length === 0) {
-                c.style.display = 'none';
-                document.querySelector('.heatmap-canvas-wrap').innerHTML = '<div class=\'heatmap-empty\'>Нет данных о ликвидациях. Ожидание событий...</div>';
-                return;
-            }
-            c.style.display = 'block';
-
-            const dpr = window.devicePixelRatio || 1;
-            const cssW = c.parentNode.clientWidth || 320;
-            const maxBars = 30;
-            const barH = 18;
-            const pad = { l: 60, r: 10, t: 8, b: 8 };
-            const cssH = Math.max(120, Math.min(levels.length, maxBars) * barH + pad.t + pad.b);
-            c.width = Math.round(cssW * dpr);
-            c.height = Math.round(cssH * dpr);
-            c.style.width = cssW + 'px';
-            c.style.height = cssH + 'px';
-            const ctx = c.getContext('2d');
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, cssW, cssH);
-
-            const display = levels.slice(0, maxBars);
-            const maxVol = Math.max(1, ...display.map(l => Math.max(l.longVol || 0, l.shortVol || 0)));
-            const w = cssW - pad.l - pad.r;
-            const chartMid = pad.l + w / 2;
-
-            display.forEach((l, i) => {
-                const y = pad.t + i * barH;
-                const longW = ((l.longVol || 0) / maxVol) * (w / 2);
-                const shortW = ((l.shortVol || 0) / maxVol) * (w / 2);
-
-                // Short liquidations (red, go left)
-                if (shortW > 0) {
-                    const g = ctx.createLinearGradient(chartMid - shortW, 0, chartMid, 0);
-                    g.addColorStop(0, 'rgba(255,23,68,0.9)');
-                    g.addColorStop(1, 'rgba(255,23,68,0.1)');
-                    ctx.fillStyle = g;
-                    ctx.beginPath();
-                    ctx.roundRect(chartMid - shortW, y + 1, shortW, barH - 4, [0, 3, 3, 0]);
-                    ctx.fill();
-                }
-
-                // Long liquidations (green, go right)
-                if (longW > 0) {
-                    const g = ctx.createLinearGradient(chartMid, 0, chartMid + longW, 0);
-                    g.addColorStop(0, 'rgba(0,230,118,0.1)');
-                    g.addColorStop(1, 'rgba(0,230,118,0.9)');
-                    ctx.fillStyle = g;
-                    ctx.beginPath();
-                    ctx.roundRect(chartMid, y + 1, longW, barH - 4, [3, 0, 0, 3]);
-                    ctx.fill();
-                }
-
-                // Price label
-                ctx.fillStyle = '#a89fd4';
-                ctx.font = '600 10px Inter, sans-serif';
-                ctx.textAlign = 'right';
-                ctx.fillText(l.price.toFixed(l.price > 1000 ? 0 : 2), pad.l - 6, y + barH / 2 + 3);
-            });
-
-            // Center line
-            ctx.strokeStyle = 'rgba(124,77,255,0.15)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            ctx.moveTo(chartMid, pad.t);
-            ctx.lineTo(chartMid, cssH - pad.b);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // Fetch heatmap on tab switch
-        const origSwitchTab = switchTab;
-        switchTab = function(el) {
-            origSwitchTab(el);
-            const tab = el.getAttribute('data-tab');
-            if (tab === 'heatmap') {
-                if (heatmapTimer) clearInterval(heatmapTimer);
-                fetchAndRenderHeatmap();
-                heatmapTimer = setInterval(fetchAndRenderHeatmap, 15000);
-            } else {
-                if (heatmapTimer) { clearInterval(heatmapTimer); heatmapTimer = null; }
-            }
-        };
-
-        /* ─── Fear & Greed ─── */
-        async function fetchFearGreed() {
-            try {
-                const res = await fetch('/api/fear-greed');
-                const data = await res.json();
-                const el = document.getElementById('mbFng');
-                if (!el) return;
-                const v = data.value;
-                const emoji = v <= 25 ? '\uD83D\uDE28' : v <= 40 ? '\uD83D\uDE41' : v <= 55 ? '\uD83D\uDE10' : v <= 70 ? '\uD83D\uDE0A' : '\uD83D\uDE0E';
-                el.innerText = `${emoji} ${v} · ${data.classification}`;
-                el.style.color = v <= 25 ? '#ff1744' : v <= 40 ? '#ff9100' : v <= 55 ? '#ffd600' : v <= 70 ? '#aeea00' : '#00e676';
-            } catch {}
-        }
-
-        /* ─── Market ticker ─── */
-        async function fetchMarketStatus() {
-            try {
-                const res = await fetch('/api/market-status');
-                const data = await res.json();
-                const prices = data.prices || {};
-                for (const [sym, info] of Object.entries(prices)) {
-                    const id = 'mb' + sym.split('/')[0];
-                    const el = document.getElementById(id);
-                    if (!el) continue;
-                    const p = info.price;
-                    el.innerText = p > 100 ? p.toFixed(0) : p > 1 ? p.toFixed(2) : p.toFixed(4);
-                }
-            } catch {}
-        }
-
-        fetchFearGreed();
-        fetchMarketStatus();
-        setInterval(fetchFearGreed, 60000);
-        setInterval(fetchMarketStatus, 5000);
     </script>
 </body>
 </html>";

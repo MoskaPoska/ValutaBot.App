@@ -6,6 +6,10 @@ public static class TelegramNotifier
 {
     private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     private static string? _botToken;
+    private static long _defaultChatId;
+
+    public static void SetDefaultChatId(long chatId) => _defaultChatId = chatId;
+    public static long GetDefaultChatId() => _defaultChatId;
 
     public static void Init(string? token)
     {

@@ -7,7 +7,6 @@ public static class ClaudeSignalService
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private static string? _lastRawResponse;
-    private static readonly Dictionary<string, (string direction, double probability, string reasoning, long cachedAt)> _cache = new();
 
     public static string? GetLastRawResponse() => _lastRawResponse;
 
@@ -16,9 +15,6 @@ public static class ClaudeSignalService
         double rsi, double ema, double macd, double macdSignal,
         double adx, double bbZ, double volStrength, double imbalance)
     {
-        string key = $"{asset}_{prices.Length}";
-        if (_cache.TryGetValue(key, out var cached) && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - cached.cachedAt < 60)
-            return (cached.direction, cached.probability, cached.reasoning);
 
         try
         {
@@ -72,7 +68,7 @@ public static class ClaudeSignalService
 
             var body = new
             {
-                model = "anthropic/claude-opus-4.8",
+                model = "anthropic/claude-3.5-sonnet",
                 messages = new[]
                 {
                     new { role = "system", content = systemPrompt },
@@ -117,7 +113,6 @@ public static class ClaudeSignalService
             probability = Math.Clamp(probability, 50, 98);
 
             var result = (direction, probability, reasoning);
-            _cache[key] = (direction, probability, reasoning, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             return result;
         }
         catch (Exception ex)
