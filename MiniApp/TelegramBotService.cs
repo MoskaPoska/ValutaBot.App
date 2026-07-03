@@ -129,8 +129,10 @@ public class TelegramBotService : BackgroundService
             }
         }
 
+        string command = text.Split(' ')[0].Replace("@valutaPocket_bot", "").ToLower();
+
         // Owner command to configure admin
-        if (text == "/setadmin")
+        if (command == "/setadmin")
         {
             bool isAllowed = false;
             lock (_lock)
@@ -154,17 +156,17 @@ public class TelegramBotService : BackgroundService
                 {
                     TelegramNotifier.SetDefaultChatId(chatId);
                 }
-                await SendMessage(token, chatId, $"👑 <b>Вы успешно добавлены в список администраторов бота!</b>\n\nТеперь вам будут приходить заявки на регистрацию от новых пользователей.");
+                await SendMessage(token, chatId, $"👑 <b>Вы успешно добавлены в список администраторов бота!</b>\n\nТеперь сюда будут приходить заявки на регистрацию от новых пользователей.");
             }
             else
             {
-                await SendMessage(token, chatId, "❌ <b>Доступ запрещен.</b>\n\nВы не можете назначить себя администратором без разрешения главного админа.");
+                await SendMessage(token, chatId, "❌ <b>Доступ запрещен.</b>\n\nВы не можете назначить этот чат администратором без разрешения главного админа.");
             }
             return;
         }
 
         // Add another admin username to white-list
-        if (text.StartsWith("/addadmin"))
+        if (command == "/addadmin")
         {
             bool isAdmin;
             lock (_lock)
@@ -197,7 +199,7 @@ public class TelegramBotService : BackgroundService
         }
 
         // Get bot statistics
-        if (text == "/stats")
+        if (command == "/stats")
         {
             bool isAdmin;
             lock (_lock)
@@ -239,7 +241,7 @@ public class TelegramBotService : BackgroundService
         }
 
         // Test command to reset access
-        if (text == "/reset" || text == "/resetaccess")
+        if (command == "/reset" || command == "/resetaccess")
         {
             lock (_lock)
             {
@@ -250,7 +252,7 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
-        if (text.StartsWith("/start"))
+        if (command == "/start")
         {
             await SendWelcomeGated(token, chatId);
             return;
