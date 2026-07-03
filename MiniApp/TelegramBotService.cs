@@ -10,10 +10,13 @@ public class TelegramBotService : BackgroundService
     private static readonly string AllowedUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_users.json");
     private static readonly string AdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "admins.json");
     private static readonly string AllowedAdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_admin_usernames.json");
+    private static readonly string AllUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "all_users.json");
 
     private static readonly HashSet<long> AllowedUsers = new();
     private static readonly HashSet<long> AdminChatIds = new();
     private static readonly HashSet<string> AllowedAdminUsernames = new(StringComparer.OrdinalIgnoreCase) { "Vanchoys06" };
+    private static readonly HashSet<long> AllUsers = new();
+    private static readonly ConcurrentDictionary<long, DateTime> UserLastActivity = new();
     private static readonly object _lock = new();
 
     private enum UserState
@@ -44,6 +47,7 @@ public class TelegramBotService : BackgroundService
             LoadAllowedUsers();
             LoadAdmins();
             LoadAllowedAdminUsernames();
+            LoadAllUsers();
         }
 
         long offset = 0;
@@ -114,6 +118,17 @@ public class TelegramBotService : BackgroundService
 
     private static async Task HandleMessage(string token, long chatId, string text, string username, string webAppUrl)
     {
+        // Track activity & unique user
+        UserLastActivity[chatId] = DateTime.UtcNow;
+        lock (_lock)
+        {
+            if (!AllUsers.Contains(chatId))
+            {
+                AllUsers.Add(chatId);
+                SaveAllUsers();
+            }
+        }
+
         // Owner command to configure admin
         if (text == "/setadmin")
         {
@@ -178,6 +193,48 @@ public class TelegramBotService : BackgroundService
             {
                 await SendMessage(token, chatId, "❌ <b>Использование:</b> <code>/addadmin @username</code>");
             }
+            return;
+        }
+
+        // Get bot statistics
+        if (text == "/stats")
+        {
+            bool isAdmin;
+            lock (_lock)
+            {
+                isAdmin = AdminChatIds.Contains(chatId);
+            }
+
+            if (!isAdmin)
+            {
+                await SendMessage(token, chatId, "❌ <b>У вас нет прав администратора для просмотра статистики.</b>");
+                return;
+            }
+
+            int totalAll, totalAllowed, active15m, active24h;
+            lock (_lock)
+            {
+                totalAll = AllUsers.Count;
+                totalAllowed = AllowedUsers.Count;
+                active15m = UserLastActivity.Values.Count(t => DateTime.UtcNow - t <= TimeSpan.FromMinutes(15));
+                active24h = UserLastActivity.Values.Count(t => DateTime.UtcNow - t <= TimeSpan.FromDays(1));
+            }
+
+            double accuracy = SignalTracker.GetOverallAccuracy();
+            int totalPredictions = SignalTracker.GetTotalPredictions();
+
+            string statsText = "📊 <b>Статистика TradeAI Bot</b>\n\n" +
+                               $"👥 <b>Пользователи:</b>\n" +
+                               $"├ Всего запустили: <code>{totalAll}</code>\n" +
+                               $"├ Одобрено (доступ открыт): <code>{totalAllowed}</code>\n" +
+                               $"├ Активны за 15 мин: <code>{active15m}</code>\n" +
+                               $"└ Активны за 24 часа: <code>{active24h}</code>\n\n" +
+                               $"📈 <b>Работа сигналов:</b>\n" +
+                               $"├ Всего прогнозов: <code>{totalPredictions}</code>\n" +
+                               $"└ Точность прогнозов (WinRate): <code>{accuracy}%</code>\n\n" +
+                               $"👑 Администраторов подключено: <code>{AdminChatIds.Count}</code>";
+
+            await SendMessage(token, chatId, statsText);
             return;
         }
 
@@ -270,6 +327,9 @@ public class TelegramBotService : BackgroundService
 
     private static async Task HandleCallback(string token, string queryId, long chatId, string data, int messageId, string username, string webAppUrl)
     {
+        // Track activity
+        UserLastActivity[chatId] = DateTime.UtcNow;
+
         if (data == "check_reg")
         {
             bool isAllowed;
@@ -555,6 +615,41 @@ public class TelegramBotService : BackgroundService
         catch (Exception ex)
         {
             Console.WriteLine($"[TG Bot] Error saving allowed admin usernames: {ex.Message}");
+        }
+    }
+
+    private static void LoadAllUsers()
+    {
+        try
+        {
+            if (File.Exists(AllUsersFile))
+            {
+                var json = File.ReadAllText(AllUsersFile);
+                var list = JsonSerializer.Deserialize<List<long>>(json);
+                if (list != null)
+                {
+                    AllUsers.Clear();
+                    foreach (var id in list) AllUsers.Add(id);
+                    Console.WriteLine($"[TG Bot] Loaded {AllUsers.Count} all users");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error loading all users: {ex.Message}");
+        }
+    }
+
+    private static void SaveAllUsers()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(AllUsers.ToList());
+            File.WriteAllText(AllUsersFile, json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error saving all users: {ex.Message}");
         }
     }
 }
