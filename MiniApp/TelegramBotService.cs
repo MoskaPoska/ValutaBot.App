@@ -8,7 +8,12 @@ public class TelegramBotService : BackgroundService
 {
     private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
     private static readonly string AllowedUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_users.json");
+    private static readonly string AdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "admins.json");
+    private static readonly string AllowedAdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_admin_usernames.json");
+
     private static readonly HashSet<long> AllowedUsers = new();
+    private static readonly HashSet<long> AdminChatIds = new();
+    private static readonly HashSet<string> AllowedAdminUsernames = new(StringComparer.OrdinalIgnoreCase) { "Vanchoys06" };
     private static readonly object _lock = new();
 
     private enum UserState
@@ -37,6 +42,8 @@ public class TelegramBotService : BackgroundService
         lock (_lock)
         {
             LoadAllowedUsers();
+            LoadAdmins();
+            LoadAllowedAdminUsernames();
         }
 
         long offset = 0;
@@ -110,8 +117,67 @@ public class TelegramBotService : BackgroundService
         // Owner command to configure admin
         if (text == "/setadmin")
         {
-            TelegramNotifier.SetDefaultChatId(chatId);
-            await SendMessage(token, chatId, $"👑 <b>Вы назначены администратором бота!</b>\n\nID чата администратора: <code>{chatId}</code>. Сюда будут приходить заявки на регистрацию.");
+            bool isAllowed = false;
+            lock (_lock)
+            {
+                if (AdminChatIds.Count == 0 || 
+                    (!string.IsNullOrEmpty(username) && AllowedAdminUsernames.Contains(username)) || 
+                    AdminChatIds.Contains(chatId))
+                {
+                    if (!AdminChatIds.Contains(chatId))
+                    {
+                        AdminChatIds.Add(chatId);
+                        SaveAdmins();
+                    }
+                    isAllowed = true;
+                }
+            }
+
+            if (isAllowed)
+            {
+                if (TelegramNotifier.GetDefaultChatId() <= 0)
+                {
+                    TelegramNotifier.SetDefaultChatId(chatId);
+                }
+                await SendMessage(token, chatId, $"👑 <b>Вы успешно добавлены в список администраторов бота!</b>\n\nТеперь вам будут приходить заявки на регистрацию от новых пользователей.");
+            }
+            else
+            {
+                await SendMessage(token, chatId, "❌ <b>Доступ запрещен.</b>\n\nВы не можете назначить себя администратором без разрешения главного админа.");
+            }
+            return;
+        }
+
+        // Add another admin username to white-list
+        if (text.StartsWith("/addadmin"))
+        {
+            bool isAdmin;
+            lock (_lock)
+            {
+                isAdmin = AdminChatIds.Contains(chatId);
+            }
+
+            if (!isAdmin)
+            {
+                await SendMessage(token, chatId, "❌ <b>У вас нет прав администратора для выполнения этой команды.</b>");
+                return;
+            }
+
+            var match = Regex.Match(text, @"@?([a-zA-Z0-9_]{5,32})");
+            if (match.Success)
+            {
+                string targetUsername = match.Groups[1].Value;
+                lock (_lock)
+                {
+                    AllowedAdminUsernames.Add(targetUsername);
+                    SaveAllowedAdminUsernames();
+                }
+                await SendMessage(token, chatId, $"✅ <b>Пользователь @{targetUsername} добавлен в белый список администраторов!</b>\n\nТеперь он может зайти в бот и отправить команду `/setadmin`, чтобы стать администратором.");
+            }
+            else
+            {
+                await SendMessage(token, chatId, "❌ <b>Использование:</b> <code>/addadmin @username</code>");
+            }
             return;
         }
 
@@ -133,13 +199,13 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
-        bool isAllowed;
+        bool isAllowedUser;
         lock (_lock)
         {
-            isAllowed = AllowedUsers.Contains(chatId);
+            isAllowedUser = AllowedUsers.Contains(chatId);
         }
 
-        if (isAllowed)
+        if (isAllowedUser)
         {
             await SendWelcomeAllowed(token, chatId, webAppUrl);
             return;
@@ -156,8 +222,13 @@ public class TelegramBotService : BackgroundService
 
                 await SendMessage(token, chatId, $"⏳ <b>Ваш ID ({pocketId}) принят и отправлен на проверку.</b>\n\nОбычно это занимает 1-2 минуты. Пожалуйста, ожидайте уведомления!");
 
-                long adminChatId = TelegramNotifier.GetDefaultChatId();
-                if (adminChatId > 0)
+                List<long> adminsToNotify;
+                lock (_lock)
+                {
+                    adminsToNotify = AdminChatIds.ToList();
+                }
+
+                if (adminsToNotify.Count > 0)
                 {
                     string userDisplay = string.IsNullOrEmpty(username) ? $"ID {chatId}" : $"@{username}";
                     string adminText = $"🔔 <b>Новая заявка на доступ!</b>\n\n" +
@@ -177,11 +248,14 @@ public class TelegramBotService : BackgroundService
                         }
                     };
 
-                    await SendMessageWithKeyboard(token, adminChatId, adminText, keyboard);
+                    foreach (long adminId in adminsToNotify)
+                    {
+                        _ = SendMessageWithKeyboard(token, adminId, adminText, keyboard);
+                    }
                 }
                 else
                 {
-                    Console.WriteLine($"[TG Bot] Admin Chat ID is not set. Use /setadmin in the bot first.");
+                    Console.WriteLine($"[TG Bot] No admins registered yet. Use /setadmin first.");
                 }
             }
             else
@@ -411,6 +485,76 @@ public class TelegramBotService : BackgroundService
         catch (Exception ex)
         {
             Console.WriteLine($"[TG Bot] Error saving allowed users: {ex.Message}");
+        }
+    }
+
+    private static void LoadAdmins()
+    {
+        try
+        {
+            if (File.Exists(AdminsFile))
+            {
+                var json = File.ReadAllText(AdminsFile);
+                var list = JsonSerializer.Deserialize<List<long>>(json);
+                if (list != null)
+                {
+                    AdminChatIds.Clear();
+                    foreach (var id in list) AdminChatIds.Add(id);
+                    Console.WriteLine($"[TG Bot] Loaded {AdminChatIds.Count} admins");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error loading admins: {ex.Message}");
+        }
+    }
+
+    private static void SaveAdmins()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(AdminChatIds.ToList());
+            File.WriteAllText(AdminsFile, json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error saving admins: {ex.Message}");
+        }
+    }
+
+    private static void LoadAllowedAdminUsernames()
+    {
+        try
+        {
+            if (File.Exists(AllowedAdminsFile))
+            {
+                var json = File.ReadAllText(AllowedAdminsFile);
+                var list = JsonSerializer.Deserialize<List<string>>(json);
+                if (list != null)
+                {
+                    AllowedAdminUsernames.Clear();
+                    foreach (var username in list) AllowedAdminUsernames.Add(username);
+                    Console.WriteLine($"[TG Bot] Loaded {AllowedAdminUsernames.Count} allowed admin usernames");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error loading allowed admin usernames: {ex.Message}");
+        }
+    }
+
+    private static void SaveAllowedAdminUsernames()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(AllowedAdminUsernames.ToList());
+            File.WriteAllText(AllowedAdminsFile, json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error saving allowed admin usernames: {ex.Message}");
         }
     }
 }
