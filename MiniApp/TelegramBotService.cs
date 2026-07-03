@@ -154,7 +154,7 @@ public class TelegramBotService : BackgroundService
                 UserSubmittedIds[chatId] = pocketId;
                 UserStates[chatId] = UserState.None;
 
-                await SendMessage(token, chatId, $"⏳ <b>Ваш ID ({pocketId}) отправлен на проверку.</b>\n\nОбычно это занимает 5-15 минут. Я пришлю вам уведомление, как только доступ будет открыт!");
+                await SendMessage(token, chatId, $"⏳ <b>Ваш ID ({pocketId}) принят и отправлен на проверку.</b>\n\nОбычно это занимает 1-2 минуты. Пожалуйста, ожидайте уведомления!");
 
                 long adminChatId = TelegramNotifier.GetDefaultChatId();
                 if (adminChatId > 0)
