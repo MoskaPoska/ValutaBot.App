@@ -129,7 +129,15 @@ public class TelegramBotService : BackgroundService
             }
         }
 
-        string command = text.Split(' ')[0].Replace("@valutaPocket_bot", "").ToLower();
+        string cleanText = text.Trim();
+        string command = cleanText.Split(' ')[0].Replace("@valutaPocket_bot", "").ToLower();
+
+        // Check Admin commands first
+        bool isAdmin;
+        lock (_lock)
+        {
+            isAdmin = AdminChatIds.Contains(chatId);
+        }
 
         // Owner command to configure admin
         if (command == "/setadmin")
@@ -156,7 +164,7 @@ public class TelegramBotService : BackgroundService
                 {
                     TelegramNotifier.SetDefaultChatId(chatId);
                 }
-                await SendMessage(token, chatId, $"👑 <b>Вы успешно добавлены в список администраторов бота!</b>\n\nТеперь сюда будут приходить заявки на регистрацию от новых пользователей.");
+                await SendAdminWelcome(token, chatId, webAppUrl);
             }
             else
             {
@@ -166,21 +174,21 @@ public class TelegramBotService : BackgroundService
         }
 
         // Add another admin username to white-list
-        if (command == "/addadmin")
+        if (command == "/addadmin" || cleanText == "➕ Добавить админа")
         {
-            bool isAdmin;
-            lock (_lock)
-            {
-                isAdmin = AdminChatIds.Contains(chatId);
-            }
-
             if (!isAdmin)
             {
                 await SendMessage(token, chatId, "❌ <b>У вас нет прав администратора для выполнения этой команды.</b>");
                 return;
             }
 
-            var match = Regex.Match(text, @"@?([a-zA-Z0-9_]{5,32})");
+            if (cleanText == "➕ Добавить админа")
+            {
+                await SendMessage(token, chatId, "✍️ <b>Чтобы добавить администратора, отправьте команду:</b>\n\n<code>/addadmin @username</code>");
+                return;
+            }
+
+            var match = Regex.Match(cleanText, @"/addadmin\s+@?([a-zA-Z0-9_]{5,32})");
             if (match.Success)
             {
                 string targetUsername = match.Groups[1].Value;
@@ -199,14 +207,8 @@ public class TelegramBotService : BackgroundService
         }
 
         // Get bot statistics
-        if (command == "/stats")
+        if (command == "/stats" || cleanText == "📊 Статистика")
         {
-            bool isAdmin;
-            lock (_lock)
-            {
-                isAdmin = AdminChatIds.Contains(chatId);
-            }
-
             if (!isAdmin)
             {
                 await SendMessage(token, chatId, "❌ <b>У вас нет прав администратора для просмотра статистики.</b>");
@@ -252,27 +254,43 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
-        if (command == "/start")
+        // Instruction command
+        if (command == "/help" || cleanText == "❓ Инструкция")
         {
-            await SendWelcomeGated(token, chatId);
+            string helpText = "📖 <b>Инструкция по использованию TradeAI:</b>\n\n" +
+                               "1. Нажмите кнопку <b>📊 Открыть TradeAI</b> внизу экрана.\n" +
+                               "2. Выберите интересующую валютную пару и таймфрейм.\n" +
+                               "3. Бот проанализирует рынок по техническим индикаторам, объемам и выдаст точный прогноз (BUY/PUT) с процентом уверенности.";
+            await SendMessage(token, chatId, helpText);
             return;
         }
 
-        bool isAllowedUser;
-        lock (_lock)
+        if (command == "/start")
         {
-            isAllowedUser = AllowedUsers.Contains(chatId);
-        }
+            bool isAllowedUser;
+            lock (_lock)
+            {
+                isAllowedUser = AllowedUsers.Contains(chatId);
+            }
 
-        if (isAllowedUser)
-        {
-            await SendWelcomeAllowed(token, chatId, webAppUrl);
+            if (isAdmin)
+            {
+                await SendAdminWelcome(token, chatId, webAppUrl);
+            }
+            else if (isAllowedUser)
+            {
+                await SendUserWelcome(token, chatId, webAppUrl);
+            }
+            else
+            {
+                await SendGatedWelcome(token, chatId);
+            }
             return;
         }
 
         if (UserStates.TryGetValue(chatId, out var state) && state == UserState.AwaitingId)
         {
-            var match = Regex.Match(text, @"\d{7,10}");
+            var match = Regex.Match(cleanText, @"\d{7,10}");
             if (match.Success)
             {
                 string pocketId = match.Value;
@@ -324,7 +342,25 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
-        await SendWelcomeGated(token, chatId);
+        // Catch-all welcome screen based on role
+        bool isUserAllowed;
+        lock (_lock)
+        {
+            isUserAllowed = AllowedUsers.Contains(chatId);
+        }
+
+        if (isAdmin)
+        {
+            await SendAdminWelcome(token, chatId, webAppUrl);
+        }
+        else if (isUserAllowed)
+        {
+            await SendUserWelcome(token, chatId, webAppUrl);
+        }
+        else
+        {
+            await SendGatedWelcome(token, chatId);
+        }
     }
 
     private static async Task HandleCallback(string token, string queryId, long chatId, string data, int messageId, string username, string webAppUrl)
@@ -343,7 +379,7 @@ public class TelegramBotService : BackgroundService
             if (isAllowed)
             {
                 await AnswerCallbackQuery(token, queryId, "Доступ уже открыт!");
-                await SendWelcomeAllowed(token, chatId, webAppUrl);
+                await SendUserWelcome(token, chatId, webAppUrl);
                 return;
             }
 
@@ -369,7 +405,7 @@ public class TelegramBotService : BackgroundService
 
             // Notify user
             await SendMessage(token, userChatId, "🎉 <b>Поздравляем! Доступ к ИИ-анализатору открыт.</b>");
-            await SendWelcomeAllowed(token, userChatId, webAppUrl);
+            await SendUserWelcome(token, userChatId, webAppUrl);
 
             // Edit admin message
             string userDisplay = string.IsNullOrEmpty(username) ? $"ID {userChatId}" : $"@{username}";
@@ -390,7 +426,7 @@ public class TelegramBotService : BackgroundService
             await SendMessage(token, userChatId, "❌ <b>Доступ отклонен.</b>\n\n" +
                                                "Регистрация с указанным ID не найдена под нашей реферальной ссылкой.\n\n" +
                                                "Пожалуйста, убедитесь, что вы зарегистрировали новый аккаунт строго по нашей ссылке и ввели корректный ID.");
-            await SendWelcomeGated(token, userChatId);
+            await SendGatedWelcome(token, userChatId);
 
             // Edit admin message
             string userDisplay = string.IsNullOrEmpty(username) ? $"ID {userChatId}" : $"@{username}";
@@ -402,7 +438,7 @@ public class TelegramBotService : BackgroundService
         }
     }
 
-    private static async Task SendWelcomeGated(string token, long chatId)
+    private static async Task SendGatedWelcome(string token, long chatId)
     {
         string text = "🤖 <b>TradeAI — AI анализ графиков</b>\n\n" +
                       "Для доступа к анализатору нужно:\n" +
@@ -410,7 +446,7 @@ public class TelegramBotService : BackgroundService
                       "2. Нажать «Я зарегистрировался»\n\n" +
                       "Это занимает 1 минуту.";
 
-        var keyboard = new
+        var inlineKeyboard = new
         {
             inline_keyboard = new object[]
             {
@@ -425,16 +461,52 @@ public class TelegramBotService : BackgroundService
             }
         };
 
-        await SendMessageWithKeyboard(token, chatId, text, keyboard);
+        var replyKeyboard = new
+        {
+            keyboard = new object[]
+            {
+                new object[] { new { text = "❓ Инструкция" } }
+            },
+            resize_keyboard = true
+        };
+
+        try
+        {
+            var payload = new 
+            { 
+                chat_id = chatId, 
+                text, 
+                parse_mode = "HTML", 
+                reply_markup = inlineKeyboard 
+            };
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+
+            // Send standard reply keyboard setup as separate small introduction to keep inputs clean
+            var configPayload = new 
+            { 
+                chat_id = chatId, 
+                text = "Используйте меню внизу чата для вызова справки.", 
+                reply_markup = replyKeyboard 
+            };
+            var configJson = JsonSerializer.Serialize(configPayload);
+            var configContent = new StringContent(configJson, System.Text.Encoding.UTF8, "application/json");
+            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", configContent);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] SendGatedWelcome exception: {ex.Message}");
+        }
     }
 
-    private static async Task SendWelcomeAllowed(string token, long chatId, string webAppUrl)
+    private static async Task SendUserWelcome(string token, long chatId, string webAppUrl)
     {
-        string text = "✅ <b>Доступ открыт!</b> Нажимай «Открыть TradeAI» чтобы начать анализ.";
+        string text = "✅ <b>Доступ открыт!</b>\n\nИспользуйте кнопку <b>📊 Открыть TradeAI</b> в меню внизу чата, чтобы запустить анализатор.";
 
         var keyboard = new
         {
-            inline_keyboard = new object[]
+            keyboard = new object[]
             {
                 new object[]
                 {
@@ -442,12 +514,58 @@ public class TelegramBotService : BackgroundService
                 },
                 new object[]
                 {
-                    new { text = "💰 Pocket Option", url = "https://pocket-friends.co/r/d53em1oh52" }
+                    new { text = "❓ Инструкция" }
                 }
-            }
+            },
+            resize_keyboard = true,
+            is_persistent = true
         };
 
-        await SendMessageWithKeyboard(token, chatId, text, keyboard);
+        try
+        {
+            var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] SendUserWelcome exception: {ex.Message}");
+        }
+    }
+
+    private static async Task SendAdminWelcome(string token, long chatId, string webAppUrl)
+    {
+        string text = "👑 <b>Панель администратора TradeAI</b>\n\nИспользуйте меню внизу экрана для управления ботом.";
+
+        var keyboard = new
+        {
+            keyboard = new object[]
+            {
+                new object[]
+                {
+                    new { text = "📊 Статистика" },
+                    new { text = "➕ Добавить админа" }
+                },
+                new object[]
+                {
+                    new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
+                }
+            },
+            resize_keyboard = true
+        };
+
+        try
+        {
+            var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] SendAdminWelcome exception: {ex.Message}");
+        }
     }
 
     private static async Task SendMessage(string token, long chatId, string text)
