@@ -18,6 +18,7 @@ public class TelegramBotService : BackgroundService
     private static readonly HashSet<long> AllUsers = new();
     private static readonly ConcurrentDictionary<long, DateTime> UserLastActivity = new();
     private static readonly object _lock = new();
+    private static string _webAppUrl = "https://chowder-dreamland-spotlight.ngrok-free.dev";
 
     private enum UserState
     {
@@ -37,10 +38,10 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
-        string webAppUrl = Environment.GetEnvironmentVariable("WEBAPP_URL") 
+        _webAppUrl = Environment.GetEnvironmentVariable("WEBAPP_URL") 
             ?? "https://chowder-dreamland-spotlight.ngrok-free.dev";
 
-        Console.WriteLine($"[TG Bot] Service started. WebApp URL: {webAppUrl}");
+        Console.WriteLine($"[TG Bot] Service started. WebApp URL: {_webAppUrl}");
 
         lock (_lock)
         {
@@ -84,7 +85,7 @@ public class TelegramBotService : BackgroundService
                                 username = fromUser.TryGetProperty("username", out var uProp) ? (uProp.GetString() ?? "") : "";
                             }
 
-                            await HandleMessage(token, chatId, text, username, webAppUrl);
+                            await HandleMessage(token, chatId, text, username, _webAppUrl);
                         }
                         else if (update.TryGetProperty("callback_query", out var callbackQuery))
                         {
@@ -99,7 +100,7 @@ public class TelegramBotService : BackgroundService
                                 username = fromUser.TryGetProperty("username", out var uProp) ? (uProp.GetString() ?? "") : "";
                             }
 
-                            await HandleCallback(token, queryId, chatId, data, messageId, username, webAppUrl);
+                            await HandleCallback(token, queryId, chatId, data, messageId, username, _webAppUrl);
                         }
                     }
                 }
@@ -452,7 +453,7 @@ public class TelegramBotService : BackgroundService
             {
                 new object[]
                 {
-                    new { text = "1️⃣ Зарегистрироваться на Pocket Option", url = "https://pocket-friends.co/r/d53em1oh52" }
+                    new { text = "1️⃣ Зарегистрироваться на Pocket Option", url = $"https://pocket-friends.co/r/d53em1oh52?subid={chatId}&sub1={chatId}" }
                 },
                 new object[]
                 {
@@ -565,6 +566,38 @@ public class TelegramBotService : BackgroundService
         catch (Exception ex)
         {
             Console.WriteLine($"[TG Bot] SendAdminWelcome exception: {ex.Message}");
+        }
+    }
+
+    public static async Task AutoApproveUser(long chatId)
+    {
+        string? token = TelegramNotifier.GetToken();
+        if (string.IsNullOrEmpty(token)) return;
+
+        lock (_lock)
+        {
+            if (!AllowedUsers.Contains(chatId))
+            {
+                AllowedUsers.Add(chatId);
+                SaveAllowedUsers();
+            }
+        }
+
+        // Notify user
+        await SendMessage(token, chatId, "🎉 <b>Поздравляем! Ваш аккаунт Pocket Option успешно подтвержден автоматически.</b>");
+        await SendUserWelcome(token, chatId, _webAppUrl);
+
+        // Notify admins
+        List<long> adminsToNotify;
+        lock (_lock)
+        {
+            adminsToNotify = AdminChatIds.ToList();
+        }
+        
+        string adminText = $"⚡ <b>Авто-регистрация!</b>\n\n👤 Пользователь (Chat ID: <code>{chatId}</code>) успешно зарегистрировался по вашей ссылке и автоматически получил доступ.";
+        foreach (long adminId in adminsToNotify)
+        {
+            _ = SendMessage(token, adminId, adminText);
         }
     }
 

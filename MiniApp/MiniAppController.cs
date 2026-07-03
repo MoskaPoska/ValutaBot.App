@@ -142,6 +142,19 @@ public static class MiniAppController
             return Results.Ok();
         });
 
+        /* ─── Postback Endpoint ─── */
+        app.MapGet("/api/postback", async (HttpContext context) =>
+        {
+            var query = context.Request.Query;
+            if (query.TryGetValue("chatId", out var chatIdStr) && long.TryParse(chatIdStr, out long chatId))
+            {
+                Console.WriteLine($"[Postback] Received registration for Chat ID: {chatId}");
+                await TelegramBotService.AutoApproveUser(chatId);
+                return Results.Ok(new { success = true, message = $"User {chatId} approved" });
+            }
+            return Results.BadRequest(new { success = false, error = "Invalid or missing chatId" });
+        });
+
         app.Run($"http://0.0.0.0:{port}");
     }
 
