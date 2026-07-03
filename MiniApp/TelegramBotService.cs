@@ -270,7 +270,7 @@ public class TelegramBotService : BackgroundService
     {
         string text = "🤖 <b>TradeAI — AI анализ графиков</b>\n\n" +
                       "Для доступа к анализатору нужно:\n" +
-                      "1. Зарегистрироваться на Pocket Option (бонус 30% к депозиту)\n" +
+                      "1. Зарегистрироваться на Pocket Option\n" +
                       "2. Нажать «Я зарегистрировался»\n\n" +
                       "Это занимает 1 минуту.";
 
@@ -306,7 +306,7 @@ public class TelegramBotService : BackgroundService
                 },
                 new object[]
                 {
-                    new { text = "💰 Pocket Option (бонус 30%)", url = "https://pocket-friends.co/r/d53em1oh52" }
+                    new { text = "💰 Pocket Option", url = "https://pocket-friends.co/r/d53em1oh52" }
                 }
             }
         };
