@@ -115,6 +115,24 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
+        // Test command to reset access
+        if (text == "/reset" || text == "/resetaccess")
+        {
+            lock (_lock)
+            {
+                AllowedUsers.Remove(chatId);
+                SaveAllowedUsers();
+            }
+            await SendMessage(token, chatId, "🔄 <b>Ваш доступ сброшен!</b> Теперь вы можете протестировать бота как новый (незарегистрированный) пользователь. Отправьте /start для начала.");
+            return;
+        }
+
+        if (text.StartsWith("/start"))
+        {
+            await SendWelcomeGated(token, chatId);
+            return;
+        }
+
         bool isAllowed;
         lock (_lock)
         {
