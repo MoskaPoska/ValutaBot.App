@@ -246,7 +246,17 @@ public static class MiniAppController
             var openTime = DateTimeOffset.FromUnixTimeMilliseconds(openTimeMs).UtcDateTime;
             if (DateTime.UtcNow - openTime > TimeSpan.FromMinutes(30))
             {
-                throw new Exception($"Binance symbol {symbol} has stale data from {openTime}");
+                bool isWeekend = DateTime.UtcNow.DayOfWeek == DayOfWeek.Saturday || 
+                                 DateTime.UtcNow.DayOfWeek == DayOfWeek.Sunday || 
+                                 DateTime.UtcNow.DayOfWeek == DayOfWeek.Friday;
+                if (isWeekend)
+                {
+                    Console.WriteLine($"[Weekend] Proceeding with stale weekend data for {symbol} ({openTime})");
+                }
+                else
+                {
+                    throw new Exception($"Binance symbol {symbol} has stale data from {openTime}");
+                }
             }
         }
 
