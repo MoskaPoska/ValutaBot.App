@@ -25,6 +25,12 @@ public static class ClaudeSignalService
                 Console.WriteLine("[Claude] No API key configured");
                 return ("NEUTRAL", 50, "Ключ OpenRouter не настроен");
             }
+            
+            apiKey = apiKey.Trim();
+            string maskedKey = apiKey.Length > 8 
+                ? $"{apiKey.Substring(0, 6)}...{apiKey.Substring(apiKey.Length - 4)}" 
+                : "***";
+            Console.WriteLine($"[Claude] Using API key: {maskedKey} (length: {apiKey.Length})");
 
             double change = prices.Length >= 2
                 ? (prices[^1] - prices[0]) / prices[0] * 100 : 0;

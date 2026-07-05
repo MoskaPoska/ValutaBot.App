@@ -1376,6 +1376,8 @@ public static class MiniAppUI
                     if (data.tfConflict) {
                         document.getElementById('resProb').innerText += ' \u26A0\uFE0F';
                     }
+                    // ML and News cards are disabled/hidden by user request.
+                    /*
                     if (data.mlDirection && data.mlDirection !== 'NEUTRAL') {
                         const mc = document.getElementById('mlCard');
                         mc.style.display = 'flex';
@@ -1401,6 +1403,7 @@ public static class MiniAppUI
                             nl.innerHTML = '';
                         }
                     }
+                    */
 
                     if (data.claudeDirection && data.claudeReasoning) {
                         const cc = document.getElementById('claudeCard');
