@@ -18,10 +18,11 @@ public static class ClaudeSignalService
 
         try
         {
-            string apiKey = Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
+            string apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") 
+                ?? Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
             if (string.IsNullOrEmpty(apiKey))
             {
-                Console.WriteLine("[Claude] No OpenRouterApiKey in env");
+                Console.WriteLine("[Claude] No API key configured");
                 return ("NEUTRAL", 50, "Ключ OpenRouter не настроен");
             }
 

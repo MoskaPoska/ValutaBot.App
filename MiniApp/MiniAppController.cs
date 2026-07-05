@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -140,6 +141,52 @@ public static class MiniAppController
             if (body != null && body.TryGetValue("chatId", out var chatId))
                 AlertService.SetDefaultChatId(chatId);
             return Results.Ok();
+        });
+
+        /* ─── Test Claude Diagnostics ─── */
+        app.MapGet("/api/test-claude", async (HttpContext context) =>
+        {
+            try
+            {
+                string apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") 
+                    ?? Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
+                if (string.IsNullOrEmpty(apiKey))
+                {
+                    return Results.Json(new { error = "No API key configured" });
+                }
+
+                var body = new
+                {
+                    model = "anthropic/claude-3.5-sonnet",
+                    messages = new[]
+                    {
+                        new { role = "user", content = "Hello, respond with 1 word." }
+                    },
+                    temperature = 0.2,
+                    max_tokens = 10
+                };
+
+                var json = JsonSerializer.Serialize(body);
+                using var request = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+                request.Headers.Add("HTTP-Referer", "https://valutabotapp-production.up.railway.app");
+                request.Headers.Add("X-Title", "ValutaBot");
+
+                using var response = await _httpClient.SendAsync(request);
+                string responseBody = await response.Content.ReadAsStringAsync();
+                return Results.Json(new
+                {
+                    status = (int)response.StatusCode,
+                    body = responseBody
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { error = ex.Message });
+            }
         });
 
         /* ─── Postback Endpoint ─── */
