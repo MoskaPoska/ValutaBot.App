@@ -101,6 +101,8 @@ public static class ClaudeSignalService
                 + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
 
             string[] modelSlugs = new[] {
+                "anthropic/claude-3-opus",
+                "anthropic/claude-3-opus:beta",
                 "anthropic/claude-3.5-sonnet",
                 "anthropic/claude-3-5-sonnet",
                 "anthropic/claude-3.5-sonnet:beta",
