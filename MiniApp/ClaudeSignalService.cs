@@ -92,6 +92,13 @@ public static class ClaudeSignalService
             string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             _lastRawResponse = responseBody;
 
+            Console.WriteLine($"[Claude] Response HTTP {(int)response.StatusCode}: {responseBody}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"HTTP {(int)response.StatusCode}: {responseBody}");
+            }
+
             using var doc = JsonDocument.Parse(responseBody);
             string content = doc.RootElement
                 .GetProperty("choices")[0]

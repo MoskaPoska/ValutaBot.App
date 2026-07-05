@@ -845,20 +845,18 @@ public static class MiniAppController
             }
 
             // ─── Направление ───
-            string direction;
-            if (probability < 50 && momentumSignal != 0 && momentumSignal == overallTrend)
-            {
-                direction = momentumSignal > 0 ? "BUY" : "PUT";
-                probability = 68;
-                Console.WriteLine($"[Override] weak indicators, momentum={direction}");
-            }
-            else
+            string direction = claudeResult.direction;
+            probability = (int)claudeResult.probability;
+
+            if (direction == "NEUTRAL")
             {
                 direction = totalScore >= 0 ? "BUY" : "PUT";
+                probability = 50;
+                Console.WriteLine($"[Claude Failed] Fallback to indicators direction: {direction}");
             }
 
             // ─── TF consensus boost for major pairs ───
-            if (isMajor && tfAgreement >= 5)
+            if (isMajor && tfAgreement >= 5 && claudeResult.direction == "NEUTRAL")
             {
                 probability = Math.Clamp(probability + 8, 55, 98);
                 Console.WriteLine($"[Major] TF agreement {tfAgreement}/7 → probability boosted to {probability}%");

@@ -115,6 +115,11 @@ public static class NewsAnalysisService
 
     private static (double score, string sentiment, string summary) AnalyzeWithLlm(List<string> headlines)
     {
+        return (0, "Нейтральной", "Анализ новостей отключен");
+    }
+
+    private static (double score, string sentiment, string summary) AnalyzeWithLlm_Disabled(List<string> headlines)
+    {
         string apiKey = Environment.GetEnvironmentVariable("OpenAiApiKey") ?? "";
         if (string.IsNullOrEmpty(apiKey))
         {
