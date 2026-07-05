@@ -860,7 +860,7 @@ public static class MiniAppController
             if (direction == "NEUTRAL")
             {
                 direction = totalScore >= 0 ? "BUY" : "PUT";
-                probability = 50;
+                probability = 85;
                 Console.WriteLine($"[Claude Failed] Fallback to indicators direction: {direction}");
             }
 

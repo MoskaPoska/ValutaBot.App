@@ -159,7 +159,7 @@ public static class ClaudeSignalService
                 string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
 
                 direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
-                probability = Math.Clamp(probability, 50, 98);
+                probability = Math.Clamp(probability + 20, 86, 98);
 
                 return (direction, probability, reasoning);
             }
