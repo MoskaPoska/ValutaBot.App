@@ -192,13 +192,32 @@ public static class MiniAppController
         app.MapGet("/api/postback", async (HttpContext context) =>
         {
             var query = context.Request.Query;
-            if (query.TryGetValue("chatId", out var chatIdStr) && long.TryParse(chatIdStr, out long chatId))
+            
+            string pocketId = query.TryGetValue("pocketId", out var pVal) ? pVal.ToString().Trim() : "";
+            string status = query.TryGetValue("status", out var sVal) ? sVal.ToString().Trim().ToLower() : "";
+            
+            double deposit = 0;
+            if (query.TryGetValue("deposit", out var dVal))
             {
-                Console.WriteLine($"[Postback] Received registration for Chat ID: {chatId}");
-                await TelegramBotService.AutoApproveUser(chatId);
-                return Results.Ok(new { success = true, message = $"User {chatId} approved" });
+                double.TryParse(dVal.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out deposit);
             }
-            return Results.BadRequest(new { success = false, error = "Invalid or missing chatId" });
+
+            long chatId = 0;
+            if (query.TryGetValue("chatId", out var cVal))
+            {
+                long.TryParse(cVal.ToString(), out chatId);
+            }
+
+            if (string.IsNullOrEmpty(pocketId))
+            {
+                return Results.BadRequest(new { success = false, error = "pocketId is required" });
+            }
+
+            Console.WriteLine($"[Postback] Received: pocketId={pocketId}, chatId={chatId}, status={status}, deposit={deposit}");
+
+            await TelegramBotService.ProcessPostback(chatId, pocketId, status, deposit);
+
+            return Results.Ok(new { success = true, message = "Postback processed successfully" });
         });
 
         app.Run($"http://0.0.0.0:{port}");

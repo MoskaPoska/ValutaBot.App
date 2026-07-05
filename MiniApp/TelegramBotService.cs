@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -11,6 +12,17 @@ public class TelegramBotService : BackgroundService
     private static readonly string AdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "admins.json");
     private static readonly string AllowedAdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_admin_usernames.json");
     private static readonly string AllUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "all_users.json");
+    private static readonly string RegistrationsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "registrations.json");
+    private static readonly ConcurrentDictionary<string, PocketRegistration> PocketRegistrations = new();
+
+    public class PocketRegistration
+    {
+        public long ChatId { get; set; }
+        public string PocketId { get; set; } = "";
+        public bool HasRegistered { get; set; }
+        public bool HasDeposited { get; set; }
+        public double DepositAmount { get; set; }
+    }
 
     private static readonly HashSet<long> AllowedUsers = new();
     private static readonly HashSet<long> AdminChatIds = new();
@@ -49,6 +61,7 @@ public class TelegramBotService : BackgroundService
             LoadAdmins();
             LoadAllowedAdminUsernames();
             LoadAllUsers();
+            LoadRegistrations();
         }
 
         long offset = 0;
@@ -195,42 +208,97 @@ public class TelegramBotService : BackgroundService
                 UserSubmittedIds[chatId] = pocketId;
                 UserStates[chatId] = UserState.None;
 
-                await SendMessage(token, chatId, $"⏳ <b>Ваш ID ({pocketId}) принят и отправлен на проверку.</b>\n\nОбычно это занимает 1-2 минуты. Пожалуйста, ожидайте уведомления!");
-
-                List<long> adminsToNotify;
+                bool foundReg = false;
+                bool hasDeposited = false;
                 lock (_lock)
                 {
-                    adminsToNotify = AdminChatIds.ToList();
+                    if (PocketRegistrations.TryGetValue(pocketId, out var reg))
+                    {
+                        foundReg = reg.HasRegistered;
+                        hasDeposited = reg.HasDeposited;
+                        reg.ChatId = chatId;
+                        SaveRegistrations();
+                    }
                 }
 
-                if (adminsToNotify.Count > 0)
+                if (foundReg)
                 {
-                    string userDisplay = string.IsNullOrEmpty(username) ? $"ID {chatId}" : $"@{username}";
-                    string adminText = $"🔔 <b>Новая заявка на доступ!</b>\n\n" +
-                                       $"👤 Пользователь: {userDisplay} (Chat ID: <code>{chatId}</code>)\n" +
-                                       $"🆔 Pocket Option ID: <code>{pocketId}</code>\n\n" +
-                                       $"Проверьте, зарегистрирован ли этот ID по вашей ссылке в кабинете Pocket Partners.";
-
-                    var keyboard = new
+                    if (hasDeposited)
                     {
-                        inline_keyboard = new object[]
+                        lock (_lock)
                         {
-                            new object[]
+                            if (!AllowedUsers.Contains(chatId))
                             {
-                                new { text = "✅ Одобрить", callback_data = $"approve_{chatId}" },
-                                new { text = "❌ Отклонить", callback_data = $"decline_{chatId}" }
+                                AllowedUsers.Add(chatId);
+                                SaveAllowedUsers();
                             }
                         }
-                    };
-
-                    foreach (long adminId in adminsToNotify)
+                        await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
+                        await SendUserWelcome(token, chatId, webAppUrl);
+                    }
+                    else
                     {
-                        _ = SendMessageWithKeyboard(token, adminId, adminText, keyboard);
+                        var depositKeyboard = new
+                        {
+                            inline_keyboard = new object[]
+                            {
+                                new object[]
+                                {
+                                    new { text = "💵 Проверить депозит", callback_data = $"check_dep_{pocketId}" }
+                                }
+                            }
+                        };
+                        var payload = new 
+                        { 
+                            chat_id = chatId, 
+                            text = "✅ <b>ID сохранен. Регистрация найдена. Теперь внеси депозит и нажми кнопку проверки.</b>", 
+                            parse_mode = "HTML", 
+                            reply_markup = depositKeyboard 
+                        };
+                        var json = JsonSerializer.Serialize(payload);
+                        var content = new StringContent(json, Encoding.UTF8, "application/json");
+                        await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"[TG Bot] No admins registered yet. Use /setadmin first.");
+                    await SendMessage(token, chatId, "⏳ <b>Ваш ID не найден в автоматической базе.</b>\n\nМы отправили запрос администраторам на ручную проверку. Пожалуйста, ожидайте уведомления!");
+
+                    List<long> adminsToNotify;
+                    lock (_lock)
+                    {
+                        adminsToNotify = AdminChatIds.ToList();
+                    }
+
+                    if (adminsToNotify.Count > 0)
+                    {
+                        string userDisplay = string.IsNullOrEmpty(username) ? $"ID {chatId}" : $"@{username}";
+                        string adminText = $"🔔 <b>Новая заявка на доступ!</b>\n\n" +
+                                           $"👤 Пользователь: {userDisplay} (Chat ID: <code>{chatId}</code>)\n" +
+                                           $"🆔 Pocket Option ID: <code>{pocketId}</code>\n\n" +
+                                           $"Проверьте, зарегистрирован ли этот ID по вашей ссылке в кабинете Pocket Partners.";
+
+                        var keyboard = new
+                        {
+                            inline_keyboard = new object[]
+                            {
+                                new object[]
+                                {
+                                    new { text = "✅ Одобрить", callback_data = $"approve_{chatId}" },
+                                    new { text = "❌ Отклонить", callback_data = $"decline_{chatId}" }
+                                }
+                            }
+                        };
+
+                        foreach (long adminId in adminsToNotify)
+                        {
+                            _ = SendMessageWithKeyboard(token, adminId, adminText, keyboard);
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[TG Bot] No admins registered yet.");
+                    }
                 }
             }
             else
@@ -285,6 +353,67 @@ public class TelegramBotService : BackgroundService
             await AnswerCallbackQuery(token, queryId, "Введите ваш ID");
             await SendMessage(token, chatId, "✍️ <b>Пожалуйста, введите ваш ID аккаунта Pocket Option.</b>\n\n" +
                                            "Вы можете найти его в личном кабинете Pocket Option (это число из 7-10 цифр в вашем профиле).");
+        }
+        else if (data.StartsWith("check_dep_"))
+        {
+            string pocketId = data.Replace("check_dep_", "");
+            
+            // Answer callback query quickly
+            await AnswerCallbackQuery(token, queryId, "Проверка депозита...");
+            
+            // Send initial status: "Идет проверка данных на сервере брокера. Ожидай."
+            await SendMessage(token, chatId, "⏳ <b>Идет проверка данных на сервере брокера. Ожидай.</b>");
+            
+            // Wait 3 seconds to simulate broker check
+            await Task.Delay(3000);
+            
+            bool hasDeposited = false;
+            lock (_lock)
+            {
+                if (PocketRegistrations.TryGetValue(pocketId, out var reg))
+                {
+                    hasDeposited = reg.HasDeposited;
+                    reg.ChatId = chatId;
+                    SaveRegistrations();
+                }
+            }
+            
+            if (hasDeposited)
+            {
+                lock (_lock)
+                {
+                    if (!AllowedUsers.Contains(chatId))
+                    {
+                        AllowedUsers.Add(chatId);
+                        SaveAllowedUsers();
+                    }
+                }
+                await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
+                await SendUserWelcome(token, chatId, webAppUrl);
+            }
+            else
+            {
+                var retryKeyboard = new
+                {
+                    inline_keyboard = new object[]
+                    {
+                        new object[]
+                        {
+                            new { text = "💵 Проверить депозит снова", callback_data = $"check_dep_{pocketId}" }
+                        }
+                    }
+                };
+                var payload = new 
+                { 
+                    chat_id = chatId, 
+                    text = "❌ <b>Депозит не обнаружен.</b>\n\nПожалуйста, убедитесь, что вы пополнили баланс на брокерском счете Pocket Option. Если вы уже внесли депозит, подождите 1-2 минуты и попробуйте снова.", 
+                    parse_mode = "HTML", 
+                    reply_markup = retryKeyboard 
+                };
+                var json = JsonSerializer.Serialize(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+            }
         }
         else if (data.StartsWith("approve_"))
         {
@@ -715,6 +844,87 @@ public class TelegramBotService : BackgroundService
         catch (Exception ex)
         {
             Console.WriteLine($"[TG Bot] Error saving all users: {ex.Message}");
+        }
+    }
+
+    private static void LoadRegistrations()
+    {
+        try
+        {
+            if (File.Exists(RegistrationsFile))
+            {
+                var json = File.ReadAllText(RegistrationsFile);
+                var list = JsonSerializer.Deserialize<List<PocketRegistration>>(json);
+                if (list != null)
+                {
+                    PocketRegistrations.Clear();
+                    foreach (var reg in list)
+                    {
+                        if (!string.IsNullOrEmpty(reg.PocketId))
+                        {
+                            PocketRegistrations[reg.PocketId] = reg;
+                        }
+                    }
+                    Console.WriteLine($"[TG Bot] Loaded {PocketRegistrations.Count} pocket registrations");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error loading registrations: {ex.Message}");
+        }
+    }
+
+    private static void SaveRegistrations()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(PocketRegistrations.Values.ToList());
+            File.WriteAllText(RegistrationsFile, json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] Error saving registrations: {ex.Message}");
+        }
+    }
+
+    public static async Task ProcessPostback(long chatId, string pocketId, string status, double deposit)
+    {
+        lock (_lock)
+        {
+            var reg = PocketRegistrations.GetOrAdd(pocketId, pid => new PocketRegistration { PocketId = pid });
+            if (chatId > 0) reg.ChatId = chatId;
+            
+            if (status == "register" || status == "reg" || status == "lead" || status == "registration")
+            {
+                reg.HasRegistered = true;
+            }
+            
+            if (status == "deposit" || deposit > 0)
+            {
+                reg.HasDeposited = true;
+                reg.DepositAmount += deposit;
+            }
+            
+            SaveRegistrations();
+        }
+
+        if ((status == "deposit" || deposit > 0) && chatId > 0)
+        {
+            lock (_lock)
+            {
+                if (!AllowedUsers.Contains(chatId))
+                {
+                    AllowedUsers.Add(chatId);
+                    SaveAllowedUsers();
+                }
+            }
+            string? token = TelegramNotifier.GetToken();
+            if (!string.IsNullOrEmpty(token))
+            {
+                await SendMessage(token, chatId, "🎉 <b>Депозит подтвержден. Доступ открыт!</b>");
+                await SendUserWelcome(token, chatId, _webAppUrl);
+            }
         }
     }
 }
