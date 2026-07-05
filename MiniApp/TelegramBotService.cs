@@ -140,109 +140,6 @@ public class TelegramBotService : BackgroundService
             isAdmin = AdminChatIds.Contains(chatId);
         }
 
-        // Owner command to configure admin
-        if (command == "/setadmin")
-        {
-            bool isAllowed = false;
-            lock (_lock)
-            {
-                if (AdminChatIds.Count == 0 || 
-                    (!string.IsNullOrEmpty(username) && AllowedAdminUsernames.Contains(username)) || 
-                    AdminChatIds.Contains(chatId))
-                {
-                    if (!AdminChatIds.Contains(chatId))
-                    {
-                        AdminChatIds.Add(chatId);
-                        SaveAdmins();
-                    }
-                    isAllowed = true;
-                }
-            }
-
-            if (isAllowed)
-            {
-                if (TelegramNotifier.GetDefaultChatId() <= 0)
-                {
-                    TelegramNotifier.SetDefaultChatId(chatId);
-                }
-                await SendAdminWelcome(token, chatId, webAppUrl);
-            }
-            else
-            {
-                await SendMessage(token, chatId, "❌ <b>Доступ запрещен.</b>\n\nВы не можете назначить этот чат администратором без разрешения главного админа.");
-            }
-            return;
-        }
-
-        // Add another admin username to white-list
-        if (command == "/addadmin" || cleanText == "➕ Добавить админа")
-        {
-            if (!isAdmin)
-            {
-                await SendMessage(token, chatId, "❌ <b>У вас нет прав администратора для выполнения этой команды.</b>");
-                return;
-            }
-
-            if (cleanText == "➕ Добавить админа")
-            {
-                await SendMessage(token, chatId, "✍️ <b>Чтобы добавить администратора, отправьте команду:</b>\n\n<code>/addadmin @username</code>");
-                return;
-            }
-
-            var match = Regex.Match(cleanText, @"/addadmin\s+@?([a-zA-Z0-9_]{5,32})");
-            if (match.Success)
-            {
-                string targetUsername = match.Groups[1].Value;
-                lock (_lock)
-                {
-                    AllowedAdminUsernames.Add(targetUsername);
-                    SaveAllowedAdminUsernames();
-                }
-                await SendMessage(token, chatId, $"✅ <b>Пользователь @{targetUsername} добавлен в белый список администраторов!</b>\n\nТеперь он может зайти в бот и отправить команду `/setadmin`, чтобы стать администратором.");
-            }
-            else
-            {
-                await SendMessage(token, chatId, "❌ <b>Использование:</b> <code>/addadmin @username</code>");
-            }
-            return;
-        }
-
-        // Get bot statistics
-        if (command == "/stats" || cleanText == "📊 Статистика")
-        {
-            if (!isAdmin)
-            {
-                await SendMessage(token, chatId, "❌ <b>У вас нет прав администратора для просмотра статистики.</b>");
-                return;
-            }
-
-            int totalAll, totalAllowed, active15m, active24h;
-            lock (_lock)
-            {
-                totalAll = AllUsers.Count;
-                totalAllowed = AllowedUsers.Count;
-                active15m = UserLastActivity.Values.Count(t => DateTime.UtcNow - t <= TimeSpan.FromMinutes(15));
-                active24h = UserLastActivity.Values.Count(t => DateTime.UtcNow - t <= TimeSpan.FromDays(1));
-            }
-
-            double accuracy = SignalTracker.GetOverallAccuracy();
-            int totalPredictions = SignalTracker.GetTotalPredictions();
-
-            string statsText = "📊 <b>Статистика TradeAI Bot</b>\n\n" +
-                               $"👥 <b>Пользователи:</b>\n" +
-                               $"├ Всего запустили: <code>{totalAll}</code>\n" +
-                               $"├ Одобрено (доступ открыт): <code>{totalAllowed}</code>\n" +
-                               $"├ Активны за 15 мин: <code>{active15m}</code>\n" +
-                               $"└ Активны за 24 часа: <code>{active24h}</code>\n\n" +
-                               $"📈 <b>Работа сигналов:</b>\n" +
-                               $"├ Всего прогнозов: <code>{totalPredictions}</code>\n" +
-                               $"└ Точность прогнозов (WinRate): <code>{accuracy}%</code>\n\n" +
-                               $"👑 Администраторов подключено: <code>{AdminChatIds.Count}</code>";
-
-            await SendMessage(token, chatId, statsText);
-            return;
-        }
-
         // Test command to reset access
         if (command == "/reset" || command == "/resetaccess")
         {
@@ -545,11 +442,6 @@ public class TelegramBotService : BackgroundService
             {
                 new object[]
                 {
-                    new { text = "📊 Статистика" },
-                    new { text = "➕ Добавить админа" }
-                },
-                new object[]
-                {
                     new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
                 }
             },
@@ -705,15 +597,35 @@ public class TelegramBotService : BackgroundService
     {
         try
         {
+            AdminChatIds.Clear();
+
+            // 1. Read from environment variable (secure admin assignment)
+            string envAdmins = Environment.GetEnvironmentVariable("ADMIN_CHAT_IDS") ?? "";
+            if (!string.IsNullOrEmpty(envAdmins))
+            {
+                var ids = envAdmins.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var idStr in ids)
+                {
+                    if (long.TryParse(idStr.Trim(), out long id))
+                    {
+                        AdminChatIds.Add(id);
+                    }
+                }
+                Console.WriteLine($"[TG Bot] Loaded {AdminChatIds.Count} admins from ADMIN_CHAT_IDS env variable");
+            }
+
+            // 2. Fallback to admins.json on disk
             if (File.Exists(AdminsFile))
             {
                 var json = File.ReadAllText(AdminsFile);
                 var list = JsonSerializer.Deserialize<List<long>>(json);
                 if (list != null)
                 {
-                    AdminChatIds.Clear();
-                    foreach (var id in list) AdminChatIds.Add(id);
-                    Console.WriteLine($"[TG Bot] Loaded {AdminChatIds.Count} admins");
+                    foreach (var id in list)
+                    {
+                        AdminChatIds.Add(id);
+                    }
+                    Console.WriteLine($"[TG Bot] Loaded admins. Total with file fallback: {AdminChatIds.Count}");
                 }
             }
         }
