@@ -148,8 +148,7 @@ public static class MiniAppController
         {
             try
             {
-                string apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") 
-                    ?? Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
+                string apiKey = ClaudeSignalService.GetOpenRouterApiKey();
                 if (string.IsNullOrEmpty(apiKey))
                 {
                     return Results.Json(new { error = "No API key configured" });

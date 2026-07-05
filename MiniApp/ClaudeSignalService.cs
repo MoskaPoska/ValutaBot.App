@@ -10,6 +10,35 @@ public static class ClaudeSignalService
 
     public static string? GetLastRawResponse() => _lastRawResponse;
 
+    public static string GetOpenRouterApiKey()
+    {
+        string apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") 
+            ?? Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
+
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            try
+            {
+                string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+                if (File.Exists(settingsPath))
+                {
+                    var json = File.ReadAllText(settingsPath);
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("OpenRouterApiKey", out var prop))
+                    {
+                        apiKey = prop.GetString() ?? "";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Claude] Failed to read appsettings.json: {ex.Message}");
+            }
+        }
+
+        return (apiKey ?? "").Trim();
+    }
+
     public static (string direction, double probability, string reasoning) AnalyzeSignal(
         string asset, double[] prices, double[] volumes,
         double rsi, double ema, double macd, double macdSignal,
@@ -18,15 +47,13 @@ public static class ClaudeSignalService
 
         try
         {
-            string apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") 
-                ?? Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
+            string apiKey = GetOpenRouterApiKey();
             if (string.IsNullOrEmpty(apiKey))
             {
                 Console.WriteLine("[Claude] No API key configured");
                 return ("NEUTRAL", 50, "Ключ OpenRouter не настроен");
             }
             
-            apiKey = apiKey.Trim();
             string maskedKey = apiKey.Length > 8 
                 ? $"{apiKey.Substring(0, 6)}...{apiKey.Substring(apiKey.Length - 4)}" 
                 : "***";
