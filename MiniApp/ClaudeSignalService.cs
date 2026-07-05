@@ -113,7 +113,7 @@ public static class ClaudeSignalService
                         new { role = "user", content = $"Technical indicators for {asset}:\n{indicators}" }
                     },
                     temperature = 0.2,
-                    max_tokens = 300
+                    max_tokens = 800
                 };
 
                 var json = JsonSerializer.Serialize(body);
@@ -148,20 +148,31 @@ public static class ClaudeSignalService
                     .GetString() ?? "{}";
 
                 content = content.Trim();
-                if (content.StartsWith("```")) content = content.Substring(content.IndexOf('\n') + 1);
-                if (content.EndsWith("```")) content = content.Substring(0, content.LastIndexOf("```"));
-                content = content.Trim();
+                int startIdx = content.IndexOf('{');
+                int endIdx = content.LastIndexOf('}');
+                if (startIdx != -1 && endIdx != -1 && endIdx > startIdx)
+                {
+                    content = content.Substring(startIdx, endIdx - startIdx + 1);
+                }
 
-                using var resultDoc = JsonDocument.Parse(content);
-                var root = resultDoc.RootElement;
-                string direction = root.TryGetProperty("direction", out var d) ? d.GetString() ?? "NEUTRAL" : "NEUTRAL";
-                double probability = root.TryGetProperty("probability", out var p) ? p.GetDouble() : 50;
-                string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
+                try
+                {
+                    using var resultDoc = JsonDocument.Parse(content);
+                    var root = resultDoc.RootElement;
+                    string direction = root.TryGetProperty("direction", out var d) ? d.GetString() ?? "NEUTRAL" : "NEUTRAL";
+                    double probability = root.TryGetProperty("probability", out var p) ? p.GetDouble() : 50;
+                    string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
 
-                direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
-                probability = Math.Clamp(probability + 20, 86, 98);
+                    direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
+                    probability = Math.Clamp(probability + 20, 86, 98);
 
-                return (direction, probability, reasoning);
+                    return (direction, probability, reasoning);
+                }
+                catch (Exception jsonEx)
+                {
+                    Console.WriteLine($"[Claude Parse Error] Failed to parse content: {content}");
+                    throw new Exception($"JSON parse failed: {jsonEx.Message}. Raw text: {content}");
+                }
             }
             catch (Exception ex)
             {
