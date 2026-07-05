@@ -100,106 +100,79 @@ public static class ClaudeSignalService
                 + "\"probability\": 55-95, "
                 + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
 
-            string[] modelSlugs = new[] {
-                "anthropic/claude-3-opus",
-                "anthropic/claude-3-opus:beta",
-                "anthropic/claude-3.5-sonnet",
-                "anthropic/claude-3-5-sonnet",
-                "anthropic/claude-3.5-sonnet:beta",
-                "anthropic/claude-3-sonnet",
-                "google/gemini-2.5-pro",
-                "google/gemini-1.5-pro",
-                "google/gemini-2.5-flash"
-            };
-
-            string lastError = "";
-            foreach (var model in modelSlugs)
+            string model = "anthropic/claude-3.5-sonnet";
+            try
             {
-                try
+                Console.WriteLine($"[Claude] Attempting request to OpenRouter with model: {model}");
+                var body = new
                 {
-                    Console.WriteLine($"[Claude] Attempting request to OpenRouter with model: {model}");
-                    var body = new
+                    model = model,
+                    messages = new[]
                     {
-                        model = model,
-                        messages = new[]
-                        {
-                            new { role = "system", content = systemPrompt },
-                            new { role = "user", content = $"Technical indicators for {asset}:\n{indicators}" }
-                        },
-                        temperature = 0.2,
-                        max_tokens = 300
-                    };
+                        new { role = "system", content = systemPrompt },
+                        new { role = "user", content = $"Technical indicators for {asset}:\n{indicators}" }
+                    },
+                    temperature = 0.2,
+                    max_tokens = 300
+                };
 
-                    var json = JsonSerializer.Serialize(body);
-                    var request = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
-                    {
-                        Content = new StringContent(json, Encoding.UTF8, "application/json")
-                    };
-                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-                    request.Headers.Add("HTTP-Referer", "https://valutabotapp-production.up.railway.app");
-                    request.Headers.Add("X-Title", "ValutaBot");
-
-                    var response = _http.Send(request);
-                    string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                    _lastRawResponse = responseBody;
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        Console.WriteLine($"[Claude] Model {model} failed with HTTP {(int)response.StatusCode}: {responseBody}");
-                        lastError = $"HTTP {(int)response.StatusCode}: {responseBody}";
-                        continue;
-                    }
-
-                    using var doc = JsonDocument.Parse(responseBody);
-                    if (doc.RootElement.TryGetProperty("error", out var errProp))
-                    {
-                        string errMsg = errProp.TryGetProperty("message", out var msgProp) ? msgProp.GetString() ?? "" : "";
-                        Console.WriteLine($"[Claude] OpenRouter error for model {model}: {errMsg}");
-                        lastError = errMsg;
-                        continue;
-                    }
-
-                    string content = doc.RootElement
-                        .GetProperty("choices")[0]
-                        .GetProperty("message")
-                        .GetProperty("content")
-                        .GetString() ?? "{}";
-
-                    content = content.Trim();
-                    if (content.StartsWith("```")) content = content.Substring(content.IndexOf('\n') + 1);
-                    if (content.EndsWith("```")) content = content.Substring(0, content.LastIndexOf("```"));
-                    content = content.Trim();
-
-                    using var resultDoc = JsonDocument.Parse(content);
-                    var root = resultDoc.RootElement;
-                    string direction = root.TryGetProperty("direction", out var d) ? d.GetString() ?? "NEUTRAL" : "NEUTRAL";
-                    double probability = root.TryGetProperty("probability", out var p) ? p.GetDouble() : 50;
-                    string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
-
-                    direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
-                    probability = Math.Clamp(probability, 50, 98);
-
-                    if (model != "anthropic/claude-3.5-sonnet")
-                    {
-                        reasoning = $"[{model.Split('/').Last()}] {reasoning}";
-                    }
-
-                    return (direction, probability, reasoning);
-                }
-                catch (Exception ex)
+                var json = JsonSerializer.Serialize(body);
+                var request = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
                 {
-                    Console.WriteLine($"[Claude] Exception using model {model}: {ex.Message}");
-                    lastError = ex.Message;
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+                request.Headers.Add("HTTP-Referer", "https://valutabotapp-production.up.railway.app");
+                request.Headers.Add("X-Title", "ValutaBot");
+
+                var response = _http.Send(request);
+                string responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                _lastRawResponse = responseBody;
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new Exception($"HTTP {(int)response.StatusCode}: {responseBody}");
                 }
+
+                using var doc = JsonDocument.Parse(responseBody);
+                if (doc.RootElement.TryGetProperty("error", out var errProp))
+                {
+                    string errMsg = errProp.TryGetProperty("message", out var msgProp) ? msgProp.GetString() ?? "" : "";
+                    throw new Exception($"OpenRouter error: {errMsg}");
+                }
+
+                string content = doc.RootElement
+                    .GetProperty("choices")[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString() ?? "{}";
+
+                content = content.Trim();
+                if (content.StartsWith("```")) content = content.Substring(content.IndexOf('\n') + 1);
+                if (content.EndsWith("```")) content = content.Substring(0, content.LastIndexOf("```"));
+                content = content.Trim();
+
+                using var resultDoc = JsonDocument.Parse(content);
+                var root = resultDoc.RootElement;
+                string direction = root.TryGetProperty("direction", out var d) ? d.GetString() ?? "NEUTRAL" : "NEUTRAL";
+                double probability = root.TryGetProperty("probability", out var p) ? p.GetDouble() : 50;
+                string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
+
+                direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
+                probability = Math.Clamp(probability, 50, 98);
+
+                return (direction, probability, reasoning);
             }
-
-            throw new Exception($"All models failed. Last error: {lastError}");
+            catch (Exception ex)
+            {
+                throw new Exception($"Request failed: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[Claude] Analysis failed: {ex.Message}");
             _lastRawResponse = $"ERROR: {ex.Message}";
-            return ("NEUTRAL", 50, $"Ошибка OpenRouter (все модели заняты/404)");
+            return ("NEUTRAL", 50, $"Ошибка запроса к Claude 3.5 Sonnet: {ex.Message}");
         }
     }
 }
