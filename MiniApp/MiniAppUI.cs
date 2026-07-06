@@ -1419,8 +1419,7 @@ public static class MiniAppUI
                         return;
                     }
 
-                    document.getElementById('welcomeSec').style.display = 'none';
-                    document.getElementById('topCategories').style.display = 'none';
+
 
                     const isUnclear = data.unclear === true;
                     document.getElementById('resDir').innerText = data.direction === 'BUY' ? 'ВВЕРХ' : 'ВНИЗ';
