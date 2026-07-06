@@ -57,6 +57,7 @@ public class TelegramBotService : BackgroundService
 
         lock (_lock)
         {
+            InitDatabase();
             LoadAllowedUsers();
             LoadAdmins();
             LoadAllowedAdminUsernames();
@@ -752,8 +753,111 @@ public class TelegramBotService : BackgroundService
         }
     }
 
+    private static string ConnectionString = "";
+
+    private static string ConvertDatabaseUrlToConnectionString(string databaseUrl)
+    {
+        if (string.IsNullOrEmpty(databaseUrl)) return "";
+
+        try
+        {
+            var uri = new Uri(databaseUrl);
+            var userInfo = uri.UserInfo.Split(':');
+            var username = userInfo[0];
+            var password = userInfo.Length > 1 ? userInfo[1] : "";
+            var host = uri.Host;
+            var port = uri.Port > 0 ? uri.Port : 5432;
+            var database = uri.AbsolutePath.TrimStart('/');
+
+            return $"Host={host};Port={port};Username={username};Password={password};Database={database};SSL Mode=Require;Trust Server Certificate=true";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DB] Error parsing DATABASE_URL: {ex.Message}");
+            return "";
+        }
+    }
+
+    private static void InitDatabase()
+    {
+        string? dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+        if (string.IsNullOrEmpty(dbUrl))
+        {
+            Console.WriteLine("[DB] DATABASE_URL is not set. Using JSON file fallback.");
+            return;
+        }
+
+        ConnectionString = ConvertDatabaseUrlToConnectionString(dbUrl);
+        if (string.IsNullOrEmpty(ConnectionString)) return;
+
+        try
+        {
+            using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+            conn.Open();
+
+            using (var cmd = new Npgsql.NpgsqlCommand())
+            {
+                cmd.Connection = conn;
+                
+                cmd.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS registrations (
+                        pocket_id VARCHAR(50) PRIMARY KEY,
+                        chat_id BIGINT,
+                        has_registered BOOLEAN NOT NULL DEFAULT FALSE,
+                        has_deposited BOOLEAN NOT NULL DEFAULT FALSE,
+                        deposit_amount DOUBLE PRECISION NOT NULL DEFAULT 0
+                    );";
+                cmd.ExecuteNonQuery();
+
+                cmd.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS allowed_users (
+                        chat_id BIGINT PRIMARY KEY
+                    );";
+                cmd.ExecuteNonQuery();
+
+                cmd.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS all_users (
+                        chat_id BIGINT PRIMARY KEY
+                    );";
+                cmd.ExecuteNonQuery();
+            }
+
+            Console.WriteLine("[DB] PostgreSQL database tables initialized successfully.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DB] Error initializing database: {ex.Message}");
+            ConnectionString = ""; // Disable DB on error
+        }
+    }
+
     private static void LoadAllowedUsers()
     {
+        if (!string.IsNullOrEmpty(ConnectionString))
+        {
+            try
+            {
+                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                conn.Open();
+                using var cmd = new Npgsql.NpgsqlCommand("SELECT chat_id FROM allowed_users", conn);
+                using var reader = cmd.ExecuteReader();
+                lock (_lock)
+                {
+                    AllowedUsers.Clear();
+                    while (reader.Read())
+                    {
+                        AllowedUsers.Add(reader.GetInt64(0));
+                    }
+                }
+                Console.WriteLine($"[DB] Loaded {AllowedUsers.Count} allowed users from PostgreSQL");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Error loading allowed users: {ex.Message}. Falling back to file.");
+            }
+        }
+
         try
         {
             if (File.Exists(AllowedUsersFile))
@@ -776,6 +880,37 @@ public class TelegramBotService : BackgroundService
 
     private static void SaveAllowedUsers()
     {
+        if (!string.IsNullOrEmpty(ConnectionString))
+        {
+            try
+            {
+                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                conn.Open();
+                using var trans = conn.BeginTransaction();
+                
+                using (var cmd = new Npgsql.NpgsqlCommand("DELETE FROM allowed_users", conn, trans))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+
+                lock (_lock)
+                {
+                    foreach (var chatId in AllowedUsers)
+                    {
+                        using var cmd = new Npgsql.NpgsqlCommand("INSERT INTO allowed_users (chat_id) VALUES (@chatId) ON CONFLICT DO NOTHING", conn, trans);
+                        cmd.Parameters.AddWithValue("chatId", chatId);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                trans.Commit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Error saving allowed users: {ex.Message}");
+            }
+        }
+
         try
         {
             var json = JsonSerializer.Serialize(AllowedUsers.ToList());
@@ -879,6 +1014,31 @@ public class TelegramBotService : BackgroundService
 
     private static void LoadAllUsers()
     {
+        if (!string.IsNullOrEmpty(ConnectionString))
+        {
+            try
+            {
+                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                conn.Open();
+                using var cmd = new Npgsql.NpgsqlCommand("SELECT chat_id FROM all_users", conn);
+                using var reader = cmd.ExecuteReader();
+                lock (_lock)
+                {
+                    AllUsers.Clear();
+                    while (reader.Read())
+                    {
+                        AllUsers.Add(reader.GetInt64(0));
+                    }
+                }
+                Console.WriteLine($"[DB] Loaded {AllUsers.Count} all users from PostgreSQL");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Error loading all users: {ex.Message}. Falling back to file.");
+            }
+        }
+
         try
         {
             if (File.Exists(AllUsersFile))
@@ -901,6 +1061,37 @@ public class TelegramBotService : BackgroundService
 
     private static void SaveAllUsers()
     {
+        if (!string.IsNullOrEmpty(ConnectionString))
+        {
+            try
+            {
+                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                conn.Open();
+                using var trans = conn.BeginTransaction();
+                
+                using (var cmd = new Npgsql.NpgsqlCommand("DELETE FROM all_users", conn, trans))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+
+                lock (_lock)
+                {
+                    foreach (var chatId in AllUsers)
+                    {
+                        using var cmd = new Npgsql.NpgsqlCommand("INSERT INTO all_users (chat_id) VALUES (@chatId) ON CONFLICT DO NOTHING", conn, trans);
+                        cmd.Parameters.AddWithValue("chatId", chatId);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                trans.Commit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Error saving all users: {ex.Message}");
+            }
+        }
+
         try
         {
             var json = JsonSerializer.Serialize(AllUsers.ToList());
@@ -914,6 +1105,39 @@ public class TelegramBotService : BackgroundService
 
     private static void LoadRegistrations()
     {
+        if (!string.IsNullOrEmpty(ConnectionString))
+        {
+            try
+            {
+                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                conn.Open();
+                using var cmd = new Npgsql.NpgsqlCommand("SELECT pocket_id, chat_id, has_registered, has_deposited, deposit_amount FROM registrations", conn);
+                using var reader = cmd.ExecuteReader();
+                lock (_lock)
+                {
+                    PocketRegistrations.Clear();
+                    while (reader.Read())
+                    {
+                        var reg = new PocketRegistration
+                        {
+                            PocketId = reader.GetString(0),
+                            ChatId = reader.IsDBNull(1) ? 0 : reader.GetInt64(1),
+                            HasRegistered = reader.GetBoolean(2),
+                            HasDeposited = reader.GetBoolean(3),
+                            DepositAmount = reader.GetDouble(4)
+                        };
+                        PocketRegistrations[reg.PocketId] = reg;
+                    }
+                }
+                Console.WriteLine($"[DB] Loaded {PocketRegistrations.Count} registrations from PostgreSQL");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Error loading registrations: {ex.Message}. Falling back to file.");
+            }
+        }
+
         try
         {
             if (File.Exists(RegistrationsFile))
@@ -942,6 +1166,46 @@ public class TelegramBotService : BackgroundService
 
     private static void SaveRegistrations()
     {
+        if (!string.IsNullOrEmpty(ConnectionString))
+        {
+            try
+            {
+                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                conn.Open();
+                using var trans = conn.BeginTransaction();
+                
+                lock (_lock)
+                {
+                    foreach (var reg in PocketRegistrations.Values)
+                    {
+                        using var cmd = new Npgsql.NpgsqlCommand(@"
+                            INSERT INTO registrations (pocket_id, chat_id, has_registered, has_deposited, deposit_amount)
+                            VALUES (@pocketId, @chatId, @hasReg, @hasDep, @depAmt)
+                            ON CONFLICT (pocket_id) 
+                            DO UPDATE SET 
+                                chat_id = EXCLUDED.chat_id,
+                                has_registered = EXCLUDED.has_registered,
+                                has_deposited = EXCLUDED.has_deposited,
+                                deposit_amount = EXCLUDED.deposit_amount", conn, trans);
+
+                        cmd.Parameters.AddWithValue("pocketId", reg.PocketId);
+                        cmd.Parameters.AddWithValue("chatId", reg.ChatId);
+                        cmd.Parameters.AddWithValue("hasReg", reg.HasRegistered);
+                        cmd.Parameters.AddWithValue("hasDep", reg.HasDeposited);
+                        cmd.Parameters.AddWithValue("depAmt", reg.DepositAmount);
+
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                trans.Commit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Error saving registrations to PostgreSQL: {ex.Message}");
+            }
+        }
+
         try
         {
             var json = JsonSerializer.Serialize(PocketRegistrations.Values.ToList());
