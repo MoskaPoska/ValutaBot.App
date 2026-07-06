@@ -758,6 +758,39 @@ public static class MiniAppUI
         .candle-countdown .label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; }
         .candle-countdown .time { font-size: 18px; font-weight: 800; font-family: 'Unbounded', sans-serif; color: var(--accent); min-width: 56px; text-align: right; letter-spacing: 1px; }
         .candle-countdown .time.warning { color: #ffd600; }
+
+        /* ─── Tabs ─── */
+        .tab-bar {
+            display: flex;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 2px;
+            margin-top: 10px;
+            gap: 2px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--dim);
+            text-align: center;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.25s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+        }
+        .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.02); }
+        .tab-btn.active {
+            color: #fff;
+            background: linear-gradient(135deg, rgba(124,77,255,0.12), rgba(0,229,255,0.08));
+            border: 1px solid rgba(124,77,255,0.2);
+            box-shadow: 0 4px 12px rgba(124, 77, 255, 0.05);
+        }
         .candle-countdown .time.critical { color: #ff1744; }
 
         /* ─── Status Bar ─── */
@@ -975,47 +1008,67 @@ public static class MiniAppUI
                 <div class='res-chart' id='volChart'></div>
             </div>
         </div>
-        <div class='ml-card' id='mlCard' style='display:none'>
-            <div class='ml-header'><span class='ml-badge'>🧠 ML</span><span class='ml-label'>Прогноз нейросети</span></div>
-            <div class='ml-body'>
-                <span class='ml-dir' id='mlDir'>--</span>
-                <span class='ml-conf' id='mlConf'>--%</span>
+        <!-- Tab Bar -->
+        <div class='tab-bar' id='resultsTabBar' style='display:none'>
+            <div class='tab-btn active' id='tabBtnChart' onclick=""switchResultTab('chart')"">
+                <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M3 3v18h18'/><path d='M18.7 8l-5.1 5.2-2.8-2.7L7 14.3'/></svg>
+                Прогноз и График
+            </div>
+            <div class='tab-btn' id='tabBtnAI' onclick=""switchResultTab('ai')"">
+                <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/><polyline points='3.27 6.96 12 12.01 20.73 6.96'/><line x1='12' y1='22.08' x2='12' y2='12'/></svg>
+                ИИ Аналитика
             </div>
         </div>
 
-        <div class='news-card' id='newsCard' style='display:none'>
-            <div class='news-header'>
-                <span class='news-badge'>📰 LLM</span>
-                <span class='news-label'>Анализ новостей</span>
-                <span class='news-sentiment' id='newsSentiment'>--</span>
-            </div>
-            <div class='news-summary' id='newsSummary'></div>
-            <div class='news-headlines'>
-                <span class='news-toggle' id='newsToggle' onclick='toggleNews()'>▸ Заголовки</span>
-                <div class='news-list' id='newsList'></div>
+        <!-- Tab 1: Chart and main results -->
+        <div id='tabContentChart' style='display:none'>
+            <div class='levels-bar' id='chartContainer' style='margin-top:10px;display:block'>
+                <div style='padding:4px 4px 2px;font-size:11px;font-weight:700;color:var(--subtext);letter-spacing:0.04em;text-transform:uppercase'>График цены</div>
+                <canvas id='priceChart' style='display:block;width:100%;height:120px'></canvas>
+                <div style='margin-top:8px;padding:6px 8px;font-size:10px;line-height:1.4;color:var(--dim);background:rgba(124,77,255,0.04);border:1px solid rgba(124,77,255,0.08);border-radius:8px'>
+                    Данные: Binance (крипта) / Yahoo Finance (форекс, акции, сырьё). Котировки могут отличаться от Pocket Option. Анализ не является финансовой рекомендацией.
+                </div>
             </div>
         </div>
 
-        <div class='news-card' id='claudeCard' style='display:none'>
-            <div class='news-header'>
-                <span class='news-badge'>🧠 Claude Opus</span>
-                <span class='news-label'>AI анализ графика</span>
-                <span class='news-sentiment' id='claudeSentiment'>--</span>
+        <!-- Tab 2: AI Details and Technical Levels -->
+        <div id='tabContentAI' style='display:none'>
+            <div class='ml-card' id='mlCard' style='display:none'>
+                <div class='ml-header'><span class='ml-badge'>🧠 ML</span><span class='ml-label'>Прогноз нейросети</span></div>
+                <div class='ml-body'>
+                    <span class='ml-dir' id='mlDir'>--</span>
+                    <span class='ml-conf' id='mlConf'>--%</span>
+                </div>
             </div>
-            <div class='news-summary' id='claudeReasoning'></div>
-        </div>
 
-        <div class='levels-bar' id='levelsBar'>
-            <div class='level-line' id='ll1'><span class='tag l1'>L1</span><span class='info'>Индикаторы</span><span class='result' id='ll1res'></span></div>
-            <div class='level-line' id='ll2'><span class='tag l2'>L2</span><span class='info'>S/R + Объём</span><span class='result' id='ll2res'></span></div>
-            <div class='level-line' id='ll3'><span class='tag l3'>L3</span><span class='info'>Мульти-ТФ</span><span class='result' id='ll3res'></span></div>
-            <div class='levels-divider'></div>
-            <div class='levels-total'><span id='ltotalVotes'>--</span><span class='dir' id='ltotalDir'>--</span></div>
-            <div class='levels-divider'></div>
-            <div style='padding:6px 4px 2px;font-size:11px;font-weight:700;color:var(--subtext);letter-spacing:0.04em;text-transform:uppercase'>График цены</div>
-            <canvas id='priceChart' style='display:block;width:100%;height:120px'></canvas>
-            <div style='margin-top:10px;padding:8px 10px;font-size:10.5px;line-height:1.45;color:var(--dim);background:rgba(124,77,255,0.05);border:1px solid rgba(124,77,255,0.1);border-radius:10px'>
-                Данные: Binance (крипта) / Yahoo Finance (форекс, акции, сырьё). Котировки могут отличаться от Pocket Option, особенно на OTC-парах. Анализ не является финансовой рекомендацией.
+            <div class='news-card' id='newsCard' style='display:none'>
+                <div class='news-header'>
+                    <span class='news-badge'>📰 LLM</span>
+                    <span class='news-label'>Анализ новостей</span>
+                    <span class='news-sentiment' id='newsSentiment'>--</span>
+                </div>
+                <div class='news-summary' id='newsSummary'></div>
+                <div class='news-headlines'>
+                    <span class='news-toggle' id='newsToggle' onclick='toggleNews()'>▸ Заголовки</span>
+                    <div class='news-list' id='newsList'></div>
+                </div>
+            </div>
+
+            <div class='news-card' id='claudeCard' style='display:none'>
+                <div class='news-header'>
+                    <span class='news-badge'>🧠 Claude Opus</span>
+                    <span class='news-label'>AI анализ графика</span>
+                    <span class='news-sentiment' id='claudeSentiment'>--</span>
+                </div>
+                <div class='news-summary' id='claudeReasoning' style='max-height:100px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext)'></div>
+            </div>
+
+            <div class='levels-bar' id='levelsBar' style='margin-top:10px'>
+                <div class='level-line' id='ll1'><span class='tag l1'>L1</span><span class='info'>Индикаторы</span><span class='result' id='ll1res'></span></div>
+                <div class='level-line' id='ll2'><span class='tag l2'>L2</span><span class='info'>S/R + Объём</span><span class='result' id='ll2res'></span></div>
+                <div class='level-line' id='ll3'><span class='tag l3'>L3</span><span class='info'>Мульти-ТФ</span><span class='result' id='ll3res'></span></div>
+                <div class='levels-divider'></div>
+                <div class='levels-total'><span id='ltotalVotes'>--</span><span class='dir' id='ltotalDir'>--</span></div>
             </div>
         </div>
     </div>
@@ -1143,6 +1196,25 @@ public static class MiniAppUI
             el.className = 'time' + (remaining <= 5 ? ' critical' : remaining <= 15 ? ' warning' : '');
         }
 
+        function switchResultTab(tabName) {
+            const btnChart = document.getElementById('tabBtnChart');
+            const btnAI = document.getElementById('tabBtnAI');
+            const contentChart = document.getElementById('tabContentChart');
+            const contentAI = document.getElementById('tabContentAI');
+
+            if (tabName === 'chart') {
+                btnChart.classList.add('active');
+                btnAI.classList.remove('active');
+                contentChart.style.display = 'block';
+                contentAI.style.display = 'none';
+            } else {
+                btnChart.classList.remove('active');
+                btnAI.classList.add('active');
+                contentChart.style.display = 'none';
+                contentAI.style.display = 'block';
+            }
+        }
+
         function clearResults() {
             document.getElementById('resProb').innerText = '--%';
             document.getElementById('resProb').style.color = 'var(--accent)';
@@ -1157,6 +1229,9 @@ public static class MiniAppUI
             document.getElementById('probChart').innerHTML = '';
             document.getElementById('dirChart').innerHTML = '<svg viewBox=\'0 0 80 40\'><path d=\'M10 35 L40 5 L70 35\' stroke=\'var(--dim)\' stroke-width=\'2.5\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\' opacity=\'0.3\'/></svg>';
             document.getElementById('durChart').innerHTML = '';
+            document.getElementById('resultsTabBar').style.display = 'none';
+            document.getElementById('tabContentChart').style.display = 'none';
+            document.getElementById('tabContentAI').style.display = 'none';
             document.getElementById('levelsBar').style.display = 'none';
             document.getElementById('mlCard').style.display = 'none';
             document.getElementById('claudeCard').style.display = 'none';
@@ -1449,6 +1524,8 @@ public static class MiniAppUI
                         document.getElementById('levelsBar').style.display = 'block';
                     }
 
+                    document.getElementById('resultsTabBar').style.display = 'flex';
+                    switchResultTab('chart');
                     flashResults();
 
                 }, remainingDelay);
