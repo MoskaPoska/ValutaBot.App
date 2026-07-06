@@ -992,21 +992,6 @@ public static class MiniAppUI
                 <div class='res-value' id='resDur' style='color:var(--subtext)'>--</div>
                 <div class='res-chart' id='durChart'></div>
             </div>
-            <div class='res-card'>
-                <div class='res-label'>RSI</div>
-                <div class='res-value' id='resRsi' style='color:var(--subtext);font-size:16px'>--</div>
-                <div class='res-chart' id='rsiChart'></div>
-            </div>
-            <div class='res-card'>
-                <div class='res-label'>EMA (9)</div>
-                <div class='res-value' id='resEma' style='color:var(--subtext);font-size:16px'>--</div>
-                <div class='res-chart' id='emaChart'></div>
-            </div>
-            <div class='res-card'>
-                <div class='res-label'>Объём</div>
-                <div class='res-value' id='resVol' style='color:var(--subtext);font-size:16px'>--</div>
-                <div class='res-chart' id='volChart'></div>
-            </div>
         </div>
         <!-- Tab Bar -->
         <div class='tab-bar' id='resultsTabBar' style='display:none'>
@@ -1033,6 +1018,25 @@ public static class MiniAppUI
 
         <!-- Tab 2: AI Details and Technical Levels -->
         <div id='tabContentAI' style='display:none'>
+            <!-- Indicators Grid -->
+            <div class='results-grid' style='margin-bottom:12px;margin-top:4px'>
+                <div class='res-card'>
+                    <div class='res-label'>RSI</div>
+                    <div class='res-value' id='resRsi' style='color:var(--subtext);font-size:16px'>--</div>
+                    <div class='res-chart' id='rsiChart'></div>
+                </div>
+                <div class='res-card'>
+                    <div class='res-label'>EMA (9)</div>
+                    <div class='res-value' id='resEma' style='color:var(--subtext);font-size:16px'>--</div>
+                    <div class='res-chart' id='emaChart'></div>
+                </div>
+                <div class='res-card'>
+                    <div class='res-label'>Объём</div>
+                    <div class='res-value' id='resVol' style='color:var(--subtext);font-size:16px'>--</div>
+                    <div class='res-chart' id='volChart'></div>
+                </div>
+            </div>
+
             <div class='ml-card' id='mlCard' style='display:none'>
                 <div class='ml-header'><span class='ml-badge'>🧠 ML</span><span class='ml-label'>Прогноз нейросети</span></div>
                 <div class='ml-body'>
