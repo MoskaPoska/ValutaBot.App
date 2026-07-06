@@ -28,20 +28,20 @@ public static class MiniAppUI
             --text: #ffffff;
             --subtext: #a89fd4;
             --dim: #5a5290;
-            --radius: 18px;
-            --btn-h: 56px;
+            --radius: 12px;
+            --btn-h: 46px;
             --glass-bg: rgba(255, 255, 255, 0.03);
         }
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body {
             background: radial-gradient(ellipse at 50% -30%, #2d1060 0%, #0c0925 35%, #060412 70%, #03020a 100%);
             color: var(--text);
-            padding: 20px;
-            padding-bottom: 100px;
+            padding: 12px;
+            padding-bottom: 24px;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             user-select: none;
-            font-size: 15px;
-            line-height: 1.5;
+            font-size: 14px;
+            line-height: 1.4;
             min-height: 100vh;
             overflow-x: hidden;
         }
@@ -470,9 +470,9 @@ public static class MiniAppUI
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(124,77,255,0.12);
-            border-radius: 24px;
-            padding: 24px 22px;
-            margin-bottom: 20px;
+            border-radius: 16px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
             position: relative;
             z-index: 50;
             box-shadow:
@@ -483,27 +483,27 @@ public static class MiniAppUI
         .sel-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 14px;
-            margin-bottom: 16px;
+            gap: 10px;
+            margin-bottom: 8px;
             position: relative;
         }
         .sel-grid::after {
             content: '';
             position: absolute;
             left: 50%;
-            top: 8px;
-            bottom: 8px;
+            top: 4px;
+            bottom: 4px;
             width: 1px;
             background: linear-gradient(180deg, transparent, rgba(124,77,255,0.25), rgba(0,229,255,0.14), rgba(124,77,255,0.25), transparent);
             transform: translateX(-50%);
             pointer-events: none;
         }
-        .sel-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 10px; font-weight: 700; display: block; }
+        .sel-label { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; font-weight: 700; display: block; }
         .dropdown-trigger {
             background: rgba(255,255,255,0.03);
             border: 1px solid var(--panel-border);
             height: var(--btn-h);
-            padding: 0 18px;
+            padding: 0 12px;
             border-radius: var(--radius);
             display: flex;
             justify-content: space-between;
@@ -599,16 +599,16 @@ public static class MiniAppUI
         .btn-analyze:disabled { opacity: 0.5; transform: none; box-shadow: none; animation: none; }
 
         /* ─── Results ─── */
-        .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+        .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
         .res-card {
             background: linear-gradient(135deg, rgba(124,77,255,0.04), transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid var(--panel-border);
-            border-radius: 20px;
-            padding: 18px 6px 14px;
+            border-radius: 14px;
+            padding: 8px 4px 6px;
             text-align: center;
-            min-height: 148px;
+            min-height: 90px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -625,18 +625,18 @@ public static class MiniAppUI
             background: linear-gradient(90deg, transparent, rgba(124,77,255,0.15), transparent);
         }
         .res-card:hover { border-color: rgba(124,77,255,0.2); }
-        .res-label { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; margin-bottom: 10px; }
-        .res-value { font-size: 20px; font-weight: 800; font-family: 'Unbounded', sans-serif; }
-        .res-chart { margin-top: 6px; width: 100%; height: 48px; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
+        .res-label { font-size: 8px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; margin-bottom: 4px; }
+        .res-value { font-size: 16px; font-weight: 800; font-family: 'Unbounded', sans-serif; }
+        .res-chart { margin-top: 4px; width: 100%; height: 26px; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
         .res-chart-bar {
-            width: 6px;
-            border-radius: 3px 3px 0 0;
+            width: 4px;
+            border-radius: 2px 2px 0 0;
             background: var(--accent);
             transition: height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .res-chart-bar.green { background: var(--green); }
         .res-chart-bar.red { background: var(--red); }
-        .res-dir-chart { margin-top: 4px; width: 100%; height: 44px; }
+        .res-dir-chart { margin-top: 2px; width: 100%; height: 24px; }
         .res-dir-chart svg { width: 100%; height: 100%; }
 
         /* ─── Levels ─── */
@@ -867,7 +867,7 @@ public static class MiniAppUI
             </div>
         </div>
 
-        <div class='top-categories'>
+        <div class='top-categories' id='topCategories'>
             <div class='top-cat-btn active' data-cat='fiat' onclick='changeTopCategory(this)'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><path d='M7 9h6a2 2 0 0 1 0 4H7'/><path d='M10 5v2m0 8v2'/></svg>
                 <div class='label'>Валюты</div>
@@ -1013,7 +1013,7 @@ public static class MiniAppUI
             <div class='levels-total'><span id='ltotalVotes'>--</span><span class='dir' id='ltotalDir'>--</span></div>
             <div class='levels-divider'></div>
             <div style='padding:6px 4px 2px;font-size:11px;font-weight:700;color:var(--subtext);letter-spacing:0.04em;text-transform:uppercase'>График цены</div>
-            <canvas id='priceChart' style='display:block;width:100%;height:160px'></canvas>
+            <canvas id='priceChart' style='display:block;width:100%;height:120px'></canvas>
             <div style='margin-top:10px;padding:8px 10px;font-size:10.5px;line-height:1.45;color:var(--dim);background:rgba(124,77,255,0.05);border:1px solid rgba(124,77,255,0.1);border-radius:10px'>
                 Данные: Binance (крипта) / Yahoo Finance (форекс, акции, сырьё). Котировки могут отличаться от Pocket Option, особенно на OTC-парах. Анализ не является финансовой рекомендацией.
             </div>
@@ -1161,7 +1161,8 @@ public static class MiniAppUI
             document.getElementById('mlCard').style.display = 'none';
             document.getElementById('claudeCard').style.display = 'none';
             document.getElementById('newsCard').style.display = 'none';
-            document.getElementById('welcomeSec').classList.remove('compact');
+            document.getElementById('welcomeSec').style.display = 'flex';
+            document.getElementById('topCategories').style.display = 'flex';
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
         }
 
@@ -1349,6 +1350,9 @@ public static class MiniAppUI
                         else alert(data.error);
                         return;
                     }
+
+                    document.getElementById('welcomeSec').style.display = 'none';
+                    document.getElementById('topCategories').style.display = 'none';
 
                     const isUnclear = data.unclear === true;
                     document.getElementById('resDir').innerText = data.direction === 'BUY' ? 'ВВЕРХ' : 'ВНИЗ';
