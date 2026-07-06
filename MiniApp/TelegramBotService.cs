@@ -214,6 +214,22 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
+        // Admin database download command
+        if (command == "/db" || command == "/getdb" || command == "/downloaddb")
+        {
+            if (!isAdmin)
+            {
+                await SendMessage(token, chatId, "❌ У вас нет прав для выполнения этой команды.");
+                return;
+            }
+
+            await SendMessage(token, chatId, "⏳ Подготавливаю файлы базы данных...");
+            await SendDatabaseFile(token, chatId, RegistrationsFile, "📁 База регистраций Pocket Option (registrations.json)");
+            await SendDatabaseFile(token, chatId, AllowedUsersFile, "📁 Список разрешенных пользователей с доступом (allowed_users.json)");
+            await SendDatabaseFile(token, chatId, AllUsersFile, "📁 Все уникальные пользователи бота (all_users.json)");
+            return;
+        }
+
         // Instruction command
         if (command == "/help" || cleanText == "❓ Инструкция")
         {
@@ -974,6 +990,33 @@ public class TelegramBotService : BackgroundService
                 await SendMessage(token, chatId, "🎉 <b>Депозит подтвержден. Доступ открыт!</b>");
                 await SendUserWelcome(token, chatId, _webAppUrl);
             }
+        }
+    }
+
+    private static async Task SendDatabaseFile(string token, long chatId, string filePath, string caption)
+    {
+        if (!File.Exists(filePath))
+        {
+            await SendMessage(token, chatId, $"❌ Файл {Path.GetFileName(filePath)} еще не создан.");
+            return;
+        }
+
+        try
+        {
+            using var form = new MultipartFormDataContent();
+            var fileBytes = File.ReadAllBytes(filePath);
+            var fileContent = new ByteArrayContent(fileBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            
+            form.Add(new StringContent(chatId.ToString()), "chat_id");
+            form.Add(fileContent, "document", Path.GetFileName(filePath));
+            form.Add(new StringContent(caption), "caption");
+
+            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendDocument", form);
+        }
+        catch (Exception ex)
+        {
+            await SendMessage(token, chatId, $"❌ Ошибка отправки файла: {ex.Message}");
         }
     }
 }
