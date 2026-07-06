@@ -273,7 +273,7 @@ public static class MiniAppController
                 }
                 else
                 {
-                    throw new Exception($"Binance symbol {symbol} has stale data from {openTime}");
+                    Console.WriteLine($"[Stale Data Warning] Binance symbol {symbol} has stale data from {openTime}. Proceeding anyway.");
                 }
             }
         }
@@ -993,7 +993,10 @@ public static class MiniAppController
                 newsSentiment = "Нейтральной",
                 newsScore = 0,
                 newsSummary = "Анализ недоступен (режим fallback)",
-                newsHeadlines = Array.Empty<string>()
+                newsHeadlines = Array.Empty<string>(),
+                claudeDirection = "NEUTRAL",
+                claudeProbability = 50,
+                claudeReasoning = "Анализ Claude временно недоступен (режим fallback)"
             };
     }
 
