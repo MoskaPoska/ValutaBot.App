@@ -479,7 +479,7 @@ public class TelegramBotService : BackgroundService
             {
                 new object[]
                 {
-                    new { text = "1️⃣ Зарегистрироваться на Pocket Option", url = $"https://po-ru4.click/smart/TIuORchTyPcFyj?subid={chatId}" }
+                    new { text = "1️⃣ Зарегистрироваться на Pocket Option", url = $"https://po-ru4.click/smart/Tlu0RchTyPcFYj?subid={chatId}" }
                 },
                 new object[]
                 {
