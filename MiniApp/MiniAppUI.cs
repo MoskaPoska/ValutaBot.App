@@ -974,7 +974,7 @@ public static class MiniAppUI
             </div>
         </div>
 
-        <div class='results-grid'>
+        <div class='results-grid' id='resultsGrid' style='display:none'>
             <div class='res-card'>
                 <div class='res-label'>Вероятность</div>
                 <div class='res-value' id='resProb' style='color:var(--accent)'>--%</div>
@@ -996,23 +996,12 @@ public static class MiniAppUI
         <!-- Tab Bar -->
         <div class='tab-bar' id='resultsTabBar' style='display:none'>
             <div class='tab-btn active' id='tabBtnChart' onclick=""switchResultTab('chart')"">
-                <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M3 3v18h18'/><path d='M18.7 8l-5.1 5.2-2.8-2.7L7 14.3'/></svg>
-                Прогноз и График
+                <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/><polyline points='22 4 12 14.01 9 11.01'/></svg>
+                Прогноз
             </div>
             <div class='tab-btn' id='tabBtnAI' onclick=""switchResultTab('ai')"">
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/><polyline points='3.27 6.96 12 12.01 20.73 6.96'/><line x1='12' y1='22.08' x2='12' y2='12'/></svg>
                 ИИ Аналитика
-            </div>
-        </div>
-
-        <!-- Tab 1: Chart and main results -->
-        <div id='tabContentChart' style='display:none'>
-            <div class='levels-bar' id='chartContainer' style='margin-top:10px;display:block'>
-                <div style='padding:4px 4px 2px;font-size:11px;font-weight:700;color:var(--subtext);letter-spacing:0.04em;text-transform:uppercase'>График цены</div>
-                <canvas id='priceChart' style='display:block;width:100%;height:120px'></canvas>
-                <div style='margin-top:8px;padding:6px 8px;font-size:10px;line-height:1.4;color:var(--dim);background:rgba(124,77,255,0.04);border:1px solid rgba(124,77,255,0.08);border-radius:8px'>
-                    Данные: Binance (крипта) / Yahoo Finance (форекс, акции, сырьё). Котировки могут отличаться от Pocket Option. Анализ не является финансовой рекомендацией.
-                </div>
             </div>
         </div>
 
@@ -1203,18 +1192,18 @@ public static class MiniAppUI
         function switchResultTab(tabName) {
             const btnChart = document.getElementById('tabBtnChart');
             const btnAI = document.getElementById('tabBtnAI');
-            const contentChart = document.getElementById('tabContentChart');
+            const contentChart = document.getElementById('resultsGrid');
             const contentAI = document.getElementById('tabContentAI');
 
             if (tabName === 'chart') {
                 btnChart.classList.add('active');
                 btnAI.classList.remove('active');
-                contentChart.style.display = 'block';
+                if (contentChart) contentChart.style.display = 'grid';
                 contentAI.style.display = 'none';
             } else {
                 btnChart.classList.remove('active');
                 btnAI.classList.add('active');
-                contentChart.style.display = 'none';
+                if (contentChart) contentChart.style.display = 'none';
                 contentAI.style.display = 'block';
             }
         }
@@ -1233,8 +1222,8 @@ public static class MiniAppUI
             document.getElementById('probChart').innerHTML = '';
             document.getElementById('dirChart').innerHTML = '<svg viewBox=\'0 0 80 40\'><path d=\'M10 35 L40 5 L70 35\' stroke=\'var(--dim)\' stroke-width=\'2.5\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\' opacity=\'0.3\'/></svg>';
             document.getElementById('durChart').innerHTML = '';
-            document.getElementById('resultsTabBar').style.display = 'none';
-            document.getElementById('tabContentChart').style.display = 'none';
+            if (document.getElementById('resultsTabBar')) document.getElementById('resultsTabBar').style.display = 'none';
+            if (document.getElementById('resultsGrid')) document.getElementById('resultsGrid').style.display = 'none';
             document.getElementById('tabContentAI').style.display = 'none';
             document.getElementById('levelsBar').style.display = 'none';
             document.getElementById('mlCard').style.display = 'none';
@@ -1509,7 +1498,7 @@ public static class MiniAppUI
                     const durBars = pricesToBars(data.chartData, 8);
                     if (durBars.length) renderMiniChart('durChart', durBars, '');
 
-                    renderPriceChart('priceChart', data.chartData || [], data.direction);
+                    // renderPriceChart('priceChart', data.chartData || [], data.direction);
 
                     if(data.levels) {
                         const L = data.levels;
