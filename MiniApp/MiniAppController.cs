@@ -156,7 +156,7 @@ public static class MiniAppController
 
                 var body = new
                 {
-                    model = "anthropic/claude-3.5-sonnet",
+                    model = "anthropic/claude-sonnet-5",
                     messages = new[]
                     {
                         new { role = "user", content = "Hello, respond with 1 word." }
