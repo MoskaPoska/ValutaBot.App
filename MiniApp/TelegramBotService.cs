@@ -154,15 +154,32 @@ public class TelegramBotService : BackgroundService
             isAdmin = AdminChatIds.Contains(chatId);
         }
 
-        // Test command to reset access
+        // Test command to reset access (Admin-only)
         if (command == "/reset" || command == "/resetaccess")
         {
+            if (!isAdmin)
+            {
+                await SendMessage(token, chatId, "❌ У вас нет прав для выполнения этой команды.");
+                return;
+            }
+
+            long targetChatId = chatId;
+            var parts = cleanText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 1 && long.TryParse(parts[1], out long parsedId))
+            {
+                targetChatId = parsedId;
+            }
+
             lock (_lock)
             {
-                AllowedUsers.Remove(chatId);
+                AllowedUsers.Remove(targetChatId);
                 SaveAllowedUsers();
             }
-            await SendMessage(token, chatId, "🔄 <b>Ваш доступ сброшен!</b> Теперь вы можете протестировать бота как новый (незарегистрированный) пользователь. Отправьте /start для начала.");
+            await SendMessage(token, chatId, $"🔄 <b>Доступ для пользователя {targetChatId} успешно сброшен!</b>");
+            if (targetChatId != chatId)
+            {
+                await SendMessage(token, targetChatId, "🔄 <b>Ваш доступ был сброшен администратором.</b>");
+            }
             return;
         }
 
@@ -483,6 +500,18 @@ public class TelegramBotService : BackgroundService
         }
         else if (data.StartsWith("approve_"))
         {
+            bool isSenderAdmin;
+            lock (_lock)
+            {
+                isSenderAdmin = AdminChatIds.Contains(chatId);
+            }
+
+            if (!isSenderAdmin)
+            {
+                await AnswerCallbackQuery(token, queryId, "❌ У вас нет прав для одобрения заявок.");
+                return;
+            }
+
             long userChatId = long.Parse(data.Replace("approve_", ""));
             lock (_lock)
             {
