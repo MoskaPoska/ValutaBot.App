@@ -100,7 +100,7 @@ public static class ClaudeSignalService
                 + "\"probability\": 55-95, "
                 + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
 
-            string model = "anthropic/claude-sonnet-5";
+            string model = "anthropic/claude-3.5-sonnet";
             try
             {
                 Console.WriteLine($"[Claude] Attempting request to OpenRouter with model: {model}");
