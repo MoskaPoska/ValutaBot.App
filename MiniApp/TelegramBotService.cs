@@ -165,6 +165,55 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
+        // Admin stats and registrations lookup command
+        if (command == "/stats" || command == "/regs")
+        {
+            if (!isAdmin)
+            {
+                await SendMessage(token, chatId, "❌ У вас нет прав для выполнения этой команды.");
+                return;
+            }
+
+            int totalUsers;
+            int allowedUsersCount;
+            int regsCount;
+            List<PocketRegistration> latestRegs;
+
+            lock (_lock)
+            {
+                totalUsers = AllUsers.Count;
+                allowedUsersCount = AllowedUsers.Count;
+                regsCount = PocketRegistrations.Count;
+                latestRegs = PocketRegistrations.Values
+                    .Take(15)
+                    .ToList();
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("📊 <b>Статистика бота:</b>");
+            sb.AppendLine($"• Всего пользователей в боте: <b>{totalUsers}</b>");
+            sb.AppendLine($"• Пользователей с доступом: <b>{allowedUsersCount}</b>");
+            sb.AppendLine($"• Регистраций в базе: <b>{regsCount}</b>\n");
+            
+            sb.AppendLine("📝 <b>Последние 15 записей в базе:</b>");
+            if (latestRegs.Count == 0)
+            {
+                sb.AppendLine("<i>(База регистраций пуста)</i>");
+            }
+            else
+            {
+                foreach (var r in latestRegs)
+                {
+                    string regIcon = r.HasRegistered ? "✅" : "❌";
+                    string depIcon = r.HasDeposited ? "💰" : "❌";
+                    sb.AppendLine($"• Pocket ID: <code>{r.PocketId}</code> | TG Chat: <code>{r.ChatId}</code> | Рег: {regIcon} | Деп: {depIcon}");
+                }
+            }
+
+            await SendMessage(token, chatId, sb.ToString());
+            return;
+        }
+
         // Instruction command
         if (command == "/help" || cleanText == "❓ Инструкция")
         {
