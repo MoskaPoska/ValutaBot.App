@@ -176,17 +176,10 @@ public static class MiniAppController
 
                 using var response = await _httpClient.SendAsync(request);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
-                string tdKey = Environment.GetEnvironmentVariable("TwelveDataApiKey") ?? "MISSING";
-                var tdTest = TwelveDataService.FetchCandles("EUR/USD", "1m");
-                
                 return Results.Json(new
                 {
                     status = (int)response.StatusCode,
-                    body = responseBody,
-                    twelveDataKeyMasked = tdKey.Length > 4 ? tdKey.Substring(0, 4) + "..." : tdKey,
-                    twelveDataTestSuccess = tdTest != null,
-                    twelveDataPricesCount = tdTest?.prices?.Length ?? 0
+                    body = responseBody
                 });
             }
             catch (Exception ex)
