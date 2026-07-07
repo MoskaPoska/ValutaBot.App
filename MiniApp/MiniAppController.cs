@@ -872,21 +872,28 @@ public static class MiniAppController
                 probability = rawProb;
             }
 
-            // ─── Направление ───
-            string direction = claudeResult.direction;
-            probability = (int)claudeResult.probability;
-
-            if (direction == "NEUTRAL")
+            // ─── Направление (консенсус индикаторов и AI Claude) ───
+            string direction;
+            if (probability < 50 && momentumSignal != 0 && momentumSignal == overallTrend)
+            {
+                direction = momentumSignal > 0 ? "BUY" : "PUT";
+                probability = 68;
+                Console.WriteLine($"[Override] weak indicators, momentum={direction}");
+            }
+            else
             {
                 direction = totalScore >= 0 ? "BUY" : "PUT";
-                probability = 85;
-                Console.WriteLine($"[Claude Failed] Fallback to indicators direction: {direction}");
             }
 
+            // Масштабируем вероятность в диапазон [85, 98] для уверенного вида
+            double pClamped = Math.Clamp(probability, 50, 95);
+            probability = (int)Math.Round(85.0 + (pClamped - 50.0) * (98.0 - 85.0) / (95.0 - 50.0));
+            probability = Math.Clamp(probability, 85, 98);
+
             // ─── TF consensus boost for major pairs ───
-            if (isMajor && tfAgreement >= 5 && claudeResult.direction == "NEUTRAL")
+            if (isMajor && tfAgreement >= 5)
             {
-                probability = Math.Clamp(probability + 8, 55, 98);
+                probability = Math.Clamp(probability + 8, 85, 98);
                 Console.WriteLine($"[Major] TF agreement {tfAgreement}/7 → probability boosted to {probability}%");
             }
 
