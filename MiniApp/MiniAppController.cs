@@ -262,7 +262,16 @@ public static class MiniAppController
             var lastCandle = arr[^1];
             long openTimeMs = lastCandle[0].GetInt64();
             var openTime = DateTimeOffset.FromUnixTimeMilliseconds(openTimeMs).UtcDateTime;
-            if (DateTime.UtcNow - openTime > TimeSpan.FromMinutes(30))
+
+            // If data is older than 5 days, it means the symbol is delisted/inactive on Binance.
+            // Throw exception so we fall back to TwelveData (for forex/commodities).
+            if (DateTime.UtcNow - openTime > TimeSpan.FromDays(5))
+            {
+                throw new Exception($"Binance symbol {symbol} data is extremely stale ({openTime}). Symbol is likely delisted/inactive.");
+            }
+
+            bool isHighTf = interval.EndsWith("h") || interval.EndsWith("d");
+            if (DateTime.UtcNow - openTime > TimeSpan.FromMinutes(30) && !isHighTf)
             {
                 bool isWeekend = DateTime.UtcNow.DayOfWeek == DayOfWeek.Saturday || 
                                  DateTime.UtcNow.DayOfWeek == DayOfWeek.Sunday || 
