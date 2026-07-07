@@ -89,8 +89,8 @@ public static class ClaudeSignalService
                 volume_strength = Math.Round(volStrength, 2),
                 bid_ask_imbalance = Math.Round(imbalance, 3),
                 volatility_per_candle = Math.Round(volatility, 6),
-                high_52w = Math.Round(prices.Max(), 5),
-                low_52w = Math.Round(prices.Min(), 5)
+                local_high = Math.Round(prices.Max(), 5),
+                local_low = Math.Round(prices.Min(), 5)
             });
 
             string systemPrompt = "You are a professional quantitative analyst with 20 years of experience. "
@@ -193,7 +193,11 @@ public static class ClaudeSignalService
             string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
 
             direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
-            probability = Math.Clamp(probability + 20, 86, 98);
+            
+            // Dynamic mapping: map raw probability [50, 95] to target range [82, 98] for natural variance
+            double rawProb = Math.Clamp(probability, 50, 95);
+            probability = Math.Round(82.0 + (rawProb - 50.0) * (98.0 - 82.0) / (95.0 - 50.0));
+            probability = Math.Clamp(probability, 82, 98);
 
             return (direction, probability, reasoning);
         }
