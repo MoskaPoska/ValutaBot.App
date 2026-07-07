@@ -849,6 +849,15 @@ public class TelegramBotService : BackgroundService
                         chat_id BIGINT PRIMARY KEY
                     );";
                 cmd.ExecuteNonQuery();
+
+                cmd.CommandText = @"
+                    DELETE FROM registrations 
+                    WHERE pocket_id LIKE '%[%' 
+                       OR pocket_id LIKE '%]%' 
+                       OR pocket_id LIKE '%{%' 
+                       OR pocket_id LIKE '%}%' 
+                       OR LOWER(pocket_id) = 'uid';";
+                cmd.ExecuteNonQuery();
             }
 
             Console.WriteLine("[DB] PostgreSQL database tables initialized successfully.");
@@ -1147,9 +1156,18 @@ public class TelegramBotService : BackgroundService
                     PocketRegistrations.Clear();
                     while (reader.Read())
                     {
+                        string pocketId = reader.GetString(0);
+                        if (string.IsNullOrEmpty(pocketId) || 
+                            pocketId.Contains("[") || pocketId.Contains("]") || 
+                            pocketId.Contains("{") || pocketId.Contains("}") || 
+                            pocketId.Equals("uid", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
                         var reg = new PocketRegistration
                         {
-                            PocketId = reader.GetString(0),
+                            PocketId = pocketId,
                             ChatId = reader.IsDBNull(1) ? 0 : reader.GetInt64(1),
                             HasRegistered = reader.GetBoolean(2),
                             HasDeposited = reader.GetBoolean(3),
@@ -1178,7 +1196,10 @@ public class TelegramBotService : BackgroundService
                     PocketRegistrations.Clear();
                     foreach (var reg in list)
                     {
-                        if (!string.IsNullOrEmpty(reg.PocketId))
+                        if (!string.IsNullOrEmpty(reg.PocketId) && 
+                            !reg.PocketId.Contains("[") && !reg.PocketId.Contains("]") && 
+                            !reg.PocketId.Contains("{") && !reg.PocketId.Contains("}") && 
+                            !reg.PocketId.Equals("uid", StringComparison.OrdinalIgnoreCase))
                         {
                             PocketRegistrations[reg.PocketId] = reg;
                         }
@@ -1248,6 +1269,15 @@ public class TelegramBotService : BackgroundService
 
     public static async Task ProcessPostback(long chatId, string pocketId, string status, double deposit)
     {
+        if (string.IsNullOrEmpty(pocketId) || 
+            pocketId.Contains("[") || pocketId.Contains("]") || 
+            pocketId.Contains("{") || pocketId.Contains("}") || 
+            pocketId.Equals("uid", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"[Postback] Ignored test postback with macro placeholder: pocketId={pocketId}");
+            return;
+        }
+
         lock (_lock)
         {
             var reg = PocketRegistrations.GetOrAdd(pocketId, pid => new PocketRegistration { PocketId = pid });
