@@ -654,22 +654,31 @@ public static class MiniAppController
             string? higherTf = HigherTf(timeframe);
             string? lowerTf = LowerTf(timeframe);
 
-            var tasks = new List<Task<(double[] prices, double[] volumes)>> { FetchBinanceWithFallback(symbol, mainInterval, asset, limit) };
-            var tfWeights = new List<double> { 1.0 };
-
-            if (higherTf != null)
+            // Helper function to safely fetch other timeframes without failing the entire analysis
+            async Task<(double[] prices, double[] volumes)?> SafeFetch(string tf)
             {
-                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(higherTf), asset, limit));
-                tfWeights.Add(2.0);
-            }
-            if (lowerTf != null)
-            {
-                tasks.Add(FetchBinanceWithFallback(symbol, IntervalMap(lowerTf), asset, limit));
-                tfWeights.Add(0.5);
+                try
+                {
+                    return await FetchBinanceWithFallback(symbol, tf, asset, limit);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Fetch Warning] TF {tf} failed to fetch: {ex.Message}");
+                    return null;
+                }
             }
 
-            // For major pairs: fetch all 7 unique TFs for deep consensus
-            var extraTfScores = new List<(int score, double conf, double rsi, double ema, double vol)>();
+            // Fetch main timeframe (must succeed)
+            var mainResultTuple = await FetchBinanceWithFallback(symbol, mainInterval, asset, limit);
+            var mainPrices = mainResultTuple.prices;
+            var mainVolumes = mainResultTuple.volumes;
+
+            // Fetch higher/lower timeframes safely
+            Task<(double[] prices, double[] volumes)?>? higherTask = higherTf != null ? SafeFetch(IntervalMap(higherTf)) : null;
+            Task<(double[] prices, double[] volumes)?>? lowerTask = lowerTf != null ? SafeFetch(IntervalMap(lowerTf)) : null;
+
+            // Fetch extra timeframes safely for major pairs
+            var extraTasks = new List<(string tf, Task<(double[] prices, double[] volumes)?> task)>();
             if (isMajor)
             {
                 string[] allUniqueTfs = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"];
@@ -680,13 +689,24 @@ public static class MiniAppController
                 foreach (var tf in allUniqueTfs)
                 {
                     if (!fetchedIntervals.Contains(tf))
-                        tasks.Add(FetchBinanceWithFallback(symbol, tf, asset, limit));
+                    {
+                        extraTasks.Add((tf, SafeFetch(tf)));
+                    }
                 }
             }
 
-            var results = await Task.WhenAll(tasks);
-            var mainPrices = results[0].prices;
-            var mainVolumes = results[0].volumes;
+            var higherResultData = higherTask != null ? await higherTask : null;
+            var lowerResultData = lowerTask != null ? await lowerTask : null;
+
+            var extraResults = new List<(double[] prices, double[] volumes)>();
+            foreach (var et in extraTasks)
+            {
+                var res = await et.task;
+                if (res != null)
+                {
+                    extraResults.Add(res.Value);
+                }
+            }
 
             double totalScore = 0;
             double totalConfidence = 0;
@@ -780,14 +800,14 @@ public static class MiniAppController
             var mainResult = ScoreTimeframe(mainPrices, mainVolumes);
             double conflictPenalty = 1.0;
 
-            if (results.Length >= 2 && higherTf != null)
+            if (higherResultData != null)
             {
-                var higherResult = ScoreTimeframe(results[1].prices, results[1].volumes);
+                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes);
                 conflictPenalty = MfConflictPenalty(mainResult, higherResult);
 
                 totalScore += higherResult.score;
-                totalConfidence += higherResult.confidence * tfWeights[1];
-                totalWeight += tfWeights[1];
+                totalConfidence += higherResult.confidence * 2.0; // Higher TF weight: 2.0
+                totalWeight += 2.0;
 
                 if (conflictPenalty < 1.0)
                 {
@@ -795,33 +815,47 @@ public static class MiniAppController
                     Console.WriteLine($"[TF] Higher TF conflict: score reduced by {Math.Abs(higherResult.score) / 2:F0}");
                 }
             }
-            if (results.Length >= 3 && lowerTf != null)
+            if (lowerResultData != null)
             {
-                var lowerResult = ScoreTimeframe(results[2].prices, results[2].volumes);
+                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes);
 
                 totalScore += lowerResult.score;
-                totalConfidence += lowerResult.confidence * tfWeights[2];
-                totalWeight += tfWeights[2];
+                totalConfidence += lowerResult.confidence * 0.5; // Lower TF weight: 0.5
+                totalWeight += 0.5;
             }
 
             // Main TF
             totalScore += mainResult.score;
-            totalConfidence += mainResult.confidence * tfWeights[0];
-            totalWeight += tfWeights[0];
+            totalConfidence += mainResult.confidence * 1.0; // Main TF weight: 1.0
+            totalWeight += 1.0;
 
             // ─── Extra TF scoring for major pairs ───
             int tfAgreement = 1;
             if (isMajor)
             {
-                int extraStart = 1 + (higherTf != null ? 1 : 0) + (lowerTf != null ? 1 : 0);
                 int mainDirSign = mainResult.score >= 0 ? 1 : -1;
-                for (int i = extraStart; i < results.Length; i++)
+                foreach (var r in extraResults)
                 {
-                    var s = ScoreTimeframe(results[i].prices, results[i].volumes);
+                    var s = ScoreTimeframe(r.prices, r.volumes);
                     if ((s.score >= 0 && mainDirSign > 0) || (s.score < 0 && mainDirSign < 0))
                         tfAgreement++;
                 }
-                Console.WriteLine($"[Major] {asset} TF agreement: {tfAgreement}/{1 + results.Length - extraStart}");
+
+                if (higherResultData != null)
+                {
+                    var s = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes);
+                    if ((s.score >= 0 && mainDirSign > 0) || (s.score < 0 && mainDirSign < 0))
+                        tfAgreement++;
+                }
+                if (lowerResultData != null)
+                {
+                    var s = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes);
+                    if ((s.score >= 0 && mainDirSign > 0) || (s.score < 0 && mainDirSign < 0))
+                        tfAgreement++;
+                }
+
+                int totalTfsEvaluated = 1 + extraResults.Count + (higherResultData != null ? 1 : 0) + (lowerResultData != null ? 1 : 0);
+                Console.WriteLine($"[Major] {asset} TF agreement: {tfAgreement}/{totalTfsEvaluated}");
             }
 
             // ─── Claude Opus 4.8 AI Signal ───
