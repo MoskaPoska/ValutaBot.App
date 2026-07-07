@@ -650,9 +650,12 @@ public static class MiniAppController
             bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
             int limit = isMajor ? 100 : 50;
 
+            // Disable multi-timeframe consensus for delisted pairs to avoid TwelveData rate limits (8 requests/min)
+            bool useMultiTf = symbol != null && symbol != "GBPUSDT" && symbol != "AUDUSDT";
+
             string mainInterval = IntervalMap(timeframe);
-            string? higherTf = HigherTf(timeframe);
-            string? lowerTf = LowerTf(timeframe);
+            string? higherTf = useMultiTf ? HigherTf(timeframe) : null;
+            string? lowerTf = useMultiTf ? LowerTf(timeframe) : null;
 
             // Helper function to safely fetch other timeframes without failing the entire analysis
             async Task<(double[] prices, double[] volumes)?> SafeFetch(string tf)
@@ -679,7 +682,7 @@ public static class MiniAppController
 
             // Fetch extra timeframes safely for major pairs
             var extraTasks = new List<(string tf, Task<(double[] prices, double[] volumes)?> task)>();
-            if (isMajor)
+            if (isMajor && useMultiTf)
             {
                 string[] allUniqueTfs = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"];
                 var fetchedIntervals = new HashSet<string> { mainInterval };
