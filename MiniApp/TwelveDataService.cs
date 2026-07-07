@@ -84,8 +84,8 @@ public static class TwelveDataService
                 .ToArray();
 
             var volumes = arr
-                .Select(v => double.TryParse(v.GetProperty("volume").GetString(), System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var vol) ? vol : 0)
+                .Select(v => v.TryGetProperty("volume", out var volProp) && double.TryParse(volProp.GetString(), System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var vol) ? vol : 0.0)
                 .Reverse()
                 .ToArray();
 
