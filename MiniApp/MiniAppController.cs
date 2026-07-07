@@ -176,10 +176,30 @@ public static class MiniAppController
 
                 using var response = await _httpClient.SendAsync(request);
                 string responseBody = await response.Content.ReadAsStringAsync();
+                
+                string tdKey = Environment.GetEnvironmentVariable("TwelveDataApiKey") ?? "";
+                string tdError = "";
+                bool tdSuccess = false;
+                int tdCount = 0;
+                try
+                {
+                    var tdTest = TwelveDataService.FetchCandles("GBP/USD OTC", "1m");
+                    tdSuccess = tdTest != null;
+                    tdCount = tdTest?.prices?.Length ?? 0;
+                }
+                catch (Exception ex)
+                {
+                    tdError = ex.Message;
+                }
+                
                 return Results.Json(new
                 {
                     status = (int)response.StatusCode,
-                    body = responseBody
+                    body = responseBody,
+                    twelveDataKeyLength = tdKey.Length,
+                    twelveDataTestSuccess = tdSuccess,
+                    twelveDataPricesCount = tdCount,
+                    twelveDataError = tdError
                 });
             }
             catch (Exception ex)
