@@ -291,62 +291,53 @@ public class TelegramBotService : BackgroundService
                 UserSubmittedIds[chatId] = pocketId;
                 UserStates[chatId] = UserState.None;
 
-                bool foundReg = false;
                 bool hasDeposited = false;
                 lock (_lock)
                 {
-                    if (PocketRegistrations.TryGetValue(pocketId, out var reg))
-                    {
-                        foundReg = reg.HasRegistered;
-                        hasDeposited = reg.HasDeposited;
-                        reg.ChatId = chatId;
-                        SaveRegistrations();
-                    }
+                    var reg = PocketRegistrations.GetOrAdd(pocketId, pid => new PocketRegistration { PocketId = pid });
+                    reg.ChatId = chatId;
+                    reg.HasRegistered = true;
+                    hasDeposited = reg.HasDeposited;
+                    SaveRegistrations();
                 }
 
-                if (foundReg)
+                if (hasDeposited)
                 {
-                    if (hasDeposited)
+                    lock (_lock)
                     {
-                        lock (_lock)
+                        if (!AllowedUsers.Contains(chatId))
                         {
-                            if (!AllowedUsers.Contains(chatId))
-                            {
-                                AllowedUsers.Add(chatId);
-                                SaveAllowedUsers();
-                            }
+                            AllowedUsers.Add(chatId);
+                            SaveAllowedUsers();
                         }
-                        await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
-                        await SendUserWelcome(token, chatId, webAppUrl);
                     }
-                    else
-                    {
-                        var depositKeyboard = new
-                        {
-                            inline_keyboard = new object[]
-                            {
-                                new object[]
-                                {
-                                    new { text = "💵 Проверить депозит", callback_data = $"check_dep_{pocketId}" }
-                                }
-                            }
-                        };
-                        var payload = new 
-                        { 
-                            chat_id = chatId, 
-                            text = "✅ <b>ID сохранен. Регистрация найдена. Теперь внеси депозит и нажми кнопку проверки.</b>", 
-                            parse_mode = "HTML", 
-                            reply_markup = depositKeyboard 
-                        };
-                        var json = JsonSerializer.Serialize(payload);
-                        var content = new StringContent(json, Encoding.UTF8, "application/json");
-                        await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
-                    }
+                    await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
+                    await SendUserWelcome(token, chatId, webAppUrl);
                 }
                 else
                 {
-                    await SendMessage(token, chatId, "⏳ <b>Ваш ID не найден в автоматической базе.</b>\n\nМы отправили запрос администраторам на ручную проверку. Пожалуйста, ожидайте уведомления!");
+                    var depositKeyboard = new
+                    {
+                        inline_keyboard = new object[]
+                        {
+                            new object[]
+                            {
+                                new { text = "💵 Проверить депозит", callback_data = $"check_dep_{pocketId}" }
+                            }
+                        }
+                    };
+                    var payload = new 
+                    { 
+                        chat_id = chatId, 
+                        text = "✅ <b>ID успешно привязан.</b>\n\nДля активации бота внесите депозит на ваш аккаунт Pocket Option (от $10) и нажмите кнопку проверки ниже.", 
+                        parse_mode = "HTML", 
+                        reply_markup = depositKeyboard 
+                    };
+                    var json = JsonSerializer.Serialize(payload);
+                    var content = new StringContent(json, Encoding.UTF8, "application/json");
+                    await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
 
+                    // Notify admins
                     List<long> adminsToNotify;
                     lock (_lock)
                     {
@@ -356,10 +347,10 @@ public class TelegramBotService : BackgroundService
                     if (adminsToNotify.Count > 0)
                     {
                         string userDisplay = string.IsNullOrEmpty(username) ? $"ID {chatId}" : $"@{username}";
-                        string adminText = $"🔔 <b>Новая заявка на доступ!</b>\n\n" +
+                        string adminText = $"🔔 <b>Введен новый ID аккаунта!</b>\n\n" +
                                            $"👤 Пользователь: {userDisplay} (Chat ID: <code>{chatId}</code>)\n" +
                                            $"🆔 Pocket Option ID: <code>{pocketId}</code>\n\n" +
-                                           $"Проверьте, зарегистрирован ли этот ID по вашей ссылке в кабинете Pocket Partners.";
+                                           $"Вы можете одобрить доступ вручную (без депозита) по кнопке ниже:";
 
                         var keyboard = new
                         {
@@ -377,10 +368,6 @@ public class TelegramBotService : BackgroundService
                         {
                             _ = SendMessageWithKeyboard(token, adminId, adminText, keyboard);
                         }
-                    }
-                    else
-                    {
-                        Console.WriteLine($"[TG Bot] No admins registered yet.");
                     }
                 }
             }
