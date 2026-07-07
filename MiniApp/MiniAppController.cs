@@ -178,18 +178,15 @@ public static class MiniAppController
                 string responseBody = await response.Content.ReadAsStringAsync();
                 
                 string tdKey = Environment.GetEnvironmentVariable("TwelveDataApiKey") ?? "";
-                string tdError = "";
-                bool tdSuccess = false;
-                int tdCount = 0;
+                string tdRawResponse = "";
                 try
                 {
-                    var tdTest = TwelveDataService.FetchCandles("GBP/USD OTC", "1m");
-                    tdSuccess = tdTest != null;
-                    tdCount = tdTest?.prices?.Length ?? 0;
+                    using var http = new HttpClient();
+                    tdRawResponse = await http.GetStringAsync($"https://api.twelvedata.com/time_series?symbol=GBP/USD&interval=1min&outputsize=50&apikey={tdKey}");
                 }
                 catch (Exception ex)
                 {
-                    tdError = ex.Message;
+                    tdRawResponse = "ERROR: " + ex.Message;
                 }
                 
                 return Results.Json(new
@@ -197,9 +194,7 @@ public static class MiniAppController
                     status = (int)response.StatusCode,
                     body = responseBody,
                     twelveDataKeyLength = tdKey.Length,
-                    twelveDataTestSuccess = tdSuccess,
-                    twelveDataPricesCount = tdCount,
-                    twelveDataError = tdError
+                    twelveDataRawResponse = tdRawResponse
                 });
             }
             catch (Exception ex)
