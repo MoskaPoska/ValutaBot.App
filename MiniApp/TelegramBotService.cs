@@ -291,84 +291,63 @@ public class TelegramBotService : BackgroundService
                 UserSubmittedIds[chatId] = pocketId;
                 UserStates[chatId] = UserState.None;
 
+                bool foundReg = false;
                 bool hasDeposited = false;
                 lock (_lock)
                 {
-                    var reg = PocketRegistrations.GetOrAdd(pocketId, pid => new PocketRegistration { PocketId = pid });
-                    reg.ChatId = chatId;
-                    reg.HasRegistered = true;
-                    hasDeposited = reg.HasDeposited;
-                    SaveRegistrations();
+                    if (PocketRegistrations.TryGetValue(pocketId, out var reg))
+                    {
+                        foundReg = reg.HasRegistered;
+                        hasDeposited = reg.HasDeposited;
+                        reg.ChatId = chatId;
+                        SaveRegistrations();
+                    }
                 }
 
-                if (hasDeposited)
+                if (foundReg)
                 {
-                    lock (_lock)
+                    if (hasDeposited)
                     {
-                        if (!AllowedUsers.Contains(chatId))
+                        lock (_lock)
                         {
-                            AllowedUsers.Add(chatId);
-                            SaveAllowedUsers();
-                        }
-                    }
-                    await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
-                    await SendUserWelcome(token, chatId, webAppUrl);
-                }
-                else
-                {
-                    var depositKeyboard = new
-                    {
-                        inline_keyboard = new object[]
-                        {
-                            new object[]
+                            if (!AllowedUsers.Contains(chatId))
                             {
-                                new { text = "💵 Проверить депозит", callback_data = $"check_dep_{pocketId}" }
+                                AllowedUsers.Add(chatId);
+                                SaveAllowedUsers();
                             }
                         }
-                    };
-                    var payload = new 
-                    { 
-                        chat_id = chatId, 
-                        text = "✅ <b>ID успешно привязан.</b>\n\nДля активации бота внесите депозит на ваш аккаунт Pocket Option (от $10) и нажмите кнопку проверки ниже.", 
-                        parse_mode = "HTML", 
-                        reply_markup = depositKeyboard 
-                    };
-                    var json = JsonSerializer.Serialize(payload);
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
-                    await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
-
-                    // Notify admins
-                    List<long> adminsToNotify;
-                    lock (_lock)
-                    {
-                        adminsToNotify = AdminChatIds.ToList();
+                        await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
+                        await SendUserWelcome(token, chatId, webAppUrl);
                     }
-
-                    if (adminsToNotify.Count > 0)
+                    else
                     {
-                        string userDisplay = string.IsNullOrEmpty(username) ? $"ID {chatId}" : $"@{username}";
-                        string adminText = $"🔔 <b>Введен новый ID аккаунта!</b>\n\n" +
-                                           $"👤 Пользователь: {userDisplay} (Chat ID: <code>{chatId}</code>)\n" +
-                                           $"🆔 Pocket Option ID: <code>{pocketId}</code>\n\n" +
-                                           $"Вы можете одобрить доступ вручную (без депозита) по кнопке ниже:";
-
-                        var keyboard = new
+                        var depositKeyboard = new
                         {
                             inline_keyboard = new object[]
                             {
                                 new object[]
                                 {
-                                    new { text = "✅ Одобрить", callback_data = $"approve_{chatId}" },
-                                    new { text = "❌ Отклонить", callback_data = $"decline_{chatId}" }
+                                    new { text = "💵 Проверить депозит", callback_data = $"check_dep_{pocketId}" }
                                 }
                             }
                         };
-
-                        foreach (long adminId in adminsToNotify)
-                        {
-                            _ = SendMessageWithKeyboard(token, adminId, adminText, keyboard);
-                        }
+                        var payload = new 
+                        { 
+                            chat_id = chatId, 
+                            text = "✅ <b>ID сохранен. Регистрация найдена. Теперь внесите депозит на аккаунт Pocket Option (от $10) и нажмите кнопку проверки.</b>", 
+                            parse_mode = "HTML", 
+                            reply_markup = depositKeyboard 
+                        };
+                        var json = JsonSerializer.Serialize(payload);
+                        var content = new StringContent(json, Encoding.UTF8, "application/json");
+                        await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
                     }
+                }
+                else
+                {
+                    await SendMessage(token, chatId, "❌ <b>Ваш ID не найден в автоматической базе регистраций.</b>\n\n" +
+                                                   "Пожалуйста, убедитесь, что вы зарегистрировались по нашей ссылке.\n\n" +
+                                                   "Если вы только что прошли регистрацию, брокеру может потребоваться 1-2 минуты для синхронизации данных. Пожалуйста, подождите немного и введите ваш ID еще раз.");
                 }
             }
             else
