@@ -188,13 +188,29 @@ public static class MiniAppController
                 {
                     tdRawResponse = "ERROR: " + ex.Message;
                 }
+
+                string claudeTestResult = "";
+                try
+                {
+                    var testRes = ClaudeSignalService.AnalyzeSignal(
+                        "EUR/USD OTC", new double[50], new double[50],
+                        50.0, 1.15, 0.001, 0.002,
+                        25.0, 0.5, 100.0, 0.0);
+                    claudeTestResult = $"dir={testRes.direction} prob={testRes.probability} reasoning={testRes.reasoning}";
+                }
+                catch (Exception ex)
+                {
+                    claudeTestResult = "ERROR: " + ex.Message;
+                }
                 
                 return Results.Json(new
                 {
                     status = (int)response.StatusCode,
                     body = responseBody,
                     twelveDataKeyLength = tdKey.Length,
-                    twelveDataRawResponse = tdRawResponse
+                    twelveDataRawResponse = tdRawResponse,
+                    claudeTestResult = claudeTestResult,
+                    claudeLastRawResponse = ClaudeSignalService.GetLastRawResponse()
                 });
             }
             catch (Exception ex)
