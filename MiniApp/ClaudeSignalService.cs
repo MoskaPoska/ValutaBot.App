@@ -76,21 +76,21 @@ public static class ClaudeSignalService
             string indicators = JsonSerializer.Serialize(new
             {
                 asset,
-                current_price = Math.Round(prices[^1], 5),
-                change_percent = Math.Round(change, 2),
-                mom3_percent = Math.Round(mom3, 3),
-                mom5_percent = Math.Round(mom5, 3),
-                rsi_14 = Math.Round(rsi, 1),
-                ema_9 = Math.Round(ema, 5),
-                macd = Math.Round(macd, 6),
-                macd_signal = Math.Round(macdSignal, 6),
-                adx_14 = Math.Round(adx, 1),
-                bollinger_zscore = Math.Round(bbZ, 2),
-                volume_strength = Math.Round(volStrength, 2),
-                bid_ask_imbalance = Math.Round(imbalance, 3),
-                volatility_per_candle = Math.Round(volatility, 6),
-                local_high = Math.Round(prices.Max(), 5),
-                local_low = Math.Round(prices.Min(), 5)
+                current_price = SafeRound(prices[^1], 5),
+                change_percent = SafeRound(change, 2),
+                mom3_percent = SafeRound(mom3, 3),
+                mom5_percent = SafeRound(mom5, 3),
+                rsi_14 = SafeRound(rsi, 1),
+                ema_9 = SafeRound(ema, 5),
+                macd = SafeRound(macd, 6),
+                macd_signal = SafeRound(macdSignal, 6),
+                adx_14 = SafeRound(adx, 1),
+                bollinger_zscore = SafeRound(bbZ, 2),
+                volume_strength = SafeRound(volStrength, 2),
+                bid_ask_imbalance = SafeRound(imbalance, 3),
+                volatility_per_candle = SafeRound(volatility, 6),
+                local_high = SafeRound(prices.Max(), 5),
+                local_low = SafeRound(prices.Min(), 5)
             });
 
             string systemPrompt = "You are a professional quantitative analyst with 20 years of experience. "
@@ -206,5 +206,11 @@ public static class ClaudeSignalService
             Console.WriteLine($"[Claude Parse Error] Failed to parse content: {content}");
             throw new Exception($"JSON parse failed: {jsonEx.Message}. Raw text: {content}");
         }
+    }
+
+    private static double SafeRound(double value, int decimals)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value)) return 0;
+        return Math.Round(value, decimals);
     }
 }
