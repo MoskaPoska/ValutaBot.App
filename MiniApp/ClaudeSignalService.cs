@@ -215,10 +215,8 @@ public static class ClaudeSignalService
 
             direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
             
-            // Dynamic mapping: map raw probability [50, 95] to target range [82, 98] for natural variance
-            double rawProb = Math.Clamp(probability, 50, 95);
-            probability = Math.Round(82.0 + (rawProb - 50.0) * (98.0 - 82.0) / (95.0 - 50.0));
-            probability = Math.Clamp(probability, 82, 98);
+            // Return Claude's real probability — no inflation
+            probability = Math.Clamp(probability, 50, 95);
 
             return (direction, probability, reasoning);
         }

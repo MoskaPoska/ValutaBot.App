@@ -948,58 +948,88 @@ public static class MiniAppController
                 probability = rawProb;
             }
 
-            // ─── Направление и вероятность берутся напрямую от AI Claude ───
+            // ─── SNIPER MODE: Направление и вероятность ───
+            // Правило #1: Если Claude не уверен → НЕ ТОРГУЕМ
+            // Правило #2: Если Claude уверен, но индикаторы противоречат → НЕ ТОРГУЕМ
+            // Правило #3: Показываем РЕАЛЬНУЮ вероятность, без раздувания
+
             string direction;
-            if (claudeResult.direction != "NEUTRAL")
+
+            if (claudeResult.direction != "NEUTRAL" && claudeResult.probability >= 65)
             {
-                direction = claudeResult.direction;
+                // Claude дал сигнал с хорошей уверенностью
+                // Проверяем не противоречат ли индикаторы
+                int claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
+                int indicatorSign = mainResult.score >= 0 ? 1 : -1;
                 
-                // Масштабируем вероятность Claude в диапазон [85, 98] для уверенного вида
-                double pClamped = Math.Clamp(claudeResult.probability, 50, 95);
-                probability = (int)Math.Round(85.0 + (pClamped - 50.0) * (98.0 - 85.0) / (95.0 - 50.0));
-                probability = Math.Clamp(probability, 85, 98);
-            }
-            else
-            {
-                // Резервный расчет по консенсусу индикаторов, если Claude не ответил
-                if (probability < 50 && momentumSignal != 0 && momentumSignal == overallTrend)
+                if (claudeSign == indicatorSign || Math.Abs(mainResult.score) < 2)
                 {
-                    direction = momentumSignal > 0 ? "BUY" : "PUT";
-                    probability = 68;
-                    Console.WriteLine($"[Override] weak indicators, momentum={direction}");
+                    // Индикаторы подтверждают или нейтральны → берём сигнал Claude
+                    direction = claudeResult.direction;
+                    probability = (int)Math.Round(claudeResult.probability);
+                    
+                    // Бонус за совпадение с momentum
+                    if (momentumSignal == claudeSign)
+                        probability = Math.Min(probability + 5, 95);
+                    
+                    // Штраф за конфликт TF
+                    if (conflictPenalty < 1.0)
+                        probability = Math.Max(55, probability - 10);
+                        
+                    Console.WriteLine($"[Sniper] Claude signal ACCEPTED: {direction} {probability}%");
                 }
                 else
                 {
-                    direction = totalScore >= 0 ? "BUY" : "PUT";
+                    // Индикаторы сильно противоречат Claude → пропускаем
+                    direction = "NEUTRAL";
+                    probability = 50;
+                    Console.WriteLine($"[Sniper] Claude said {claudeResult.direction} but indicators disagree (score={mainResult.score}) → NEUTRAL");
                 }
-
-                double pClamped = Math.Clamp(probability, 50, 95);
-                probability = (int)Math.Round(85.0 + (pClamped - 50.0) * (98.0 - 85.0) / (95.0 - 50.0));
-                probability = Math.Clamp(probability, 85, 98);
+            }
+            else
+            {
+                // Claude не уверен (NEUTRAL или probability < 65)
+                // Даём сигнал ТОЛЬКО если есть очень сильный консенсус индикаторов + momentum
+                if (Math.Abs(totalScore) >= 5 && momentumSignal != 0 && momentumSignal == overallTrend)
+                {
+                    direction = momentumSignal > 0 ? "BUY" : "PUT";
+                    probability = Math.Clamp(rawProb, 60, 80);
+                    Console.WriteLine($"[Sniper] Strong indicator consensus without Claude: {direction} {probability}%");
+                }
+                else
+                {
+                    // Нет ни Claude, ни сильного консенсуса → НЕ ТОРГУЕМ
+                    direction = "NEUTRAL";
+                    probability = 50;
+                    Console.WriteLine($"[Sniper] No strong signal → NEUTRAL (Claude={claudeResult.direction}/{claudeResult.probability:F0}%, score={totalScore:F0})");
+                }
             }
 
             // ─── TF consensus boost for major pairs ───
-            if (isMajor && tfAgreement >= 5)
+            if (direction != "NEUTRAL" && isMajor && tfAgreement >= 5)
             {
-                probability = Math.Clamp(probability + 8, 85, 98);
+                probability = Math.Clamp(probability + 5, 55, 95);
                 Console.WriteLine($"[Major] TF agreement {tfAgreement}/7 → probability boosted to {probability}%");
             }
 
-            // ─── Signal Tracker ───
-            SignalTracker.RecordPrediction(direction, asset, timeframe, mainPrices[^1]);
-            double finalDir = direction == "BUY" ? 1 : -1;
-            double mainDir = mainResult.score >= 0 ? 1 : -1;
-            double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
-            double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
-            double claudeDirVal = claudeResult.direction == "BUY" ? 1 : claudeResult.direction == "PUT" ? -1 : 0;
-            double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
-                ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
+            // ─── Signal Tracker (only track real signals, not NEUTRAL) ───
+            if (direction != "NEUTRAL")
+            {
+                SignalTracker.RecordPrediction(direction, asset, timeframe, mainPrices[^1]);
+                double finalDir = direction == "BUY" ? 1 : -1;
+                double mainDir = mainResult.score >= 0 ? 1 : -1;
+                double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
+                double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
+                double claudeDirVal = claudeResult.direction == "BUY" ? 1 : claudeResult.direction == "PUT" ? -1 : 0;
+                double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
+                    ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
 
-            SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
-            if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
-            if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
-            if (claudeDirVal != 0) SignalTracker.RecordSignalVote("Claude AI", Math.Abs(claudeDirVal - finalDir) < 0.1);
-            if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
+                SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
+                if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
+                if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
+                if (claudeDirVal != 0) SignalTracker.RecordSignalVote("Claude AI", Math.Abs(claudeDirVal - finalDir) < 0.1);
+                if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
+            }
 
             int expiryCandles = 3; // Default 3 candles (matching ML SSA prediction horizon)
 
