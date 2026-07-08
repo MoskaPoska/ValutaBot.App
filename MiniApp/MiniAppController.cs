@@ -179,18 +179,6 @@ public static class MiniAppController
                 using var response = await _httpClient.SendAsync(request);
                 string responseBody = await response.Content.ReadAsStringAsync();
                 
-                string tdKey = Environment.GetEnvironmentVariable("TwelveDataApiKey") ?? "";
-                string tdRawResponse = "";
-                try
-                {
-                    using var http = new HttpClient();
-                    tdRawResponse = await http.GetStringAsync($"https://api.twelvedata.com/time_series?symbol=GBP/USD&interval=1min&outputsize=50&apikey={tdKey}");
-                }
-                catch (Exception ex)
-                {
-                    tdRawResponse = "ERROR: " + ex.Message;
-                }
-
                 string claudeTestResult = "";
                 try
                 {
@@ -209,8 +197,6 @@ public static class MiniAppController
                 {
                     status = (int)response.StatusCode,
                     body = responseBody,
-                    twelveDataKeyLength = tdKey.Length,
-                    twelveDataRawResponse = tdRawResponse,
                     claudeTestResult = claudeTestResult,
                     claudeLastRawResponse = ClaudeSignalService.GetLastRawResponse(),
                     primaryModelError = ClaudeSignalService.GetLastPrimaryError(),

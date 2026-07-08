@@ -19,8 +19,8 @@ public static class TwelveDataService
     {
         string key = $"{rawAsset}_{interval}";
 
-        // 1. Check cache first for fresh data (less than 30 seconds old)
-        if (_cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < 30)
+        // 1. Check cache first for fresh data (less than 60 seconds old)
+        if (_cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < 60)
         {
             Console.WriteLine($"[TwelveData] Using cached data for {rawAsset} ({interval}) - fresh");
             return (cached.prices, cached.volumes);
