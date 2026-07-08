@@ -7,8 +7,10 @@ public static class ClaudeSignalService
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(60) };
     private static string? _lastRawResponse;
+    private static string? _lastPrimaryError;
 
     public static string? GetLastRawResponse() => _lastRawResponse;
+    public static string? GetLastPrimaryError() => _lastPrimaryError;
 
     public static string GetOpenRouterApiKey()
     {
@@ -103,10 +105,12 @@ public static class ClaudeSignalService
             string model = "google/gemini-2.5-pro";
             try
             {
+                _lastPrimaryError = null;
                 return SendOpenRouterRequest(model, apiKey, systemPrompt, asset, indicators);
             }
             catch (Exception ex)
             {
+                _lastPrimaryError = ex.ToString();
                 Console.WriteLine($"[Claude] Primary model {model} failed: {ex.Message}. Attempting fallback to Gemini 2.5 Flash...");
                 try
                 {

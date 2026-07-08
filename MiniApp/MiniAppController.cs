@@ -210,7 +210,8 @@ public static class MiniAppController
                     twelveDataKeyLength = tdKey.Length,
                     twelveDataRawResponse = tdRawResponse,
                     claudeTestResult = claudeTestResult,
-                    claudeLastRawResponse = ClaudeSignalService.GetLastRawResponse()
+                    claudeLastRawResponse = ClaudeSignalService.GetLastRawResponse(),
+                    primaryModelError = ClaudeSignalService.GetLastPrimaryError()
                 });
             }
             catch (Exception ex)
