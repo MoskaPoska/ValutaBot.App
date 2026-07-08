@@ -100,24 +100,24 @@ public static class ClaudeSignalService
                 + "\"probability\": 55-95, "
                 + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
 
-            string model = "openai/o1-mini";
+            string model = "google/gemini-2.5-pro";
             try
             {
                 return SendOpenRouterRequest(model, apiKey, systemPrompt, asset, indicators);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Claude] Primary model {model} failed: {ex.Message}. Attempting fallback to Gemini 2.5...");
+                Console.WriteLine($"[Claude] Primary model {model} failed: {ex.Message}. Attempting fallback to Gemini 2.5 Flash...");
                 try
                 {
-                    string fallbackModel = "google/gemini-2.5-pro";
+                    string fallbackModel = "google/gemini-2.5-flash";
                     var fallbackResult = SendOpenRouterRequest(fallbackModel, apiKey, systemPrompt, asset, indicators);
-                    return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning + " (Gemini 2.5)");
+                    return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning + " (Gemini 2.5 Flash)");
                 }
                 catch (Exception fallbackEx)
                 {
                     Console.WriteLine($"[Claude] Fallback model also failed: {fallbackEx.Message}");
-                    throw new Exception($"Primary and fallback models failed. Claude: {ex.Message}. Gemini: {fallbackEx.Message}");
+                    throw new Exception($"Primary and fallback models failed. Gemini Pro: {ex.Message}. Gemini Flash: {fallbackEx.Message}");
                 }
             }
         }
@@ -192,13 +192,7 @@ public static class ClaudeSignalService
             .GetProperty("content")
             .GetString() ?? "{}";
 
-        content = content.Trim();
-        int startIdx = content.IndexOf('{');
-        int endIdx = content.LastIndexOf('}');
-        if (startIdx != -1 && endIdx != -1 && endIdx > startIdx)
-        {
-            content = content.Substring(startIdx, endIdx - startIdx + 1);
-        }
+        content = CleanJsonString(content);
 
         try
         {
@@ -228,5 +222,49 @@ public static class ClaudeSignalService
     {
         if (double.IsNaN(value) || double.IsInfinity(value)) return 0;
         return Math.Round(value, decimals);
+    }
+
+    private static string CleanJsonString(string content)
+    {
+        content = content.Trim();
+        
+        // Remove markdown block backticks if present
+        if (content.StartsWith("```"))
+        {
+            int firstLineBreak = content.IndexOf('\n');
+            if (firstLineBreak != -1)
+            {
+                content = content.Substring(firstLineBreak + 1);
+            }
+            else
+            {
+                content = content.Trim('`');
+            }
+        }
+        
+        if (content.EndsWith("```"))
+        {
+            content = content.Substring(0, content.Length - 3).Trim();
+        }
+        
+        content = content.Trim();
+        
+        // Extract the main JSON object if there is text before/after it
+        int startIdx = content.IndexOf('{');
+        int endIdx = content.LastIndexOf('}');
+        if (startIdx != -1)
+        {
+            if (endIdx == -1 || endIdx < startIdx)
+            {
+                // Auto-close JSON if truncated
+                content = content.Substring(startIdx) + "}";
+            }
+            else
+            {
+                content = content.Substring(startIdx, endIdx - startIdx + 1);
+            }
+        }
+        
+        return content;
     }
 }
