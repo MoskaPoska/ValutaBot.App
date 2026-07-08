@@ -95,14 +95,16 @@ public static class ClaudeSignalService
                 local_low = SafeRound(prices.Min(), 5)
             });
 
-            string systemPrompt = "You are a professional quantitative analyst with 20 years of experience. "
-                + "Analyze the technical indicators below and predict the most likely short-term price direction. "
-                + "Respond in Russian with ONLY valid JSON (no markdown, no code blocks): "
-                + "{\"direction\": \"BUY\" or \"PUT\" or \"NEUTRAL\", "
-                + "\"probability\": 55-95, "
-                + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
+            string systemPrompt = "You are an elite institutional high-frequency trading risk manager. "
+                + "Your absolute priority is to protect capital and achieve an 80%+ win rate on 1-minute binary options. "
+                + "Analyze the technical indicators for the asset and make a prediction. "
+                + "Follow these rules strictly:\n"
+                + "1. Be extremely conservative. If indicators are weak, conflicting, or the market is in a flat/range, you MUST respond with 'NEUTRAL'. Do not guess.\n"
+                + "2. Only return 'BUY' or 'PUT' if there is a high-probability setup confirmed by at least 3 indicators (e.g. trend alignment, oversold/overbought recovery, volume strength).\n"
+                + "3. Respond with ONLY valid JSON (no markdown, no code blocks):\n"
+                + "{\"direction\": \"BUY\" or \"PUT\" or \"NEUTRAL\", \"probability\": 55-95, \"reasoning\": \"1-2 sentences in Russian explaining the entry confirmation\"}";
 
-            string model = "google/gemini-2.5-pro";
+            string model = "anthropic/claude-sonnet-5";
             try
             {
                 _lastPrimaryError = null;
@@ -121,7 +123,7 @@ public static class ClaudeSignalService
                 catch (Exception fallbackEx)
                 {
                     Console.WriteLine($"[Claude] Fallback model also failed: {fallbackEx.Message}");
-                    throw new Exception($"Primary and fallback models failed. Gemini Pro: {ex.Message}. Gemini Flash: {fallbackEx.Message}");
+                    throw new Exception($"Primary and fallback models failed. Claude 3.5: {ex.Message}. Gemini Flash: {fallbackEx.Message}");
                 }
             }
         }
