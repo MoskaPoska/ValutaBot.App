@@ -35,7 +35,8 @@ public class TelegramBotService : BackgroundService
     private enum UserState
     {
         None,
-        AwaitingId
+        AwaitingId,
+        AwaitingDeleteId
     }
 
     private static readonly ConcurrentDictionary<long, UserState> UserStates = new();
@@ -184,7 +185,7 @@ public class TelegramBotService : BackgroundService
         }
 
         // Admin stats and registrations lookup command
-        if (command == "/stats" || command == "/regs")
+        if (command == "/stats" || command == "/regs" || cleanText == "👥 Всего юзеров")
         {
             if (!isAdmin)
             {
@@ -282,7 +283,51 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
-        if (UserStates.TryGetValue(chatId, out var state) && state == UserState.AwaitingId)
+        if (cleanText == "🚫 Удалить доступ")
+        {
+            if (!isAdmin) return;
+            UserStates[chatId] = UserState.AwaitingDeleteId;
+            await SendMessage(token, chatId, "✍️ <b>Пожалуйста, введите Telegram Chat ID пользователя, доступ которого нужно аннулировать:</b>\n\n(Вы можете скопировать Chat ID из логов регистраций в 👥 Всего юзеров)");
+            return;
+        }
+
+        if (UserStates.TryGetValue(chatId, out var state) && state == UserState.AwaitingDeleteId && isAdmin)
+        {
+            UserStates[chatId] = UserState.None;
+            if (long.TryParse(cleanText.Trim(), out long targetChatId))
+            {
+                bool removed;
+                lock (_lock)
+                {
+                    removed = AllowedUsers.Remove(targetChatId);
+                    if (removed)
+                    {
+                        SaveAllowedUsers();
+                    }
+                }
+
+                if (removed)
+                {
+                    await SendMessage(token, chatId, $"✅ <b>Доступ для пользователя <code>{targetChatId}</code> успешно удален из базы данных и памяти бота!</b>");
+                    try
+                    {
+                        await SendMessage(token, targetChatId, "🔄 <b>Ваш доступ к боту был аннулирован администратором.</b>");
+                    }
+                    catch { /* ignore if blocked */ }
+                }
+                else
+                {
+                    await SendMessage(token, chatId, $"❓ <b>Пользователь с Chat ID <code>{targetChatId}</code> не найден в списке разрешенных.</b>");
+                }
+            }
+            else
+            {
+                await SendMessage(token, chatId, "❌ <b>Неверный формат Chat ID. Действие отменено.</b>\n\nChat ID должен состоять только из цифр.");
+            }
+            return;
+        }
+
+        if (UserStates.TryGetValue(chatId, out state) && state == UserState.AwaitingId)
         {
             var match = Regex.Match(cleanText, @"\d{7,10}");
             if (match.Success)
@@ -633,6 +678,11 @@ public class TelegramBotService : BackgroundService
                 new object[]
                 {
                     new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
+                },
+                new object[]
+                {
+                    new { text = "👥 Всего юзеров" },
+                    new { text = "🚫 Удалить доступ" }
                 }
             },
             resize_keyboard = true
