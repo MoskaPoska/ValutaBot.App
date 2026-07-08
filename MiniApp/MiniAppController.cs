@@ -679,8 +679,8 @@ public static class MiniAppController
             bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
             int limit = 100; // Always use 100 candles for stable indicators
 
-            // Enable multi-timeframe consensus, but restrict it for Forex to avoid rate limits
-            bool useMultiTf = true;
+            // Disable multi-timeframe for Forex (TwelveData rate limit: 8 req/min — 2 TF requests would exhaust it)
+            bool useMultiTf = !isForex;
 
             string mainInterval = IntervalMap(timeframe);
             string? higherTf = useMultiTf ? HigherTf(timeframe) : null;
