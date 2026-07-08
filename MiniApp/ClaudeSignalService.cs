@@ -163,8 +163,8 @@ public static class ClaudeSignalService
                     }
                 },
                 { "temperature", 0.2 },
-                { "max_tokens", 800 },
-                { "max_completion_tokens", 800 }
+                { "max_tokens", 3000 },
+                { "max_completion_tokens", 3000 }
             };
         }
 
