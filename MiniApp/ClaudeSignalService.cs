@@ -44,7 +44,8 @@ public static class ClaudeSignalService
     public static (string direction, double probability, string reasoning) AnalyzeSignal(
         string asset, double[] prices, double[] volumes,
         double rsi, double ema, double macd, double macdSignal,
-        double adx, double bbZ, double volStrength, double imbalance)
+        double adx, double bbZ, double volStrength, double imbalance,
+        string? higherTfInfo = null)
     {
 
         try
@@ -92,7 +93,8 @@ public static class ClaudeSignalService
                 bid_ask_imbalance = SafeRound(imbalance, 3),
                 volatility_per_candle = SafeRound(volatility, 6),
                 local_high = SafeRound(prices.Max(), 5),
-                local_low = SafeRound(prices.Min(), 5)
+                local_low = SafeRound(prices.Min(), 5),
+                higher_timeframe_context = higherTfInfo
             });
 
             string systemPrompt = "You are an elite institutional high-frequency trading risk manager. "

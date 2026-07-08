@@ -15,7 +15,7 @@ public static class TwelveDataService
         return _apiKey;
     }
 
-    public static (double[] prices, double[] volumes)? FetchCandles(string rawAsset, string interval)
+    public static (double[] prices, double[] volumes)? FetchCandles(string rawAsset, string interval, int limit = 100)
     {
         string key = $"{rawAsset}_{interval}";
 
@@ -35,7 +35,7 @@ public static class TwelveDataService
             string tdInterval = ConvertInterval(interval) ?? "";
             if (string.IsNullOrEmpty(symbol) || string.IsNullOrEmpty(tdInterval)) return null;
 
-            string url = $"https://api.twelvedata.com/time_series?symbol={Uri.EscapeDataString(symbol)}&interval={tdInterval}&outputsize=50&apikey={apiKey}";
+            string url = $"https://api.twelvedata.com/time_series?symbol={Uri.EscapeDataString(symbol)}&interval={tdInterval}&outputsize={limit}&apikey={apiKey}";
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.UserAgent.ParseAdd("ValutaBot/1.0");
 

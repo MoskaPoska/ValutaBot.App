@@ -672,15 +672,16 @@ public static class MiniAppController
                 _ => null // All Forex, metals, and commodities bypass Binance and fetch from TwelveData
             };
 
+            bool isForex = symbol == null;
             bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
-            int limit = isMajor ? 100 : 50;
+            int limit = 100; // Always use 100 candles for stable indicators
 
-            // Disable multi-timeframe consensus for delisted pairs to avoid TwelveData rate limits (8 requests/min)
-            bool useMultiTf = symbol != null && symbol != "GBPUSDT" && symbol != "AUDUSDT";
+            // Enable multi-timeframe consensus, but restrict it for Forex to avoid rate limits
+            bool useMultiTf = true;
 
             string mainInterval = IntervalMap(timeframe);
             string? higherTf = useMultiTf ? HigherTf(timeframe) : null;
-            string? lowerTf = useMultiTf ? LowerTf(timeframe) : null;
+            string? lowerTf = (useMultiTf && !isForex) ? LowerTf(timeframe) : null;
 
             // Helper function to safely fetch other timeframes without failing the entire analysis
             async Task<(double[] prices, double[] volumes)?> SafeFetch(string tf)
@@ -707,7 +708,7 @@ public static class MiniAppController
 
             // Fetch extra timeframes safely for major pairs
             var extraTasks = new List<(string tf, Task<(double[] prices, double[] volumes)?> task)>();
-            if (isMajor && useMultiTf)
+            if (isMajor && useMultiTf && !isForex)
             {
                 string[] allUniqueTfs = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"];
                 var fetchedIntervals = new HashSet<string> { mainInterval };
@@ -886,6 +887,20 @@ public static class MiniAppController
                 Console.WriteLine($"[Major] {asset} TF agreement: {tfAgreement}/{totalTfsEvaluated}");
             }
 
+            // Compute higher timeframe info for Claude context
+            string? higherTfInfo = null;
+            if (higherResultData != null)
+            {
+                var hPrices = higherResultData.Value.prices;
+                var hVolumes = higherResultData.Value.volumes;
+                var hResult = ScoreTimeframe(hPrices, hVolumes);
+                var (hMacd, hMacdSig) = ComputeMacd(hPrices, hPrices.Length - 1);
+                double hAdx = ComputeAdx(hPrices, 14);
+                double hBbZ = ComputeBollingerZscore(hPrices, 20);
+                
+                higherTfInfo = $"Timeframe: {higherTf}, Trend Direction Score: {hResult.score}, RSI: {hResult.rsiVal:F1}, EMA: {hResult.emaVal:F5}, MACD: {hMacd:F6}, MACD_Signal: {hMacdSig:F6}, ADX: {hAdx:F1}, Bollinger Z-score: {hBbZ:F2}";
+            }
+
             // ─── Claude Opus 4.8 AI Signal ───
             var (macdLine, macdSig) = ComputeMacd(mainPrices, mainPrices.Length - 1);
             double adxVal = ComputeAdx(mainPrices, 14);
@@ -896,7 +911,8 @@ public static class MiniAppController
             var claudeResult = ClaudeSignalService.AnalyzeSignal(
                 asset, mainPrices, mainVolumes,
                 mainResult.rsiVal, mainResult.emaVal, macdLine, macdSig,
-                adxVal, bbZscore, mainResult.volStrengthVal, claudeImbalance);
+                adxVal, bbZscore, mainResult.volStrengthVal, claudeImbalance,
+                higherTfInfo);
 
             if (claudeResult.direction != "NEUTRAL")
             {
