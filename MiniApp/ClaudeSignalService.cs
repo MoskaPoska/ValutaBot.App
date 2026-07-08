@@ -5,7 +5,7 @@ namespace ValutaBot.MiniApp;
 
 public static class ClaudeSignalService
 {
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(60) };
     private static string? _lastRawResponse;
 
     public static string? GetLastRawResponse() => _lastRawResponse;
