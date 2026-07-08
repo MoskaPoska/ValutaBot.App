@@ -100,7 +100,7 @@ public static class ClaudeSignalService
                 + "\"probability\": 55-95, "
                 + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
 
-            string model = "anthropic/claude-sonnet-5";
+            string model = "openai/o1-mini";
             try
             {
                 return SendOpenRouterRequest(model, apiKey, systemPrompt, asset, indicators);
@@ -133,17 +133,33 @@ public static class ClaudeSignalService
         string model, string apiKey, string systemPrompt, string asset, string indicators)
     {
         Console.WriteLine($"[Claude] Attempting request to OpenRouter with model: {model}");
-        var body = new
+        object body;
+        if (model.Contains("o1-"))
         {
-            model = model,
-            messages = new[]
+            // o1-mini does not support temperature/max_tokens or standard system role inside messages
+            body = new
             {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = $"Technical indicators for {asset}:\n{indicators}" }
-            },
-            temperature = 0.2,
-            max_tokens = 800
-        };
+                model = model,
+                messages = new[]
+                {
+                    new { role = "user", content = $"{systemPrompt}\n\nTechnical indicators for {asset}:\n{indicators}" }
+                }
+            };
+        }
+        else
+        {
+            body = new
+            {
+                model = model,
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = $"Technical indicators for {asset}:\n{indicators}" }
+                },
+                temperature = 0.2,
+                max_tokens = 800
+            };
+        }
 
         var json = JsonSerializer.Serialize(body);
         var request = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
