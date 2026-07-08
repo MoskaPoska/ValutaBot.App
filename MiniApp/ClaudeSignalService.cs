@@ -137,27 +137,30 @@ public static class ClaudeSignalService
         if (model.Contains("o1-"))
         {
             // o1-mini does not support temperature/max_tokens or standard system role inside messages
-            body = new
+            body = new Dictionary<string, object>
             {
-                model = model,
-                messages = new[]
-                {
-                    new { role = "user", content = $"{systemPrompt}\n\nTechnical indicators for {asset}:\n{indicators}" }
+                { "model", model },
+                { "messages", new[]
+                    {
+                        new Dictionary<string, string> { { "role", "user" }, { "content", $"{systemPrompt}\n\nTechnical indicators for {asset}:\n{indicators}" } }
+                    }
                 }
             };
         }
         else
         {
-            body = new
+            body = new Dictionary<string, object>
             {
-                model = model,
-                messages = new[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = $"Technical indicators for {asset}:\n{indicators}" }
+                { "model", model },
+                { "messages", new[]
+                    {
+                        new Dictionary<string, string> { { "role", "system" }, { "content", systemPrompt } },
+                        new Dictionary<string, string> { { "role", "user" }, { "content", $"Technical indicators for {asset}:\n{indicators}" } }
+                    }
                 },
-                temperature = 0.2,
-                max_tokens = 800
+                { "temperature", 0.2 },
+                { "max_tokens", 800 },
+                { "max_completion_tokens", 800 }
             };
         }
 
