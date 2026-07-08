@@ -102,7 +102,7 @@ public static class ClaudeSignalService
                 + "\"probability\": 55-95, "
                 + "\"reasoning\": \"1-2 sentences explaining key signals\"}";
 
-            string model = "google/gemini-2.5-flash";
+            string model = "google/gemini-2.5-pro";
             try
             {
                 _lastPrimaryError = null;
@@ -111,17 +111,17 @@ public static class ClaudeSignalService
             catch (Exception ex)
             {
                 _lastPrimaryError = ex.ToString();
-                Console.WriteLine($"[Claude] Primary model {model} failed: {ex.Message}. Attempting fallback to DeepSeek...");
+                Console.WriteLine($"[Claude] Primary model {model} failed: {ex.Message}. Attempting fallback to Gemini 2.5 Flash...");
                 try
                 {
-                    string fallbackModel = "deepseek/deepseek-chat";
+                    string fallbackModel = "google/gemini-2.5-flash";
                     var fallbackResult = SendOpenRouterRequest(fallbackModel, apiKey, systemPrompt, asset, indicators);
-                    return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning + " (DeepSeek)");
+                    return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning + " (Gemini 2.5 Flash)");
                 }
                 catch (Exception fallbackEx)
                 {
                     Console.WriteLine($"[Claude] Fallback model also failed: {fallbackEx.Message}");
-                    throw new Exception($"Primary and fallback models failed. Gemini Flash: {ex.Message}. DeepSeek: {fallbackEx.Message}");
+                    throw new Exception($"Primary and fallback models failed. Gemini Pro: {ex.Message}. Gemini Flash: {fallbackEx.Message}");
                 }
             }
         }
