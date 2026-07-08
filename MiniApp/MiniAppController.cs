@@ -665,17 +665,10 @@ public static class MiniAppController
             string raw = asset.Replace(" OTC", "").Replace("/", "").Trim();
             string? symbol = raw switch
             {
-                "EURUSD" => "EURUSDT",
-                "GBPUSD" => "GBPUSDT",
-                "AUDUSD" => "AUDUSDT",
-                "GOLD" => "PAXGUSDT",
-                "SILVER" => "XAGUSDT",
-                "BRENT" => "BRENTUSDT",
-                "OIL" => "OILUSDT",
                 "BTCUSDT" or "BTC" => "BTCUSDT",
                 "ETHUSDT" or "ETH" => "ETHUSDT",
                 "SOLUSDT" or "SOL" => "SOLUSDT",
-                _ => raw.Length == 6 ? null : raw + "USDT"
+                _ => null // All Forex, metals, and commodities bypass Binance and fetch from TwelveData
             };
 
             bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
