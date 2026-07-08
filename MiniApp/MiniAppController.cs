@@ -949,23 +949,35 @@ public static class MiniAppController
                 probability = rawProb;
             }
 
-            // ─── Направление (консенсус индикаторов и AI Claude) ───
+            // ─── Направление и вероятность берутся напрямую от AI Claude ───
             string direction;
-            if (probability < 50 && momentumSignal != 0 && momentumSignal == overallTrend)
+            if (claudeResult.direction != "NEUTRAL")
             {
-                direction = momentumSignal > 0 ? "BUY" : "PUT";
-                probability = 68;
-                Console.WriteLine($"[Override] weak indicators, momentum={direction}");
+                direction = claudeResult.direction;
+                
+                // Масштабируем вероятность Claude в диапазон [85, 98] для уверенного вида
+                double pClamped = Math.Clamp(claudeResult.probability, 50, 95);
+                probability = (int)Math.Round(85.0 + (pClamped - 50.0) * (98.0 - 85.0) / (95.0 - 50.0));
+                probability = Math.Clamp(probability, 85, 98);
             }
             else
             {
-                direction = totalScore >= 0 ? "BUY" : "PUT";
-            }
+                // Резервный расчет по консенсусу индикаторов, если Claude не ответил
+                if (probability < 50 && momentumSignal != 0 && momentumSignal == overallTrend)
+                {
+                    direction = momentumSignal > 0 ? "BUY" : "PUT";
+                    probability = 68;
+                    Console.WriteLine($"[Override] weak indicators, momentum={direction}");
+                }
+                else
+                {
+                    direction = totalScore >= 0 ? "BUY" : "PUT";
+                }
 
-            // Масштабируем вероятность в диапазон [85, 98] для уверенного вида
-            double pClamped = Math.Clamp(probability, 50, 95);
-            probability = (int)Math.Round(85.0 + (pClamped - 50.0) * (98.0 - 85.0) / (95.0 - 50.0));
-            probability = Math.Clamp(probability, 85, 98);
+                double pClamped = Math.Clamp(probability, 50, 95);
+                probability = (int)Math.Round(85.0 + (pClamped - 50.0) * (98.0 - 85.0) / (95.0 - 50.0));
+                probability = Math.Clamp(probability, 85, 98);
+            }
 
             // ─── TF consensus boost for major pairs ───
             if (isMajor && tfAgreement >= 5)
