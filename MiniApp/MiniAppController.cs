@@ -21,6 +21,8 @@ public static class MiniAppController
         .Or<TaskCanceledException>()
         .WaitAndRetryAsync(3, attempt => TimeSpan.FromMilliseconds(500 * attempt));
 
+    public static string? LastExceptionMessage { get; set; }
+
     public static void Start(string[] args, int port = 5000)
     {
         Console.WriteLine("=====================================================");
@@ -211,7 +213,8 @@ public static class MiniAppController
                     twelveDataRawResponse = tdRawResponse,
                     claudeTestResult = claudeTestResult,
                     claudeLastRawResponse = ClaudeSignalService.GetLastRawResponse(),
-                    primaryModelError = ClaudeSignalService.GetLastPrimaryError()
+                    primaryModelError = ClaudeSignalService.GetLastPrimaryError(),
+                    lastException = LastExceptionMessage
                 });
             }
             catch (Exception ex)
@@ -1038,6 +1041,7 @@ public static class MiniAppController
         }
         catch (Exception ex)
         {
+            LastExceptionMessage = ex.ToString();
             Console.WriteLine($"[ERR] Analysis failed: {ex.Message}");
             return GetMomentumPrediction(asset, timeframe);
         }
