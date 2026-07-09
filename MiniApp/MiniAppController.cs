@@ -23,6 +23,12 @@ public static class MiniAppController
 
     public static string? LastExceptionMessage { get; set; }
 
+    // OHLC candle cache for Claude pattern analysis (filled during data fetch, read by ClaudeSignalService)
+    public record OhlcCandle(double Open, double High, double Low, double Close, double Volume);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OhlcCandle[]> _ohlcCache = new();
+    public static OhlcCandle[]? GetOhlcCandles(string key) => _ohlcCache.TryGetValue(key, out var v) ? v : null;
+    public static void SetOhlcCandles(string key, OhlcCandle[] candles) => _ohlcCache[key] = candles;
+
     public static void Start(string[] args, int port = 5000)
     {
         Console.WriteLine("=====================================================");
@@ -310,6 +316,16 @@ public static class MiniAppController
 
         var prices = arr.Select(k => double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture)).ToArray();
         var volumes = arr.Select(k => double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)).ToArray();
+
+        // Cache full OHLC for Claude pattern analysis
+        var ohlc = arr.Select(k => new OhlcCandle(
+            double.Parse(k[1].GetString()!, CultureInfo.InvariantCulture),
+            double.Parse(k[2].GetString()!, CultureInfo.InvariantCulture),
+            double.Parse(k[3].GetString()!, CultureInfo.InvariantCulture),
+            double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture),
+            double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)
+        )).ToArray();
+        _ohlcCache[$"{symbol}_{interval}"] = ohlc;
 
         return (prices, volumes);
     }
@@ -890,18 +906,25 @@ public static class MiniAppController
                 higherTfInfo = $"Timeframe: {higherTf}, Trend Direction Score: {hResult.score}, RSI: {hResult.rsiVal:F1}, EMA: {hResult.emaVal:F5}, MACD: {hMacd:F6}, MACD_Signal: {hMacdSig:F6}, ADX: {hAdx:F1}, Bollinger Z-score: {hBbZ:F2}";
             }
 
-            // ─── Claude Opus 4.8 AI Signal ───
+            // ─── Claude AI Signal with OHLC pattern analysis ───
             var (macdLine, macdSig) = ComputeMacd(mainPrices, mainPrices.Length - 1);
             double adxVal = ComputeAdx(mainPrices, 14);
             double bbZscore = ComputeBollingerZscore(mainPrices, 20);
             double claudeImbalance = !string.IsNullOrEmpty(imbalanceKey)
                 ? MarketDataService.GetBookImbalance(imbalanceKey) : 0;
 
+            // Look up OHLC candles from cache (filled during FetchBinanceCandles/TwelveData)
+            string ohlcKey = symbol != null ? $"{symbol}_{mainInterval}" : $"{asset}_{mainInterval}";
+            var ohlcCandles = GetOhlcCandles(ohlcKey);
+            // Take last 30 candles for Claude (enough for pattern detection, keeps token count low)
+            var ohlcForClaude = ohlcCandles != null && ohlcCandles.Length > 30
+                ? ohlcCandles[^30..] : ohlcCandles;
+
             var claudeResult = ClaudeSignalService.AnalyzeSignal(
                 asset, mainPrices, mainVolumes,
                 mainResult.rsiVal, mainResult.emaVal, macdLine, macdSig,
                 adxVal, bbZscore, mainResult.volStrengthVal, claudeImbalance,
-                higherTfInfo);
+                higherTfInfo, ohlcForClaude);
 
             if (claudeResult.direction != "NEUTRAL")
             {

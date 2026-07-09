@@ -89,6 +89,25 @@ public static class TwelveDataService
                 .Reverse()
                 .ToArray();
 
+            // Cache full OHLC for Claude pattern analysis
+            try
+            {
+                var ohlc = arr.Select(v => new MiniAppController.OhlcCandle(
+                    double.Parse(v.GetProperty("open").GetString()!, System.Globalization.CultureInfo.InvariantCulture),
+                    v.TryGetProperty("high", out var h) ? double.Parse(h.GetString()!, System.Globalization.CultureInfo.InvariantCulture) : 0,
+                    v.TryGetProperty("low", out var l) ? double.Parse(l.GetString()!, System.Globalization.CultureInfo.InvariantCulture) : 0,
+                    double.Parse(v.GetProperty("close").GetString()!, System.Globalization.CultureInfo.InvariantCulture),
+                    v.TryGetProperty("volume", out var vl) && double.TryParse(vl.GetString(), System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var volVal) ? volVal : 0
+                )).Reverse().ToArray();
+                // Use rawAsset_interval as key (matches what MiniAppController will look up)
+                MiniAppController.SetOhlcCandles($"{rawAsset}_{interval}", ohlc);
+            }
+            catch (Exception ohlcEx)
+            {
+                Console.WriteLine($"[TwelveData] OHLC cache failed: {ohlcEx.Message}");
+            }
+
             _cache[key] = (prices, volumes, DateTime.UtcNow);
             Console.WriteLine($"[TwelveData] Fetched {prices.Length} candles for {symbol} ({interval})");
             return (prices, volumes);

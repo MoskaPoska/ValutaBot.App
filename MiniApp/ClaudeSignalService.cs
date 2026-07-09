@@ -45,7 +45,8 @@ public static class ClaudeSignalService
         string asset, double[] prices, double[] volumes,
         double rsi, double ema, double macd, double macdSignal,
         double adx, double bbZ, double volStrength, double imbalance,
-        string? higherTfInfo = null)
+        string? higherTfInfo = null,
+        MiniAppController.OhlcCandle[]? ohlcCandles = null)
     {
 
         try
@@ -76,6 +77,20 @@ public static class ClaudeSignalService
                 volatility += Math.Abs(prices[i] - prices[i - 1]);
             volatility /= prices.Length;
 
+            // Build OHLC candles array for Claude (compact format: [O,H,L,C] per candle)
+            object? candlesData = null;
+            if (ohlcCandles != null && ohlcCandles.Length > 0)
+            {
+                int decimals = prices[^1] > 100 ? 2 : 5;
+                candlesData = ohlcCandles.Select(c => new[]
+                {
+                    Math.Round(c.Open, decimals),
+                    Math.Round(c.High, decimals),
+                    Math.Round(c.Low, decimals),
+                    Math.Round(c.Close, decimals)
+                }).ToArray();
+            }
+
             string indicators = JsonSerializer.Serialize(new
             {
                 asset,
@@ -94,17 +109,24 @@ public static class ClaudeSignalService
                 volatility_per_candle = SafeRound(volatility, 6),
                 local_high = SafeRound(prices.Max(), 5),
                 local_low = SafeRound(prices.Min(), 5),
-                higher_timeframe_context = higherTfInfo
+                higher_timeframe_context = higherTfInfo,
+                ohlc_candles_last_30 = candlesData
             });
 
-            string systemPrompt = "You are an elite institutional high-frequency trading risk manager. "
-                + "Your absolute priority is to protect capital and achieve an 80%+ win rate on 1-minute binary options. "
-                + "Analyze the technical indicators for the asset and make a prediction. "
-                + "Follow these rules strictly:\n"
-                + "1. Be extremely conservative. If indicators are weak, conflicting, or the market is in a flat/range, you MUST respond with 'NEUTRAL'. Do not guess.\n"
-                + "2. Only return 'BUY' or 'PUT' if there is a high-probability setup confirmed by at least 3 indicators (e.g. trend alignment, oversold/overbought recovery, volume strength).\n"
-                + "3. Respond with ONLY valid JSON (no markdown, no code blocks):\n"
-                + "{\"direction\": \"BUY\" or \"PUT\" or \"NEUTRAL\", \"probability\": 55-95, \"reasoning\": \"1-2 sentences in Russian explaining the entry confirmation\"}";
+            string systemPrompt = "You are an elite price action trader analyzing 1-minute binary options. "
+                + "You receive technical indicators AND the last 30 OHLC candles [Open, High, Low, Close]. "
+                + "Your job is to find HIGH-PROBABILITY setups by combining:\n"
+                + "1. CANDLESTICK PATTERNS: Look for pin bars (long wick, small body), engulfing patterns, doji at extremes, hammer/shooting star, morning/evening star, three soldiers/crows.\n"
+                + "2. PRICE ACTION STRUCTURE: Support/resistance levels from recent highs/lows, double tops/bottoms, trend structure (higher highs/higher lows or vice versa).\n"
+                + "3. INDICATOR CONFIRMATION: RSI divergence, MACD crossovers, Bollinger Band bounces, ADX trend strength.\n\n"
+                + "CRITICAL RULES:\n"
+                + "- Return NEUTRAL if no clear pattern + indicator confluence exists. DO NOT GUESS.\n"
+                + "- Only signal BUY or PUT when you see a specific candlestick pattern confirmed by at least 2 indicators.\n"
+                + "- Name the exact pattern you found in your reasoning.\n"
+                + "- Be MORE conservative with probability — 60-75% for good setups, 75-90% only for textbook patterns with full confluence.\n"
+                + "- If ADX < 20 and no reversal pattern → NEUTRAL (flat market, no edge).\n\n"
+                + "Respond with ONLY valid JSON (no markdown, no code blocks):\n"
+                + "{\"direction\": \"BUY\" or \"PUT\" or \"NEUTRAL\", \"probability\": 55-90, \"reasoning\": \"1-2 sentences in Russian: name the pattern found, which indicators confirm it\"}";
 
             string model = "anthropic/claude-sonnet-5";
             try
