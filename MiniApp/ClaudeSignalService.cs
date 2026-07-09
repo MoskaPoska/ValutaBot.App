@@ -67,6 +67,29 @@ public static class ClaudeSignalService
         return (apiKey ?? "").Trim();
     }
 
+    public static string GetGroqApiKey()
+    {
+        string apiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? "";
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            try
+            {
+                string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+                if (File.Exists(settingsPath))
+                {
+                    var json = File.ReadAllText(settingsPath);
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("GroqApiKey", out var prop))
+                    {
+                        apiKey = prop.GetString() ?? "";
+                    }
+                }
+            }
+            catch { }
+        }
+        return (apiKey ?? "").Trim();
+    }
+
     public static async Task<(string direction, double probability, string reasoning, string modelName)> AnalyzeSignal(
         string asset, double[] prices, double[] volumes,
         double rsi, double ema, double macd, double macdSignal,
@@ -250,7 +273,8 @@ public static class ClaudeSignalService
 
             string primaryModel = "anthropic/claude-sonnet-5";
             string primaryLabel = "Claude Sonnet";
-            string fallbackLabel = "Gemini 2.0 Flash (Google)";
+            string geminiLabel = "Gemini 2.0 Flash (Google)";
+            string groqLabel = "Groq Llama 3.3 70B";
 
             string regimeLabel = marketRegime switch
             {
@@ -263,6 +287,7 @@ public static class ClaudeSignalService
             string finalGeminiPrompt = geminiPrompt.Replace("{market_regime}", regimeLabel);
 
             string geminiApiKey = GetGeminiApiKey();
+            string groqApiKey = GetGroqApiKey();
 
             try
             {
@@ -273,25 +298,56 @@ public static class ClaudeSignalService
             catch (Exception ex)
             {
                 _lastPrimaryError = ex.ToString();
-                Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {fallbackLabel}...");
+                Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {geminiLabel}...");
                 if (!string.IsNullOrEmpty(geminiApiKey))
                 {
                     try
                     {
                         string userContent = $"Technical indicators for {asset}:\n{indicators}";
                         var fallbackResult = await SendGeminiRequestAsync(geminiApiKey, finalGeminiPrompt, userContent);
-                        return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning, fallbackLabel);
+                        return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning, geminiLabel);
                     }
-                    catch (Exception fallbackEx)
+                    catch (Exception geminiEx)
                     {
-                        Console.WriteLine($"[AI] {fallbackLabel} failed: {fallbackEx.Message}");
-                        throw new Exception($"Все AI модели недоступны. {primaryLabel}: {ex.Message}. {fallbackLabel}: {fallbackEx.Message}");
+                        Console.WriteLine($"[AI] {geminiLabel} failed: {geminiEx.Message}. → fallback {groqLabel}...");
+                        if (!string.IsNullOrEmpty(groqApiKey))
+                        {
+                            try
+                            {
+                                var groqResult = await SendGroqRequestAsync(groqApiKey, finalGeminiPrompt, asset, indicators);
+                                return (groqResult.direction, groqResult.probability, groqResult.reasoning, groqLabel);
+                            }
+                            catch (Exception groqEx)
+                            {
+                                Console.WriteLine($"[AI] {groqLabel} failed: {groqEx.Message}");
+                                throw new Exception($"Все AI модели недоступны. {primaryLabel}: {ex.Message}. {geminiLabel}: {geminiEx.Message}. {groqLabel}: {groqEx.Message}");
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[AI] Groq API key not configured");
+                            throw new Exception($"AI недоступен. {primaryLabel}: {ex.Message}. {geminiLabel}: {geminiEx.Message}. Groq не настроен (нужен GROQ_API_KEY)");
+                        }
+                    }
+                }
+                else if (!string.IsNullOrEmpty(groqApiKey))
+                {
+                    Console.WriteLine($"[AI] Gemini not configured, → fallback {groqLabel}...");
+                    try
+                    {
+                        var groqResult = await SendGroqRequestAsync(groqApiKey, finalGeminiPrompt, asset, indicators);
+                        return (groqResult.direction, groqResult.probability, groqResult.reasoning, groqLabel);
+                    }
+                    catch (Exception groqEx)
+                    {
+                        Console.WriteLine($"[AI] {groqLabel} failed: {groqEx.Message}");
+                        throw new Exception($"Все AI модели недоступны. {primaryLabel}: {ex.Message}. Gemini не настроен. {groqLabel}: {groqEx.Message}");
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"[AI] Gemini API key not configured, no fallback available");
-                    throw new Exception($"AI недоступен. {primaryLabel}: {ex.Message}. Gemini не настроен (нужен GEMINI_API_KEY)");
+                    Console.WriteLine($"[AI] No fallback configured (Gemini + Groq)");
+                    throw new Exception($"AI недоступен. {primaryLabel}: {ex.Message}. Добавьте GEMINI_API_KEY или GROQ_API_KEY");
                 }
             }
         }
@@ -469,6 +525,72 @@ public static class ClaudeSignalService
         catch (Exception jsonEx)
         {
             Console.WriteLine($"[Gemini Parse Error] Failed to parse content: {content}");
+            throw new Exception($"JSON parse failed: {jsonEx.Message}. Raw text: {content}");
+        }
+    }
+
+    private static async Task<(string direction, double probability, string reasoning)> SendGroqRequestAsync(
+        string apiKey, string systemPrompt, string asset, string indicators)
+    {
+        string model = "llama-3.3-70b-versatile";
+        string url = "https://api.groq.com/openai/v1/chat/completions";
+        Console.WriteLine($"[Groq] Request to {model}");
+
+        var body = new Dictionary<string, object>
+        {
+            { "model", model },
+            { "messages", new[]
+                {
+                    new Dictionary<string, string> { { "role", "system" }, { "content", systemPrompt } },
+                    new Dictionary<string, string> { { "role", "user" }, { "content", $"Technical indicators for {asset}:\n{indicators}" } }
+                }
+            },
+            { "temperature", 0.2 },
+            { "max_tokens", 2000 },
+            { "response_format", new Dictionary<string, string> { { "type", "json_object" } } }
+        };
+
+        var json = JsonSerializer.Serialize(body);
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("Authorization", $"Bearer {apiKey}");
+
+        var response = await _http.SendAsync(request);
+        string responseBody = await response.Content.ReadAsStringAsync();
+        _lastRawResponse = responseBody;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new Exception($"Groq API HTTP {(int)response.StatusCode}: {responseBody}");
+        }
+
+        using var doc = JsonDocument.Parse(responseBody);
+        string content = doc.RootElement
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString() ?? "{}";
+
+        content = CleanJsonString(content);
+
+        try
+        {
+            using var resultDoc = JsonDocument.Parse(content);
+            var root = resultDoc.RootElement;
+            string direction = root.TryGetProperty("direction", out var d) ? d.GetString() ?? "NEUTRAL" : "NEUTRAL";
+            double probability = root.TryGetProperty("probability", out var p) ? p.GetDouble() : 50;
+            string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
+
+            direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
+            probability = Math.Clamp(probability, 50, 95);
+
+            return (direction, probability, reasoning);
+        }
+        catch (Exception jsonEx)
+        {
+            Console.WriteLine($"[Groq Parse Error] Failed to parse content: {content}");
             throw new Exception($"JSON parse failed: {jsonEx.Message}. Raw text: {content}");
         }
     }
