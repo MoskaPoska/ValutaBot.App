@@ -188,11 +188,11 @@ public static class MiniAppController
                 string claudeTestResult = "";
                 try
                 {
-                    var testRes = ClaudeSignalService.AnalyzeSignal(
+                    var testRes = await ClaudeSignalService.AnalyzeSignal(
                         "EUR/USD OTC", new double[50], new double[50],
                         50.0, 1.15, 0.001, 0.002,
                         25.0, 0.5, 100.0, 0.0);
-                    claudeTestResult = $"dir={testRes.direction} prob={testRes.probability} reasoning={testRes.reasoning}";
+                    claudeTestResult = $"model={testRes.modelName} dir={testRes.direction} prob={testRes.probability} reasoning={testRes.reasoning}";
                 }
                 catch (Exception ex)
                 {
@@ -252,23 +252,64 @@ public static class MiniAppController
 
     private static string IntervalMap(string tf) => tf.ToLower() switch
     {
-        "s5" or "s10" => "1m", "m1" => "1m", "m3" => "3m",
-        "m5" => "5m", "s15" => "15m", "s30" or "m30" => "30m",
-        "h1" => "1h", "h4" => "4h", _ => "1m"
+        "s3" or "s5" or "s10" or "s15" or "s30" => "1m",
+        "m1" => "1m", "m2" => "1m", "m3" => "3m",
+        "m5" => "5m", "m15" => "15m", "m30" => "30m",
+        "h1" => "1h", "h4" => "4h",
+        "d1" => "1d", _ => "1m"
+    };
+
+    private static int GetExpiryCandles(string tf) => tf.ToLower() switch
+    {
+        "s3" or "s5" or "s10" or "s15" or "s30" => 1,
+        "m1" => 1,
+        "m2" => 2,
+        "m3" => 1,
+        "m5" => 1,
+        "m15" => 1,
+        "m30" => 1,
+        "h1" => 1,
+        "h4" => 1,
+        "d1" => 1,
+        _ => 3
+    };
+
+    private static int BinanceIntervalToSeconds(string binanceInterval) => binanceInterval.ToLower() switch
+    {
+        "1m" => 60,
+        "3m" => 180,
+        "5m" => 300,
+        "15m" => 900,
+        "30m" => 1800,
+        "1h" => 3600,
+        "4h" => 14400,
+        "1d" => 86400,
+        _ => 60
+    };
+
+    private static int TimeframeSeconds(string tf) => tf.ToLower() switch
+    {
+        "s3" => 3, "s5" => 5, "s10" => 10, "s15" => 15, "s30" => 30,
+        "m1" => 60, "m2" => 120, "m3" => 180, "m5" => 300,
+        "m15" => 900, "m30" => 1800,
+        "h1" => 3600, "h4" => 14400,
+        "d1" => 86400, _ => 60
     };
 
     private static string? HigherTf(string tf) => tf.ToLower() switch
     {
-        "s5" or "s10" => "m1", "m1" => "m5", "m3" => "m5",
-        "m5" => "s15", "s15" => "s30", "s30" or "m30" => "h1",
-        "h1" => "h4", _ => null
+        "s3" or "s5" or "s10" => "s30", "s15" or "s30" => "m1",
+        "m1" => "m5", "m2" => "m5", "m3" => "m5",
+        "m5" => "m15", "m15" => "h1", "m30" => "h1",
+        "h1" => "h4", "h4" => "d1", _ => null
     };
 
     private static string? LowerTf(string tf) => tf.ToLower() switch
     {
-        "m3" => "m1", "m5" => "m1",
-        "s15" => "m5", "s30" or "m30" => "s15",
-        "h1" => "s30", "h4" => "h1", _ => null
+        "m1" => "s30", "m2" => "m1", "m3" => "m1",
+        "m5" => "m1", "m15" => "m5", "m30" => "m15",
+        "h1" => "m30", "h4" => "h1",
+        "d1" => "h4", _ => null
     };
 
     private const int RsiPeriod = 14;
@@ -476,21 +517,96 @@ public static class MiniAppController
         return volStrength * 2; // scale to -2..+2 influence range
     }
 
-    /* ─── ADX ─── */
+    /* ─── True ADX (Wilders) & ATR ─── */
 
-    private static double ComputeAdx(double[] data, int period)
+    private static (double adx, double plusDi, double minusDi) ComputeTrueAdx(MiniAppController.OhlcCandle[] candles, int period = 14)
     {
-        if (data.Length < period * 2) return 20;
-        double avgUp = 0, avgDown = 0;
-        for (int i = data.Length - period; i < data.Length; i++)
+        if (candles == null || candles.Length < period * 2) return (20, 0, 0);
+
+        int n = candles.Length;
+        var tr = new double[n];
+        var plusDm = new double[n];
+        var minusDm = new double[n];
+
+        for (int i = 1; i < n; i++)
         {
-            double diff = data[i] - data[i - 1];
-            if (diff > 0) avgUp += diff; else avgDown -= diff;
+            double h = candles[i].High, l = candles[i].Low;
+            double pc = candles[i - 1].Close, ph = candles[i - 1].High, pl = candles[i - 1].Low;
+
+            tr[i] = Math.Max(h - l, Math.Max(Math.Abs(h - pc), Math.Abs(l - pc)));
+
+            double up = h - ph, down = pl - l;
+            if (up > down && up > 0) plusDm[i] = up;
+            if (down > up && down > 0) minusDm[i] = down;
         }
-        avgUp /= period;
-        avgDown /= period;
-        if (avgUp + avgDown < 1e-10) return 20;
-        return Math.Min(Math.Abs(avgUp - avgDown) / (avgUp + avgDown) * 100, 60);
+
+        // Wilder's smoothing: first SMA(period), then EMA with alpha = 1/period
+        var sTr = new double[n]; var sP = new double[n]; var sM = new double[n];
+        for (int i = 1; i <= period; i++) { sTr[period] += tr[i]; sP[period] += plusDm[i]; sM[period] += minusDm[i]; }
+        sTr[period] /= period; sP[period] /= period; sM[period] /= period;
+
+        for (int i = period + 1; i < n; i++)
+        {
+            sTr[i] = sTr[i - 1] * (period - 1) / period + tr[i] / period;
+            sP[i] = sP[i - 1] * (period - 1) / period + plusDm[i] / period;
+            sM[i] = sM[i - 1] * (period - 1) / period + minusDm[i] / period;
+        }
+
+        // +DI, -DI, DX
+        var dx = new double[n];
+        double finalPdi = 0, finalMdi = 0;
+        for (int i = period; i < n; i++)
+        {
+            if (sTr[i] > 1e-10)
+            {
+                double pdi = 100 * sP[i] / sTr[i], mdi = 100 * sM[i] / sTr[i];
+                if (i == n - 1) { finalPdi = pdi; finalMdi = mdi; }
+                double sum = pdi + mdi;
+                if (sum > 1e-10) dx[i] = 100 * Math.Abs(pdi - mdi) / sum;
+            }
+        }
+
+        // ADX = smoothed DX
+        double adx = 0;
+        int validDx = 0;
+        for (int i = period; i < Math.Min(period * 2, n); i++)
+        {
+            if (dx[i] > 0) { adx += dx[i]; validDx++; }
+        }
+        if (validDx == 0) return (20, finalPdi, finalMdi);
+        adx /= validDx;
+
+        for (int i = period * 2; i < n; i++)
+        {
+            if (dx[i] > 0) adx = (adx * (period - 1) + dx[i]) / period;
+        }
+
+        return (adx, finalPdi, finalMdi);
+    }
+
+    private static double ComputeAtr(MiniAppController.OhlcCandle[] candles, int period = 14)
+    {
+        if (candles == null || candles.Length < period + 1) return 0;
+
+        int n = candles.Length;
+        double atr = 0;
+        // First ATR = SMA of TR over `period`
+        for (int i = 1; i <= period; i++)
+        {
+            double h = candles[i].High, l = candles[i].Low, pc = candles[i - 1].Close;
+            atr += Math.Max(h - l, Math.Max(Math.Abs(h - pc), Math.Abs(l - pc)));
+        }
+        atr /= period;
+
+        // Wilder's smoothing
+        for (int i = period + 1; i < n; i++)
+        {
+            double h = candles[i].High, l = candles[i].Low, pc = candles[i - 1].Close;
+            double tr = Math.Max(h - l, Math.Max(Math.Abs(h - pc), Math.Abs(l - pc)));
+            atr = (atr * (period - 1) + tr) / period;
+        }
+
+        return atr;
     }
 
     /* ─── Bollinger z-score ─── */
@@ -542,11 +658,11 @@ public static class MiniAppController
 
     /* ─── Scoring Engine ─── */
 
-    private static (int score, double confidence, double rsiVal, double emaVal, double volStrengthVal)
-        ScoreTimeframe(double[] prices, double[] volumes)
+    private static (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal)
+        ScoreTimeframe(double[] prices, double[] volumes, double? adxOverride = null, double? atrOverride = null)
     {
         int n = prices.Length;
-        if (n < EmaLong + 5) return (0, 0, 50, 0, 0);
+        if (n < EmaLong + 5) return (0, 0, 50, 0, 0, 0);
 
         var emaShortArr = ComputeEmaArray(prices, EmaShort);
         var emaLongArr = ComputeEmaArray(prices, EmaLong);
@@ -558,24 +674,28 @@ public static class MiniAppController
         double prevEmaS = emaShortArr[^2];
         double change = (prices[^1] - prices[0]) / prices[0];
         double volStrength = VolumeStrength(prices, volumes);
+        double atr = atrOverride ?? 0;
 
-        double adx = ComputeAdx(prices, 14);
+        double adx = adxOverride ?? 20;
         double bbZ = ComputeBollingerZscore(prices, 20);
         var (bullDiv, bearDiv) = DetectRsiDivergence(prices, RsiPeriod);
 
-        // Adaptive weights based on trendiness (ADX)
-        double tw = adx > 25 ? 1.5 : 1.0;  // Trend weight
-        double mw = adx < 20 ? 1.5 : 1.0;  // Mean reversion weight
+        // Adaptive weights based on trendiness (True ADX)
+        double tw = adx > 25 ? 1.5 : 1.0;
+        double mw = adx < 20 ? 1.5 : 1.0;
 
-        // ─── Group 1: Trend Indicators (Weight in overall score: 35%) ───
+        // ─── Group 1: Trend Indicators (Weight: 35%) ───
         double trendScore = 0;
         double trendTotalWeight = 0;
 
-        // EMA Consensus
-        int emaBullish = (lastPrice > emaS ? 1 : 0) + (lastPrice > emaL ? 1 : 0)
-                       + (emaS > emaL ? 1 : 0) + (emaS > prevEmaS ? 1 : 0);
-        if (emaBullish >= 3) { trendScore += 1 * tw; trendTotalWeight += tw; }
-        else if (emaBullish <= 1) { trendScore -= 1 * tw; trendTotalWeight += tw; }
+        // EMA Position (price vs EMAs)
+        int emaPos = (lastPrice > emaS ? 1 : 0) + (lastPrice > emaL ? 1 : 0) + (emaS > emaL ? 1 : 0);
+        if (emaPos >= 2) { trendScore += 0.8 * tw; trendTotalWeight += 0.8 * tw; }
+        else if (emaPos <= 1) { trendScore -= 0.8 * tw; trendTotalWeight += 0.8 * tw; }
+
+        // EMA Momentum (short EMA rising/falling)
+        if (emaS > prevEmaS) { trendScore += 0.4 * tw; trendTotalWeight += 0.4 * tw; }
+        else { trendScore -= 0.4 * tw; trendTotalWeight += 0.4 * tw; }
 
         // ADX Trend confirmation
         if (adx > 25)
@@ -591,10 +711,10 @@ public static class MiniAppController
             trendScore += (change > 0 ? 1 : -1) * 1.0;
             trendTotalWeight += 1.0;
         }
-        
+
         double finalTrend = trendTotalWeight > 0 ? (trendScore / trendTotalWeight) : 0;
 
-        // ─── Group 2: Oscillators (Weight in overall score: 25%) ───
+        // ─── Group 2: Oscillators (Weight: 25%) ───
         double oscScore = 0;
         double oscTotalWeight = 0;
 
@@ -614,7 +734,7 @@ public static class MiniAppController
 
         double finalOsc = oscTotalWeight > 0 ? (oscScore / oscTotalWeight) : 0;
 
-        // ─── Group 3: Volatility & Mean Reversion (Weight in overall score: 20%) ───
+        // ─── Group 3: Volatility & Mean Reversion (Weight: 20%) ───
         double volRevScore = 0;
         double volRevTotalWeight = 0;
 
@@ -632,27 +752,26 @@ public static class MiniAppController
 
         double finalVolRev = volRevTotalWeight > 0 ? (volRevScore / volRevTotalWeight) : 0;
 
-        // ─── Group 4: Volume Strength (Weight in overall score: 20%) ───
-        double finalVolume = Math.Clamp(volStrength / 2.0, -1.0, 1.0); // normalize to -1..1
+        // ─── Group 4: Volume Strength (Weight: 20%) ───
+        double finalVolume = Math.Clamp(volStrength / 2.0, -1.0, 1.0);
 
-        // ─── Weighted Ensemble Score (Overall Score normalized to -10..+10) ───
+        // ─── Weighted Ensemble Score (−1..+1) ───
         double weightedScore = (finalTrend * 0.35) + (finalOsc * 0.25) + (finalVolRev * 0.20) + (finalVolume * 0.20);
-        int score = (int)Math.Round(weightedScore * 10);
 
-        // Confidence calculation based on indicators agreement
+        // Confidence based on indicators agreement with final score
         double agreement = (Math.Sign(finalTrend) == Math.Sign(weightedScore) ? 0.35 : 0) +
                            (Math.Sign(finalOsc) == Math.Sign(weightedScore) ? 0.25 : 0) +
                            (Math.Sign(finalVolRev) == Math.Sign(weightedScore) ? 0.20 : 0) +
                            (Math.Sign(finalVolume) == Math.Sign(weightedScore) ? 0.20 : 0);
         double confidence = Math.Clamp(50 + agreement * 48, 50, 98);
 
-        return (score, confidence, rsi, emaS, volStrength);
+        return (weightedScore, confidence, rsi, emaS, volStrength, atr);
     }
 
     /* ─── Multi-TF conflict penalty ─── */
 
-    private static double MfConflictPenalty((int score, double conf, double rsi, double ema, double vol) main,
-                                             (int score, double conf, double rsi, double ema, double vol) higher)
+    private static double MfConflictPenalty((double score, double conf, double rsi, double ema, double vol, double atr) main,
+                                             (double score, double conf, double rsi, double ema, double vol, double atr) higher)
     {
         // If main and higher TF disagree → reduce confidence
         int mainDir = main.score >= 0 ? 1 : -1;
@@ -746,16 +865,18 @@ public static class MiniAppController
             double totalConfidence = 0;
             double totalWeight = 0;
 
-            // ─── ML Ensemble (max ±3) ───
+            // ─── ML Ensemble (нормализован к −1..+1) ───
             var (mlDirection, mlConfidence, mlPredicted) = MLForecastService.PredictNextCandles(mainPrices);
-            int mlScoreTotal = 0;
+            double mlScoreNormalized = 0;
+            double mlConfTotal = 0;
+            int mlSubSignals = 0;
 
             if (mlDirection != "NEUTRAL")
             {
-                int mlSign = mlDirection == "BUY" ? 1 : -1;
-                int val = mlSign * (int)(mlConfidence / 20 * 1.5);
-                mlScoreTotal += Math.Clamp(val, -3, 3);
-                totalConfidence += mlConfidence * 1.5;
+                double mlSign = mlDirection == "BUY" ? 1 : -1;
+                mlScoreNormalized += mlSign * (mlConfidence / 100.0) * 0.5;
+                mlConfTotal += mlConfidence;
+                mlSubSignals++;
                 Console.WriteLine($"[ML] SSA forecast={mlDirection} conf={mlConfidence:F0}%");
             }
 
@@ -763,12 +884,11 @@ public static class MiniAppController
             if (Math.Abs(linregSlope) > 0.005)
             {
                 double linregConf = Math.Clamp(Math.Abs(linregSlope) * 2000, 55, 90);
-                string linregDir = linregSlope > 0 ? "BUY" : "PUT";
-                int lrSign = linregDir == "BUY" ? 1 : -1;
-                int val = lrSign * (int)(linregConf / 30 * 0.8);
-                mlScoreTotal += Math.Clamp(val, -2, 2);
-                totalConfidence += linregConf;
-                Console.WriteLine($"[ML] LinReg slope={linregSlope:F4} dir={linregDir} conf={linregConf:F0}%");
+                double lrSign = linregSlope > 0 ? 1 : -1;
+                mlScoreNormalized += lrSign * (linregConf / 100.0) * 0.4;
+                mlConfTotal += linregConf;
+                mlSubSignals++;
+                Console.WriteLine($"[ML] LinReg slope={linregSlope:F4} dir={(linregSlope > 0 ? "BUY" : "PUT")} conf={linregConf:F0}%");
             }
 
             double momScore = 0;
@@ -783,31 +903,34 @@ public static class MiniAppController
             if (Math.Abs(momScore) >= 2)
             {
                 double momConf = Math.Clamp(Math.Abs(momScore) * 15, 55, 85);
-                int momSign = momScore > 0 ? 1 : -1;
-                int val = momSign * (int)(momConf / 30);
-                mlScoreTotal += Math.Clamp(val, -2, 2);
-                totalConfidence += momConf * 1.5;
+                double momSign = momScore > 0 ? 1 : -1;
+                mlScoreNormalized += momSign * (momConf / 100.0) * 0.4;
+                mlConfTotal += momConf;
+                mlSubSignals++;
                 Console.WriteLine($"[ML] Momentum={momScore:F0} dir={(momScore > 0 ? "BUY" : "PUT")} conf={momConf:F0}%");
             }
 
-            mlScoreTotal = Math.Clamp(mlScoreTotal, -3, 3);
-            if (mlScoreTotal != 0)
+            if (mlSubSignals > 0)
             {
-                totalScore += mlScoreTotal;
+                mlScoreNormalized /= mlSubSignals;
+                mlScoreNormalized = Math.Clamp(mlScoreNormalized, -1, 1);
+                totalScore += mlScoreNormalized;
+                totalConfidence += mlConfTotal / mlSubSignals;
                 totalWeight += 1.5;
             }
 
-            // ─── News Analysis (max ±2) ───
+            // ─── News Analysis (нормализован к −1..+1) ───
             var newsResult = NewsAnalysisService.Analyze(asset);
             if (Math.Abs(newsResult.score) > 0.1)
             {
-                totalScore += Math.Clamp((int)(newsResult.score * 2), -2, 2);
-                totalConfidence += Math.Abs(newsResult.score) * 100;
+                double newsScoreNormalized = Math.Clamp(newsResult.score / 2.0, -1, 1);
+                totalScore += newsScoreNormalized;
+                totalConfidence += Math.Clamp(Math.Abs(newsResult.score) / 2.0 * 100, 50, 98);
                 totalWeight += 1.0;
-                Console.WriteLine($"[News] sentiment={newsResult.sentiment} score={newsResult.score:F1}");
+                Console.WriteLine($"[News] sentiment={newsResult.sentiment} score={newsResult.score:F1} normalized={newsScoreNormalized:F2}");
             }
 
-            // ─── Bid/Ask Imbalance из WebSocket ───
+            // ─── Bid/Ask Imbalance из WebSocket (нормализован к −1..+1) ───
             string imbalanceKey = symbol != null && symbol.EndsWith("USDT") ? symbol.Replace("USDT", "/USDT") : "";
             {
                 double imbalance = MarketDataService.GetBookImbalance(imbalanceKey);
@@ -817,57 +940,75 @@ public static class MiniAppController
                     string tfLower = timeframe.ToLower().Trim();
                     if (tfLower == "m1" || tfLower == "m3" || tfLower == "m5" || tfLower.StartsWith("s"))
                     {
-                        timeframeScale = 0.5; // Reduce priority by 50% on small TFs to avoid spoofing noise
+                        timeframeScale = 0.5;
                     }
 
                     double imbWeight = Math.Min(Math.Abs(imbalance) * 5, 2.0) * timeframeScale;
-                    double imbConf = Math.Clamp(55 + Math.Abs(imbalance) * 35, 55, 90);
-                    int imbSign = imbalance > 0 ? 1 : -1;
-                    totalScore += imbSign * (int)(imbWeight * 3);
-                    totalConfidence += imbConf * timeframeScale;
+                    double imbNorm = Math.Clamp(imbWeight / 2.0, -1, 1);
+                    double imbSign = imbalance > 0 ? 1 : -1;
+                    totalScore += imbSign * imbNorm;
+                    totalConfidence += Math.Clamp(55 + Math.Abs(imbalance) * 35, 55, 90) * timeframeScale;
                     totalWeight += 1.0 * timeframeScale;
-                    Console.WriteLine($"[OrderBook] {imbalanceKey} imbalance={imbalance:F3} weight={imbWeight:F1} (scaled by {timeframeScale:F1})");
+                    Console.WriteLine($"[OrderBook] {imbalanceKey} imbalance={imbalance:F3} norm={imbSign * imbNorm:F2} (scaled by {timeframeScale:F1})");
                 }
             }
 
+            // ─── OHLC keys для True ADX + ATR ───
+            string mainOhlcKey = symbol != null ? $"{symbol}_{mainInterval}" : $"{asset}_{mainInterval}";
+            string? higherOhlcKey = higherTf != null
+                ? (symbol != null ? $"{symbol}_{IntervalMap(higherTf)}" : $"{asset}_{IntervalMap(higherTf)}") : null;
+            string? lowerOhlcKey = lowerTf != null
+                ? (symbol != null ? $"{symbol}_{IntervalMap(lowerTf)}" : $"{asset}_{IntervalMap(lowerTf)}") : null;
+
+            var mainOhlc = GetOhlcCandles(mainOhlcKey);
+            var higherOhlc = higherOhlcKey != null ? GetOhlcCandles(higherOhlcKey) : null;
+            var lowerOhlc = lowerOhlcKey != null ? GetOhlcCandles(lowerOhlcKey) : null;
+
+            var (mainAdx, mainPdi, mainMdi) = mainOhlc != null ? ComputeTrueAdx(mainOhlc) : (20.0, 0.0, 0.0);
+            double mainAtr = mainOhlc != null ? ComputeAtr(mainOhlc) : 0;
+
             // Store results for conflict detection
-            var mainResult = ScoreTimeframe(mainPrices, mainVolumes);
+            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, mainAdx, mainAtr);
             double conflictPenalty = 1.0;
 
             if (higherResultData != null)
             {
-                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes);
+                var (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
+                double hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
+                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, hAdx, hAtr);
                 conflictPenalty = MfConflictPenalty(mainResult, higherResult);
 
                 totalScore += higherResult.score;
-                totalConfidence += higherResult.confidence * 2.0; // Higher TF weight: 2.0
+                totalConfidence += higherResult.confidence * 2.0;
                 totalWeight += 2.0;
 
                 if (conflictPenalty < 1.0)
                 {
-                    totalScore -= Math.Abs(higherResult.score) / 2;
-                    Console.WriteLine($"[TF] Higher TF conflict: score reduced by {Math.Abs(higherResult.score) / 2:F0}");
+                    totalScore -= Math.Abs(higherResult.score) * 0.5;
+                    Console.WriteLine($"[TF] Higher TF conflict: score reduced by {Math.Abs(higherResult.score) * 0.5:F2}");
                 }
             }
             if (lowerResultData != null)
             {
-                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes);
+                var (lAdx, lPdi, lMdi) = lowerOhlc != null ? ComputeTrueAdx(lowerOhlc) : (20.0, 0.0, 0.0);
+                double lAtr = lowerOhlc != null ? ComputeAtr(lowerOhlc) : 0;
+                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes, lAdx, lAtr);
 
                 totalScore += lowerResult.score;
-                totalConfidence += lowerResult.confidence * 0.5; // Lower TF weight: 0.5
+                totalConfidence += lowerResult.confidence * 0.5;
                 totalWeight += 0.5;
             }
 
             // Main TF
             totalScore += mainResult.score;
-            totalConfidence += mainResult.confidence * 1.0; // Main TF weight: 1.0
+            totalConfidence += mainResult.confidence * 1.0;
             totalWeight += 1.0;
 
             // ─── Extra TF scoring for major pairs ───
             int tfAgreement = 1;
             if (isMajor)
             {
-                int mainDirSign = mainResult.score >= 0 ? 1 : -1;
+                double mainDirSign = mainResult.score >= 0 ? 1 : -1;
                 foreach (var r in extraResults)
                 {
                     var s = ScoreTimeframe(r.prices, r.volumes);
@@ -898,39 +1039,64 @@ public static class MiniAppController
             {
                 var hPrices = higherResultData.Value.prices;
                 var hVolumes = higherResultData.Value.volumes;
-                var hResult = ScoreTimeframe(hPrices, hVolumes);
+                var (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
+                double hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
+                var hResult = ScoreTimeframe(hPrices, hVolumes, hAdx, hAtr);
                 var (hMacd, hMacdSig) = ComputeMacd(hPrices, hPrices.Length - 1);
-                double hAdx = ComputeAdx(hPrices, 14);
                 double hBbZ = ComputeBollingerZscore(hPrices, 20);
                 
-                higherTfInfo = $"Timeframe: {higherTf}, Trend Direction Score: {hResult.score}, RSI: {hResult.rsiVal:F1}, EMA: {hResult.emaVal:F5}, MACD: {hMacd:F6}, MACD_Signal: {hMacdSig:F6}, ADX: {hAdx:F1}, Bollinger Z-score: {hBbZ:F2}";
+                higherTfInfo = $"Timeframe: {higherTf}, Score: {hResult.score:F2}, RSI: {hResult.rsiVal:F1}, EMA: {hResult.emaVal:F5}, MACD: {hMacd:F6}, Signal: {hMacdSig:F6}, ADX: {hAdx:F1}, +DI: {hPdi:F1}, -DI: {hMdi:F1}, ATR: {hAtr:F6}, BBz: {hBbZ:F2}";
             }
 
             // ─── Claude AI Signal with OHLC pattern analysis ───
             var (macdLine, macdSig) = ComputeMacd(mainPrices, mainPrices.Length - 1);
-            double adxVal = ComputeAdx(mainPrices, 14);
             double bbZscore = ComputeBollingerZscore(mainPrices, 20);
             double claudeImbalance = !string.IsNullOrEmpty(imbalanceKey)
                 ? MarketDataService.GetBookImbalance(imbalanceKey) : 0;
 
             // Look up OHLC candles from cache (filled during FetchBinanceCandles/TwelveData)
-            string ohlcKey = symbol != null ? $"{symbol}_{mainInterval}" : $"{asset}_{mainInterval}";
+            string ohlcKey = mainOhlcKey;
             var ohlcCandles = GetOhlcCandles(ohlcKey);
             // Take last 30 candles for Claude (enough for pattern detection, keeps token count low)
             var ohlcForClaude = ohlcCandles != null && ohlcCandles.Length > 30
                 ? ohlcCandles[^30..] : ohlcCandles;
 
-            var claudeResult = ClaudeSignalService.AnalyzeSignal(
-                asset, mainPrices, mainVolumes,
-                mainResult.rsiVal, mainResult.emaVal, macdLine, macdSig,
-                adxVal, bbZscore, mainResult.volStrengthVal, claudeImbalance,
-                higherTfInfo, ohlcForClaude);
+            // Detect candlestick patterns and support/resistance levels
+            var detectedPatterns = ohlcCandles != null ? PatternDetector.DetectPatterns(ohlcCandles) : new List<string>();
+            var (supports, resistances) = PatternDetector.CalculateLevels(mainPrices);
+Console.WriteLine($"[Patterns] {string.Join(", ", detectedPatterns)}");
+string FmtLevels(double[] levels) => levels.Length == 0 ? "-" : string.Join(" │ ", levels.Select(l => l.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)));
+Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)}");
 
-            if (claudeResult.direction != "NEUTRAL")
+            // ─── Candle status + caching ───
+            int timeframeSec = TimeframeSeconds(timeframe);
+            int binanceSec = BinanceIntervalToSeconds(mainInterval);
+            long nowSec = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            long candleId = nowSec / timeframeSec;
+            int candleSecondsRemaining = (int)(timeframeSec - nowSec % timeframeSec);
+            string cacheKey = $"claude_{asset}_{timeframe}_{candleId}";
+
+            (string direction, double probability, string reasoning, string modelName) claudeResult;
+            if (_cache.TryGetValue(cacheKey, out object? cached) && cached is ValueTuple<string, double, string, string> cachedTuple)
             {
-                int claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
-                int claudeScore = Math.Clamp(claudeSign * 2, -2, 2);
-                totalScore += claudeScore;
+                claudeResult = cachedTuple;
+                Console.WriteLine($"[Cache] HIT for {cacheKey}");
+            }
+            else
+            {
+                claudeResult = await ClaudeSignalService.AnalyzeSignal(
+                    asset, mainPrices, mainVolumes,
+                    mainResult.rsiVal, mainResult.emaVal, macdLine, macdSig,
+                    mainAdx, bbZscore, mainResult.volStrengthVal, claudeImbalance,
+                    higherTfInfo, ohlcForClaude, detectedPatterns, supports, resistances,
+                    timeframe, candleSecondsRemaining, timeframeSec, mainAtr, mainPdi, mainMdi);
+                int cacheTtlSec = Math.Max(candleSecondsRemaining + 2, 3);
+                _cache.Set(cacheKey, claudeResult, TimeSpan.FromSeconds(cacheTtlSec));
+                Console.WriteLine($"[Cache] Stored {cacheKey}, TTL={cacheTtlSec}s");
+            }
+            {
+                double claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
+                totalScore += claudeSign * (claudeResult.probability / 100.0);
                 totalConfidence += claudeResult.probability;
                 totalWeight += 1.0;
                 Console.WriteLine($"[Claude] dir={claudeResult.direction} prob={claudeResult.probability:F0}% reasoning={claudeResult.reasoning}");
@@ -985,7 +1151,7 @@ public static class MiniAppController
                 int claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
                 int indicatorSign = mainResult.score >= 0 ? 1 : -1;
                 
-                if (claudeSign == indicatorSign || Math.Abs(mainResult.score) < 2)
+                if (claudeSign == indicatorSign || Math.Abs(mainResult.score) < 0.2)
                 {
                     // Индикаторы подтверждают или нейтральны → берём сигнал Claude
                     direction = claudeResult.direction;
@@ -1013,7 +1179,7 @@ public static class MiniAppController
             {
                 // Claude не уверен (NEUTRAL или probability < 65)
                 // Даём сигнал ТОЛЬКО если есть очень сильный консенсус индикаторов + momentum
-                if (Math.Abs(totalScore) >= 5 && momentumSignal != 0 && momentumSignal == overallTrend)
+                if (Math.Abs(totalScore) >= 2.5 && momentumSignal != 0 && momentumSignal == overallTrend)
                 {
                     direction = momentumSignal > 0 ? "BUY" : "PUT";
                     probability = Math.Clamp(rawProb, 60, 80);
@@ -1054,7 +1220,8 @@ public static class MiniAppController
                 if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
             }
 
-            int expiryCandles = 3; // Default 3 candles (matching ML SSA prediction horizon)
+            // Expiry: вычисляем сколько свечей нужно для закрытия сделки
+            int expiryCandles = GetExpiryCandles(timeframe);
 
             return new
             {
@@ -1075,7 +1242,8 @@ public static class MiniAppController
                 newsHeadlines = newsResult.headlines,
                 claudeDirection = claudeResult.direction,
                 claudeProbability = Math.Round(claudeResult.probability, 0),
-                claudeReasoning = claudeResult.reasoning
+                claudeReasoning = claudeResult.reasoning,
+                aiModel = claudeResult.modelName
             };
         }
         catch (Exception ex)
@@ -1124,7 +1292,7 @@ public static class MiniAppController
         double diffPercent = Math.Abs((chartData[14] - chartData[0]) / chartData[0]) * 100;
         int probability = Math.Clamp(82 + (int)(diffPercent * 50), 82, 97);
 
-        int expiryCandles = 3;
+        int expiryCandles = GetExpiryCandles(tf);
 
         return new
         {
@@ -1145,7 +1313,8 @@ public static class MiniAppController
                 newsHeadlines = Array.Empty<string>(),
                 claudeDirection = "NEUTRAL",
                 claudeProbability = 50,
-                claudeReasoning = "Анализ Claude временно недоступен (режим fallback)"
+                claudeReasoning = "Анализ AI временно недоступен (режим fallback)",
+                aiModel = ""
             };
     }
 

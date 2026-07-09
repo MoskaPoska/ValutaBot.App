@@ -1050,8 +1050,8 @@ public static class MiniAppUI
 
             <div class='news-card' id='claudeCard' style='display:none'>
                 <div class='news-header'>
-                    <span class='news-badge'>🧠 Claude Opus</span>
-                    <span class='news-label'>AI анализ графика</span>
+                    <span class='news-badge' id='aiModelBadge'>🧠 AI</span>
+                    <span class='news-label'>анализ графика</span>
                     <span class='news-sentiment' id='claudeSentiment'>--</span>
                 </div>
                 <div class='news-summary' id='claudeReasoning' style='max-height:100px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext)'></div>
@@ -1174,7 +1174,7 @@ public static class MiniAppUI
         }
 
         function getTfSeconds() {
-            const map = { s5:5, s10:10, s15:15, s30:30, m1:60, m2:120, m3:180, m5:300, m15:900, m30:1800, h1:3600, h4:14400, d1:86400 };
+            const map = { s3:3, s5:5, s10:10, s15:15, s30:30, m1:60, m2:120, m3:180, m5:300, m15:900, m30:1800, h1:3600, h4:14400, d1:86400 };
             return map[currentTf] || 60;
         }
 
@@ -1480,6 +1480,8 @@ public static class MiniAppUI
                     if (data.claudeDirection && data.claudeReasoning) {
                         const cc = document.getElementById('claudeCard');
                         cc.style.display = 'block';
+                        const badge = document.getElementById('aiModelBadge');
+                        badge.innerText = data.aiModel ? '🧠 ' + data.aiModel : '🧠 AI';
                         const senEl = document.getElementById('claudeSentiment');
                         senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
                         senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';

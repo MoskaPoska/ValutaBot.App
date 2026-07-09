@@ -162,6 +162,7 @@ public static class TwelveDataService
     private static string? ConvertInterval(string interval) => interval.ToLower() switch
     {
         "1m" => "1min",
+        "2m" => "2min",
         "3m" => "5min",
         "5m" => "5min",
         "15m" => "15min",
