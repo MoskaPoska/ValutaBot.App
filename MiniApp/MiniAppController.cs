@@ -252,21 +252,21 @@ public static class MiniAppController
 
     private static string IntervalMap(string tf) => tf.ToLower() switch
     {
-        "m1" => "1m", "s3" or "m3" => "3m",
+        "s5" or "s10" => "1m", "m1" => "1m", "m3" => "3m",
         "m5" => "5m", "s15" => "15m", "s30" or "m30" => "30m",
         "h1" => "1h", "h4" => "4h", _ => "1m"
     };
 
     private static string? HigherTf(string tf) => tf.ToLower() switch
     {
-        "m1" => "s3", "s3" or "m3" => "m5",
+        "s5" or "s10" => "m1", "m1" => "m5", "m3" => "m5",
         "m5" => "s15", "s15" => "s30", "s30" or "m30" => "h1",
         "h1" => "h4", _ => null
     };
 
     private static string? LowerTf(string tf) => tf.ToLower() switch
     {
-        "s3" or "m3" => "m1", "m5" => "s3",
+        "m3" => "m1", "m5" => "m1",
         "s15" => "m5", "s30" or "m30" => "s15",
         "h1" => "s30", "h4" => "h1", _ => null
     };
