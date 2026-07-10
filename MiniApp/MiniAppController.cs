@@ -381,6 +381,12 @@ public static class MiniAppController
                 var tdResult = TwelveDataService.FetchCandles(originalAsset, interval);
                 if (tdResult != null)
                     return tdResult.Value;
+                var fhResult = FinnhubService.FetchCandles(originalAsset, interval);
+                if (fhResult != null)
+                {
+                    Console.WriteLine($"[Finnhub] Fallback data for {originalAsset} ({interval})");
+                    return fhResult.Value;
+                }
             }
             throw new Exception($"No Binance symbol for {originalAsset}");
         }
@@ -399,6 +405,12 @@ public static class MiniAppController
                 {
                     Console.WriteLine($"[Fetch] Binance {symbol} not found, got from TwelveData ({originalAsset})");
                     return tdResult.Value;
+                }
+                var fhResult = FinnhubService.FetchCandles(originalAsset, interval);
+                if (fhResult != null)
+                {
+                    Console.WriteLine($"[Fetch] Binance {symbol} not found, got from Finnhub ({originalAsset})");
+                    return fhResult.Value;
                 }
             }
 
