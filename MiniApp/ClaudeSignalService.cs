@@ -332,8 +332,8 @@ public static class ClaudeSignalService
                     }
                 },
                 { "temperature", 0.2 },
-                { "max_tokens", 3000 },
-                { "max_completion_tokens", 3000 }
+                { "max_tokens", 500 },
+                { "max_completion_tokens", 500 }
             };
         }
 
@@ -416,24 +416,38 @@ public static class ClaudeSignalService
             { "generationConfig", new Dictionary<string, object>
                 {
                     { "temperature", 0.2 },
-                    { "maxOutputTokens", 3000 }
+                    { "maxOutputTokens", 500 }
                 }
             }
         };
 
         var json = JsonSerializer.Serialize(body);
-        var request = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
 
-        var response = await _http.SendAsync(request);
-        string responseBody = await response.Content.ReadAsStringAsync();
-        _lastRawResponse = responseBody;
-
-        if (!response.IsSuccessStatusCode)
+        HttpResponseMessage response = null!;
+        string responseBody = string.Empty;
+        for (int retry = 0; retry <= 3; retry++)
         {
-            throw new Exception($"Google API HTTP {(int)response.StatusCode}: {responseBody}");
+            var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+
+            response = await _http.SendAsync(request);
+            responseBody = await response.Content.ReadAsStringAsync();
+            _lastRawResponse = responseBody;
+
+            if ((int)response.StatusCode == 429 && retry < 3)
+            {
+                int delayMs = (int)Math.Pow(2, retry) * 1000;
+                Console.WriteLine($"[Gemini] 429 rate limited, retry {retry + 1}/3 in {delayMs}ms...");
+                await Task.Delay(delayMs);
+                continue;
+            }
+
+            if (!response.IsSuccessStatusCode)
+                throw new Exception($"Google API HTTP {(int)response.StatusCode}: {responseBody}");
+
+            break;
         }
 
         using var doc = JsonDocument.Parse(responseBody);

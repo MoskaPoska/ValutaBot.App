@@ -753,7 +753,10 @@ public static class MiniAppController
         double finalVolRev = volRevTotalWeight > 0 ? (volRevScore / volRevTotalWeight) : 0;
 
         // ─── Group 4: Volume Strength (Weight: 20%) ───
-        double finalVolume = Math.Clamp(volStrength / 2.0, -1.0, 1.0);
+        // Deadband: neutral volume (ratio ≈ 0.8-1.2) → 0 contribution
+        double finalVolume = 0;
+        if (Math.Abs(volStrength) > 0.5)
+            finalVolume = Math.Clamp((volStrength - Math.Sign(volStrength) * 0.5) * 0.67, -1.0, 1.0);
 
         // ─── Weighted Ensemble Score (−1..+1) ───
         double weightedScore = (finalTrend * 0.35) + (finalOsc * 0.25) + (finalVolRev * 0.20) + (finalVolume * 0.20);
@@ -777,7 +780,7 @@ public static class MiniAppController
         int mainDir = main.score >= 0 ? 1 : -1;
         int higherDir = higher.score >= 0 ? 1 : -1;
         if (mainDir != higherDir)
-            return 0.85; // 15% penalty
+            return 0.7; // 30% penalty
         return 1.0;
     }
 
@@ -916,7 +919,7 @@ public static class MiniAppController
                 mlScoreNormalized = Math.Clamp(mlScoreNormalized, -1, 1);
                 totalScore += mlScoreNormalized;
                 totalConfidence += mlConfTotal / mlSubSignals;
-                totalWeight += 1.5;
+                totalWeight += 1.0;
             }
 
             // ─── News Analysis (нормализован к −1..+1) ───
@@ -1098,7 +1101,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 double claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
                 totalScore += claudeSign * (claudeResult.probability / 100.0);
                 totalConfidence += claudeResult.probability;
-                totalWeight += 1.0;
+                totalWeight += 1.5;
                 Console.WriteLine($"[Claude] dir={claudeResult.direction} prob={claudeResult.probability:F0}% reasoning={claudeResult.reasoning}");
             }
 
@@ -1108,13 +1111,8 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             double mom5 = mainPrices.Length >= 6
                 ? (mainPrices[^1] - mainPrices[^6]) / mainPrices[^6] * 100 : 0;
             int momentumSignal = 0;
-            if (mom3 > 0.2 && mom5 > 0.3) momentumSignal = 1;
-            else if (mom3 < -0.2 && mom5 < -0.3) momentumSignal = -1;
-
-            // Overall trend for the full window
-            double overallChange = mainPrices.Length >= 2
-                ? (mainPrices[^1] - mainPrices[0]) / mainPrices[0] * 100 : 0;
-            int overallTrend = overallChange > 0.1 ? 1 : overallChange < -0.1 ? -1 : 0;
+            if (mom3 > 0.15 || mom5 > 0.2) momentumSignal = 1;
+            else if (mom3 < -0.15 || mom5 < -0.2) momentumSignal = -1;
 
             int rawProb = totalWeight > 0
                 ? (int)Math.Clamp(totalConfidence / totalWeight, 50, 98)
@@ -1178,20 +1176,37 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             else
             {
                 // Claude не уверен (NEUTRAL или probability < 65)
-                // Даём сигнал ТОЛЬКО если есть очень сильный консенсус индикаторов + momentum
-                if (Math.Abs(totalScore) >= 2.5 && momentumSignal != 0 && momentumSignal == overallTrend)
+                // Используем математику с адаптивным порогом
+                bool aiWasAvailable = !string.IsNullOrEmpty(claudeResult.modelName);
+                double absScore = Math.Abs(totalScore);
+                int scoreSign = totalScore >= 0 ? 1 : -1;
+
+                // Если AI был доступен, но не уверен — выше порог (AI не нашёл подтверждения)
+                // Если AI недоступен — ниже порог (только математика)
+                double minScore = aiWasAvailable ? 1.0 : 0.7;
+
+                // momentum не должен противоречить totalScore
+                bool momentumOk = momentumSignal == 0 || momentumSignal == scoreSign;
+
+                if (absScore >= minScore && momentumOk)
                 {
-                    direction = momentumSignal > 0 ? "BUY" : "PUT";
-                    probability = Math.Clamp(rawProb, 60, 80);
+                    direction = scoreSign > 0 ? "BUY" : "PUT";
+
+                    if (absScore >= 2.5)
+                        probability = Math.Clamp(rawProb, 72, 88);
+                    else if (absScore >= 1.5)
+                        probability = Math.Clamp(rawProb, 62, 76);
+                    else
+                        probability = Math.Clamp(rawProb, 55, 66);
+
                     claudeResult.modelName = "Программный анализ";
-                    Console.WriteLine($"[Sniper] Strong indicator consensus without Claude: {direction} {probability}%");
+                    Console.WriteLine($"[Sniper] Programmatic signal: {direction} {probability}% (score={totalScore:F1}, ai={aiWasAvailable})");
                 }
                 else
                 {
-                    // Нет ни Claude, ни сильного консенсуса → НЕ ТОРГУЕМ
                     direction = "NEUTRAL";
                     probability = 50;
-                    Console.WriteLine($"[Sniper] No strong signal → NEUTRAL (Claude={claudeResult.direction}/{claudeResult.probability:F0}%, score={totalScore:F0})");
+                    Console.WriteLine($"[Sniper] No signal: score={totalScore:F1} (need {minScore:F1}), momentumOk={momentumOk}");
                 }
             }
 
