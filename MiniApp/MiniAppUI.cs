@@ -1481,7 +1481,7 @@ public static class MiniAppUI
                         const cc = document.getElementById('claudeCard');
                         cc.style.display = 'block';
                         const badge = document.getElementById('aiModelBadge');
-                        badge.innerText = data.aiModel ? '🧠 ' + data.aiModel : '🧠 AI';
+                        badge.innerText = data.aiModel ? '🧠 ' + data.aiModel : '🧠 AI недоступен';
                         const senEl = document.getElementById('claudeSentiment');
                         senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
                         senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';

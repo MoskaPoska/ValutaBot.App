@@ -1183,6 +1183,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 {
                     direction = momentumSignal > 0 ? "BUY" : "PUT";
                     probability = Math.Clamp(rawProb, 60, 80);
+                    claudeResult.modelName = "Программный анализ";
                     Console.WriteLine($"[Sniper] Strong indicator consensus without Claude: {direction} {probability}%");
                 }
                 else
