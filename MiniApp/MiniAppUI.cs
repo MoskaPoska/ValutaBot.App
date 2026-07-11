@@ -1423,8 +1423,17 @@ public static class MiniAppUI
 
 
                     const isUnclear = data.unclear === true;
-                    document.getElementById('resDir').innerText = data.direction === 'BUY' ? 'ВВЕРХ' : 'ВНИЗ';
-                    document.getElementById('resDir').style.color = data.direction === 'BUY' ? '#00e676' : '#ff1744';
+                    const resDir = document.getElementById('resDir');
+                    if (data.direction === 'BUY') {
+                        resDir.innerText = 'ВВЕРХ';
+                        resDir.style.color = '#00e676';
+                    } else if (data.direction === 'PUT') {
+                        resDir.innerText = 'ВНИЗ';
+                        resDir.style.color = '#ff1744';
+                    } else {
+                        resDir.innerText = 'НЕЙТРАЛЬНО';
+                        resDir.style.color = 'var(--dim)';
+                    }
 
                     document.getElementById('resProb').innerText = data.probability + '%';
                     document.getElementById('resProb').style.color = data.probability >= 90 ? '#00e676' : data.probability >= 85 ? '#ffd600' : 'var(--accent)';
