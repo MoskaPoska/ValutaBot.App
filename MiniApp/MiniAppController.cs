@@ -1214,13 +1214,25 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     else
                         probability = Math.Clamp(rawProb, 55, 66);
 
-                    claudeResult.modelName = "Программный анализ";
+                    // Update claudeResult so the frontend card shows the programmatic details
+                    claudeResult.modelName = "Математический анализ";
+                    claudeResult.direction = direction;
+                    claudeResult.probability = probability;
+                    claudeResult.reasoning = "Сигнал сформирован на основе технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML (так как ИИ отключен).";
+
                     Console.WriteLine($"[Sniper] Programmatic signal: {direction} {probability}% (score={totalScore:F1}, ai={aiWasAvailable})");
                 }
                 else
                 {
                     direction = "NEUTRAL";
                     probability = 50;
+
+                    // Update claudeResult for neutral state
+                    claudeResult.modelName = "Математический анализ";
+                    claudeResult.direction = "NEUTRAL";
+                    claudeResult.probability = 50;
+                    claudeResult.reasoning = "Рынок находится во флэте или индикаторы противоречат друг другу. Рекомендуется воздержаться от сделок.";
+
                     Console.WriteLine($"[Sniper] No signal: score={totalScore:F1} (need {minScore:F1}), momentumOk={momentumOk}");
                 }
             }
