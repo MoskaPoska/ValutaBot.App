@@ -418,7 +418,21 @@ public static class ClaudeSignalService
             { "generationConfig", new Dictionary<string, object>
                 {
                     { "temperature", 0.2 },
-                    { "maxOutputTokens", 500 }
+                    { "maxOutputTokens", 500 },
+                    { "responseMimeType", "application/json" },
+                    { "responseSchema", new Dictionary<string, object>
+                        {
+                            { "type", "OBJECT" },
+                            { "properties", new Dictionary<string, object>
+                                {
+                                    { "direction", new Dictionary<string, object> { { "type", "STRING" }, { "enum", new[] { "BUY", "PUT", "NEUTRAL" } } } },
+                                    { "probability", new Dictionary<string, object> { { "type", "INTEGER" } } },
+                                    { "reasoning", new Dictionary<string, object> { { "type", "STRING" } } }
+                                }
+                            },
+                            { "required", new[] { "direction", "probability", "reasoning" } }
+                        }
+                    }
                 }
             }
         };
@@ -460,8 +474,12 @@ public static class ClaudeSignalService
             throw new Exception($"Google API error: {errMsg}");
         }
 
-        string content = doc.RootElement
-            .GetProperty("candidates")[0]
+        if (!doc.RootElement.TryGetProperty("candidates", out var candidatesProp) || candidatesProp.GetArrayLength() == 0)
+        {
+            throw new Exception("Google API returned zero candidates (possible safety filter block or empty response)");
+        }
+
+        string content = candidatesProp[0]
             .GetProperty("content")
             .GetProperty("parts")[0]
             .GetProperty("text")
