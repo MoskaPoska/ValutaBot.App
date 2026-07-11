@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -7,7 +8,7 @@ namespace ValutaBot.MiniApp;
 public static class NewsAnalysisService
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
-    private static readonly Dictionary<string, (double score, string sentiment, string summary, string[] headlines, long cachedAt)> _cache = new();
+    private static readonly ConcurrentDictionary<string, (double score, string sentiment, string summary, string[] headlines, long cachedAt)> _cache = new();
 
     public static (double score, string sentiment, string summary, string[] headlines) Analyze(string asset)
     {

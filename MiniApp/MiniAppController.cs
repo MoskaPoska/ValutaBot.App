@@ -1095,7 +1095,13 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             string cacheKey = $"claude_{asset}_{timeframe}_{candleId}";
 
             (string direction, double probability, string reasoning, string modelName) claudeResult;
-            if (_cache.TryGetValue(cacheKey, out object? cached) && cached is ValueTuple<string, double, string, string> cachedTuple)
+            bool isSubMinute = timeframe.ToLower().StartsWith("s");
+
+            if (isSubMinute)
+            {
+                claudeResult = ("NEUTRAL", 50, "ИИ отключен для секундных таймфреймов для устранения сетевой задержки.", "Математический анализ");
+            }
+            else if (_cache.TryGetValue(cacheKey, out object? cached) && cached is ValueTuple<string, double, string, string> cachedTuple)
             {
                 claudeResult = cachedTuple;
                 Console.WriteLine($"[Cache] HIT for {cacheKey}");
