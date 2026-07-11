@@ -1205,22 +1205,73 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
 
                 if (absScore >= minScore && momentumOk)
                 {
-                    direction = scoreSign > 0 ? "BUY" : "PUT";
+                    string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
+                    double currentPrice = mainPrices[^1];
+                    double nearestSupport = 0;
+                    double nearestResistance = 0;
 
-                    if (absScore >= 2.5)
-                        probability = Math.Clamp(rawProb, 72, 88);
-                    else if (absScore >= 1.5)
-                        probability = Math.Clamp(rawProb, 62, 76);
+                    if (supports != null && supports.Length > 0)
+                    {
+                        foreach (var s in supports)
+                        {
+                            if (s < currentPrice && s > 0) { nearestSupport = s; break; }
+                        }
+                    }
+                    if (resistances != null && resistances.Length > 0)
+                    {
+                        foreach (var r in resistances)
+                        {
+                            if (r > currentPrice && r > 0) { nearestResistance = r; break; }
+                        }
+                    }
+
+                    // Adaptive safe distance using 1.2 * ATR
+                    double safeBuffer = mainAtr > 0 ? 1.2 * mainAtr : 0.00015 * currentPrice;
+                    bool blockedByLevel = false;
+                    string blockReason = "";
+
+                    if (candidateDir == "BUY" && nearestResistance > 0 && (nearestResistance - currentPrice) < safeBuffer)
+                    {
+                        blockedByLevel = true;
+                        blockReason = $"Рядом сопротивление: {nearestResistance:F5} (дист={nearestResistance - currentPrice:F5}, порог ATR={safeBuffer:F5})";
+                    }
+                    else if (candidateDir == "PUT" && nearestSupport > 0 && (currentPrice - nearestSupport) < safeBuffer)
+                    {
+                        blockedByLevel = true;
+                        blockReason = $"Рядом поддержка: {nearestSupport:F5} (дист={currentPrice - nearestSupport:F5}, порог ATR={safeBuffer:F5})";
+                    }
+
+                    if (blockedByLevel)
+                    {
+                        direction = "NEUTRAL";
+                        probability = 50;
+
+                        claudeResult.modelName = "Математический анализ";
+                        claudeResult.direction = "NEUTRAL";
+                        claudeResult.probability = 50;
+                        claudeResult.reasoning = $"Сигнал {candidateDir} отменен: близко ценовой барьер. {blockReason}";
+
+                        Console.WriteLine($"[Sniper-Levels] Programmatic signal {candidateDir} BLOCKED: {blockReason}");
+                    }
                     else
-                        probability = Math.Clamp(rawProb, 55, 66);
+                    {
+                        direction = candidateDir;
 
-                    // Update claudeResult so the frontend card shows the programmatic details
-                    claudeResult.modelName = "Математический анализ";
-                    claudeResult.direction = direction;
-                    claudeResult.probability = probability;
-                    claudeResult.reasoning = "Сигнал сформирован на основе технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML (так как ИИ отключен).";
+                        if (absScore >= 2.5)
+                            probability = Math.Clamp(rawProb, 72, 88);
+                        else if (absScore >= 1.5)
+                            probability = Math.Clamp(rawProb, 62, 76);
+                        else
+                            probability = Math.Clamp(rawProb, 55, 66);
 
-                    Console.WriteLine($"[Sniper] Programmatic signal: {direction} {probability}% (score={totalScore:F1}, ai={aiWasAvailable})");
+                        // Update claudeResult so the frontend card shows the programmatic details
+                        claudeResult.modelName = "Математический анализ";
+                        claudeResult.direction = direction;
+                        claudeResult.probability = probability;
+                        claudeResult.reasoning = "Сигнал сформирован на основе технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML (так как ИИ отключен).";
+
+                        Console.WriteLine($"[Sniper] Programmatic signal: {direction} {probability}% (score={totalScore:F1}, ai={aiWasAvailable})");
+                    }
                 }
                 else
                 {
