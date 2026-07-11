@@ -81,8 +81,23 @@ public static class MiniAppController
             string tf = timeframe.ToLower().Trim();
             Console.WriteLine($"[ANALYZE] {originalAsset} | TF: {timeframe}");
 
-            var result = await ExecuteBinanceAnalysis(originalAsset, tf);
-            return Results.Json(result);
+            try
+            {
+                var result = await ExecuteBinanceAnalysis(originalAsset, tf);
+                // Serialize manually to catch float.NaN or reference errors during serialization
+                var json = JsonSerializer.Serialize(result);
+                return Results.Content(json, "application/json", Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[API ERR] /api/analyze failed: {ex}");
+                return Results.Json(new
+                {
+                    error = "Internal Server Error in Analysis Pipeline",
+                    message = ex.Message,
+                    details = ex.ToString()
+                });
+            }
         });
 
         app.MapGet("/api/fear-greed", async (HttpContext context) =>
