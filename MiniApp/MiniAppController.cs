@@ -56,7 +56,10 @@ public static class MiniAppController
         app.MapGet("/", async (HttpContext context) =>
         {
             context.Response.ContentType = "text/html; charset=utf-8";
-            if (!context.Request.Headers.ContainsKey("ngrok-skip-browser-warning") &&
+            
+            bool isNgrok = (context.Request.Host.Value ?? "").Contains("ngrok", StringComparison.OrdinalIgnoreCase);
+            if (isNgrok &&
+                !context.Request.Headers.ContainsKey("ngrok-skip-browser-warning") &&
                 !context.Request.Query.ContainsKey("ngrok_passed"))
             {
                 string bypassScript = $@"<!DOCTYPE html><html><head><script>

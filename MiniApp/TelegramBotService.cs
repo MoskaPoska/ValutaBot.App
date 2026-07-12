@@ -658,13 +658,16 @@ public class TelegramBotService : BackgroundService
     {
         string text = "✅ <b>Доступ открыт!</b>\n\nИспользуйте кнопку <b>📊 Открыть TradeAI</b> в меню внизу чата, чтобы запустить анализатор.";
 
+        string separator = webAppUrl.Contains("?") ? "&" : "?";
+        string cacheBustedUrl = $"{webAppUrl}{separator}v=2.1";
+
         var keyboard = new
         {
             keyboard = new object[]
             {
                 new object[]
                 {
-                    new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
+                    new { text = "📊 Открыть TradeAI", web_app = new { url = cacheBustedUrl } }
                 },
                 new object[]
                 {
@@ -692,13 +695,16 @@ public class TelegramBotService : BackgroundService
     {
         string text = "👑 <b>Панель администратора TradeAI</b>\n\nИспользуйте меню внизу экрана для управления ботом.";
 
+        string separator = webAppUrl.Contains("?") ? "&" : "?";
+        string cacheBustedUrl = $"{webAppUrl}{separator}v=2.1";
+
         var keyboard = new
         {
             keyboard = new object[]
             {
                 new object[]
                 {
-                    new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
+                    new { text = "📊 Открыть TradeAI", web_app = new { url = cacheBustedUrl } }
                 },
                 new object[]
                 {
