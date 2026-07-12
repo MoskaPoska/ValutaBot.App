@@ -1167,7 +1167,11 @@ public static class MiniAppUI
 
         async function syncTime() {
             try {
-                var r = await fetch('/api/time');
+                var r = await fetch('/api/time', {
+                    headers: {
+                        'X-Telegram-Init-Data': tg ? tg.initData : ''
+                    }
+                });
                 var d = await r.json();
                 timeOffset = d.t - Date.now();
             } catch(e) { timeOffset = 0; }
@@ -1402,7 +1406,11 @@ public static class MiniAppUI
             const startTime = Date.now();
 
             try {
-                const res = await fetch(`/api/analyze?asset=${encodeURIComponent(currentAsset)}&timeframe=${currentTf}&_=${Date.now()}`);
+                const res = await fetch(`/api/analyze?asset=${encodeURIComponent(currentAsset)}&timeframe=${currentTf}&_=${Date.now()}`, {
+                    headers: {
+                        'X-Telegram-Init-Data': tg ? tg.initData : ''
+                    }
+                });
                 const data = await res.json();
 
                 const elapsed = Date.now() - startTime;

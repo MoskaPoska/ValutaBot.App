@@ -74,6 +74,9 @@ public static class MiniAppController
         app.MapGet("/api/analyze", async (HttpContext context, string? asset, string? timeframe) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
 
@@ -107,6 +110,9 @@ public static class MiniAppController
         app.MapGet("/api/fear-greed", async (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
             var fng = await GetFearGreedIndex();
             return Results.Json(fng);
         });
@@ -114,6 +120,9 @@ public static class MiniAppController
         app.MapGet("/api/market-status", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
             var latest = MarketDataService.GetLatestPrices();
             var alerts = MarketDataService.GetRecentAlerts();
             return Results.Json(new { prices = latest, alerts });
@@ -122,12 +131,18 @@ public static class MiniAppController
         app.MapGet("/api/liquidations", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
             return Results.Json(LiquidationHeatmapService.GetHeatmapData());
         });
 
         app.MapGet("/api/signal-stats", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
             return Results.Json(new
             {
                 accuracy = SignalTracker.GetOverallAccuracy(),
@@ -145,26 +160,38 @@ public static class MiniAppController
         app.MapGet("/api/alerts", (HttpContext context) => 
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
             return Results.Json(AlertService.GetAll());
         });
 
-        app.MapPost("/api/alerts", async (HttpContext ctx) =>
+        app.MapPost("/api/alerts", async (HttpContext context) =>
         {
-            var rule = await ctx.Request.ReadFromJsonAsync<AlertRule>();
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
+            var rule = await context.Request.ReadFromJsonAsync<AlertRule>();
             if (rule == null) return Results.BadRequest();
             var created = AlertService.Add(rule);
             return Results.Json(created);
         });
 
-        app.MapDelete("/api/alerts/{id}", (string id) =>
+        app.MapDelete("/api/alerts/{id}", (HttpContext context, string id) =>
         {
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
             bool ok = AlertService.Remove(id);
             return ok ? Results.Ok() : Results.NotFound();
         });
 
-        app.MapPost("/api/alerts/chatid", async (HttpContext ctx) =>
+        app.MapPost("/api/alerts/chatid", async (HttpContext context) =>
         {
-            var body = await ctx.Request.ReadFromJsonAsync<Dictionary<string, long>>();
+            if (!IsRequestAuthorized(context, out string? authError))
+                return Results.Json(new { error = authError }, statusCode: 401);
+
+            var body = await context.Request.ReadFromJsonAsync<Dictionary<string, long>>();
             if (body != null && body.TryGetValue("chatId", out var chatId))
                 AlertService.SetDefaultChatId(chatId);
             return Results.Ok();
@@ -1544,5 +1571,43 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
         {
             return new { value = 50, classification = "Neutral" };
         }
+    }
+
+    private static bool IsRequestAuthorized(HttpContext context, out string? errorMessage)
+    {
+        errorMessage = null;
+
+        string? botToken = TelegramNotifier.GetToken();
+        if (string.IsNullOrEmpty(botToken))
+        {
+            return true; // Bypass validation in local dev environment
+        }
+
+        if (!context.Request.Headers.TryGetValue("X-Telegram-Init-Data", out var initDataValues))
+        {
+            errorMessage = "Missing authorization header";
+            return false;
+        }
+
+        string initData = initDataValues.ToString();
+        if (string.IsNullOrEmpty(initData))
+        {
+            errorMessage = "Empty authorization token";
+            return false;
+        }
+
+        if (!TelegramInitDataValidator.Validate(initData, botToken, out long userId, out _))
+        {
+            errorMessage = "Invalid Telegram authorization signature";
+            return false;
+        }
+
+        if (!TelegramBotService.IsUserAllowed(userId))
+        {
+            errorMessage = "Access Denied: Pocket Option registration and deposit required";
+            return false;
+        }
+
+        return true;
     }
 }

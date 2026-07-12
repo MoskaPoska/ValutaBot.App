@@ -32,6 +32,14 @@ public class TelegramBotService : BackgroundService
     private static readonly object _lock = new();
     private static string _webAppUrl = "https://chowder-dreamland-spotlight.ngrok-free.dev";
 
+    public static bool IsUserAllowed(long chatId)
+    {
+        lock (_lock)
+        {
+            return AdminChatIds.Contains(chatId) || AllowedUsers.Contains(chatId);
+        }
+    }
+
     private enum UserState
     {
         None,
