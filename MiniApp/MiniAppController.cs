@@ -1190,13 +1190,9 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 ? (mainPrices[^1] - mainPrices[^4]) / mainPrices[^4] * 100 : 0;
             double mom5 = mainPrices.Length >= 6
                 ? (mainPrices[^1] - mainPrices[^6]) / mainPrices[^6] * 100 : 0;
-            // Scale thresholds by sqrt(timeframe): longer TFs need stronger momentum
-            double momScale = Math.Sqrt(timeframeSec / 60.0);
-            double momThresh3 = 0.15 * momScale;
-            double momThresh5 = 0.20 * momScale;
             int momentumSignal = 0;
-            if (mom3 > momThresh3 || mom5 > momThresh5) momentumSignal = 1;
-            else if (mom3 < -momThresh3 || mom5 < -momThresh5) momentumSignal = -1;
+            if (mom3 > 0.15 || mom5 > 0.2) momentumSignal = 1;
+            else if (mom3 < -0.15 || mom5 < -0.2) momentumSignal = -1;
 
             int rawProb = totalWeight > 0
                 ? (int)Math.Clamp(totalConfidence / totalWeight, 50, 98)
