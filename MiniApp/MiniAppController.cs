@@ -706,7 +706,7 @@ public static class MiniAppController
     /* ─── Scoring Engine ─── */
 
     private static (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal)
-        ScoreTimeframe(double[] prices, double[] volumes, double? adxOverride = null, double? atrOverride = null, double tfSeconds = 60)
+        ScoreTimeframe(double[] prices, double[] volumes, double? adxOverride = null, double? atrOverride = null)
     {
         int n = prices.Length;
         if (n < EmaLong + 5) return (0, 0, 50, 0, 0, 0);
@@ -804,27 +804,15 @@ public static class MiniAppController
         if (Math.Abs(volStrength) > 0.5)
             finalVolume = Math.Clamp((volStrength - Math.Sign(volStrength) * 0.5) * 0.67, -1.0, 1.0);
 
-        // ─── Timeframe-adaptive group weights ───
-        // Short TFs (s3-m1): 5s-winning profile (mean-reversion + oscillators heavy)
-        // Long TFs (m15+): more trend, less mean-reversion
-        double wTrend, wOsc, wVolRev, wVol;
-        if (tfSeconds <= 60)
-            { wTrend = 0.15; wOsc = 0.30; wVolRev = 0.35; wVol = 0.20; } // s3-m1: 5s-optimal profile
-        else if (tfSeconds <= 300)
-            { wTrend = 0.28; wOsc = 0.27; wVolRev = 0.25; wVol = 0.20; } // m3-m5: transition
-        else if (tfSeconds <= 1800)
-            { wTrend = 0.40; wOsc = 0.22; wVolRev = 0.18; wVol = 0.20; } // 15m-30m
-        else
-            { wTrend = 0.45; wOsc = 0.20; wVolRev = 0.15; wVol = 0.20; } // 1h+
-
         // ─── Weighted Ensemble Score (−1..+1) ───
-        double weightedScore = (finalTrend * wTrend) + (finalOsc * wOsc) + (finalVolRev * wVolRev) + (finalVolume * wVol);
+        // Uniform weights for all TFs: 35% trend, 25% oscillators, 20% mean-reversion, 20% volume
+        double weightedScore = (finalTrend * 0.35) + (finalOsc * 0.25) + (finalVolRev * 0.20) + (finalVolume * 0.20);
 
-        // Confidence based on indicators agreement with final score (using adaptive weights)
-        double agreement = (Math.Sign(finalTrend) == Math.Sign(weightedScore) ? wTrend : 0) +
-                           (Math.Sign(finalOsc) == Math.Sign(weightedScore) ? wOsc : 0) +
-                           (Math.Sign(finalVolRev) == Math.Sign(weightedScore) ? wVolRev : 0) +
-                           (Math.Sign(finalVolume) == Math.Sign(weightedScore) ? wVol : 0);
+        // Confidence based on indicators agreement with final score
+        double agreement = (Math.Sign(finalTrend) == Math.Sign(weightedScore) ? 0.35 : 0) +
+                           (Math.Sign(finalOsc) == Math.Sign(weightedScore) ? 0.25 : 0) +
+                           (Math.Sign(finalVolRev) == Math.Sign(weightedScore) ? 0.20 : 0) +
+                           (Math.Sign(finalVolume) == Math.Sign(weightedScore) ? 0.20 : 0);
         double confidence = Math.Clamp(50 + agreement * 48, 50, 98);
 
         return (weightedScore, confidence, rsi, emaS, volStrength, atr);
@@ -1030,8 +1018,7 @@ public static class MiniAppController
             double mainAtr = mainOhlc != null ? ComputeAtr(mainOhlc) : 0;
 
             // Store results for conflict detection
-            double mainTfSec = TimeframeSeconds(timeframe);
-            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, mainAdx, mainAtr, mainTfSec);
+            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, mainAdx, mainAtr);
             double conflictPenalty = 1.0;
 
             if (higherResultData != null)
