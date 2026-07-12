@@ -67,8 +67,8 @@ public static class PatternDetector
             for (int j = i - swingLookback; j <= i + swingLookback; j++)
             {
                 if (j < 0 || j >= prices.Length) continue;
-                if (prices[j] > prices[i]) isSwingLow = false;
-                if (prices[j] < prices[i]) isSwingHigh = false;
+                if (prices[j] > prices[i]) isSwingHigh = false;
+                if (prices[j] < prices[i]) isSwingLow = false;
             }
             if (isSwingHigh && prices[i] < currentPrice * 1.1)
                 resistances.Add(prices[i]);

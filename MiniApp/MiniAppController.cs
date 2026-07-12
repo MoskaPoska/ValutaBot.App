@@ -500,14 +500,25 @@ public static class MiniAppController
     private static double ComputeRsi(double[] data, int period, int index)
     {
         if (index < period) return double.NaN;
-        double gain = 0, loss = 0;
-        for (int i = index - period + 1; i <= index; i++)
+
+        // Wilder's RSI: first SMA over period bars, then exponential smoothing
+        double avgGain = 0, avgLoss = 0;
+        for (int i = 1; i <= period; i++)
         {
             double diff = data[i] - data[i - 1];
-            if (diff > 0) gain += diff; else loss -= diff;
+            if (diff > 0) avgGain += diff; else avgLoss -= diff;
         }
-        double avgGain = gain / period;
-        double avgLoss = loss / period;
+        avgGain /= period;
+        avgLoss /= period;
+
+        // Wilder's smoothing for bars period+1 .. index
+        for (int i = period + 1; i <= index; i++)
+        {
+            double diff = data[i] - data[i - 1];
+            avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
+            avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
+        }
+
         if (avgLoss < 1e-12) return 100;
         double rs = avgGain / avgLoss;
         return 100 - 100 / (1 + rs);
@@ -535,7 +546,7 @@ public static class MiniAppController
         int n = volumes.Length;
         if (n < 10) return 0;
 
-        double avgVol = volumes.Skip(n - 10).Take(10).Average();
+        double avgVol = volumes.Skip(n - 20).Take(20).Average();
         if (avgVol < 1e-9) return 0;
 
         double currentVol = volumes[^1];
@@ -695,7 +706,7 @@ public static class MiniAppController
     /* ─── Scoring Engine ─── */
 
     private static (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal)
-        ScoreTimeframe(double[] prices, double[] volumes, double? adxOverride = null, double? atrOverride = null)
+        ScoreTimeframe(double[] prices, double[] volumes, double? adxOverride = null, double? atrOverride = null, double tfSeconds = 60)
     {
         int n = prices.Length;
         if (n < EmaLong + 5) return (0, 0, 50, 0, 0, 0);
@@ -716,11 +727,11 @@ public static class MiniAppController
         double bbZ = ComputeBollingerZscore(prices, 20);
         var (bullDiv, bearDiv) = DetectRsiDivergence(prices, RsiPeriod);
 
-        // Adaptive weights based on trendiness (True ADX)
-        double tw = adx > 25 ? 1.5 : 1.0;
-        double mw = adx < 20 ? 1.5 : 1.0;
+        // Adaptive weights based on trendiness (True ADX) — smooth transition
+        double tw = 1.0 + 0.5 * Math.Clamp((adx - 20) / 10.0, 0, 1);
+        double mw = 1.0 + 0.5 * Math.Clamp((20 - adx) / 10.0, 0, 1);
 
-        // ─── Group 1: Trend Indicators (Weight: 35%) ───
+        // ─── Group 1: Trend Indicators ───
         double trendScore = 0;
         double trendTotalWeight = 0;
 
@@ -750,7 +761,7 @@ public static class MiniAppController
 
         double finalTrend = trendTotalWeight > 0 ? (trendScore / trendTotalWeight) : 0;
 
-        // ─── Group 2: Oscillators (Weight: 25%) ───
+        // ─── Group 2: Oscillators ───
         double oscScore = 0;
         double oscTotalWeight = 0;
 
@@ -770,7 +781,7 @@ public static class MiniAppController
 
         double finalOsc = oscTotalWeight > 0 ? (oscScore / oscTotalWeight) : 0;
 
-        // ─── Group 3: Volatility & Mean Reversion (Weight: 20%) ───
+        // ─── Group 3: Volatility & Mean Reversion ───
         double volRevScore = 0;
         double volRevTotalWeight = 0;
 
@@ -788,20 +799,32 @@ public static class MiniAppController
 
         double finalVolRev = volRevTotalWeight > 0 ? (volRevScore / volRevTotalWeight) : 0;
 
-        // ─── Group 4: Volume Strength (Weight: 20%) ───
-        // Deadband: neutral volume (ratio ≈ 0.8-1.2) → 0 contribution
+        // ─── Group 4: Volume Strength ───
         double finalVolume = 0;
         if (Math.Abs(volStrength) > 0.5)
             finalVolume = Math.Clamp((volStrength - Math.Sign(volStrength) * 0.5) * 0.67, -1.0, 1.0);
 
-        // ─── Weighted Ensemble Score (−1..+1) ───
-        double weightedScore = (finalTrend * 0.35) + (finalOsc * 0.25) + (finalVolRev * 0.20) + (finalVolume * 0.20);
+        // ─── Timeframe-adaptive group weights ───
+        // Short TFs (s3-m1): 5s-winning profile (mean-reversion + oscillators heavy)
+        // Long TFs (m15+): more trend, less mean-reversion
+        double wTrend, wOsc, wVolRev, wVol;
+        if (tfSeconds <= 60)
+            { wTrend = 0.15; wOsc = 0.30; wVolRev = 0.35; wVol = 0.20; } // s3-m1: 5s-optimal profile
+        else if (tfSeconds <= 300)
+            { wTrend = 0.28; wOsc = 0.27; wVolRev = 0.25; wVol = 0.20; } // m3-m5: transition
+        else if (tfSeconds <= 1800)
+            { wTrend = 0.40; wOsc = 0.22; wVolRev = 0.18; wVol = 0.20; } // 15m-30m
+        else
+            { wTrend = 0.45; wOsc = 0.20; wVolRev = 0.15; wVol = 0.20; } // 1h+
 
-        // Confidence based on indicators agreement with final score
-        double agreement = (Math.Sign(finalTrend) == Math.Sign(weightedScore) ? 0.35 : 0) +
-                           (Math.Sign(finalOsc) == Math.Sign(weightedScore) ? 0.25 : 0) +
-                           (Math.Sign(finalVolRev) == Math.Sign(weightedScore) ? 0.20 : 0) +
-                           (Math.Sign(finalVolume) == Math.Sign(weightedScore) ? 0.20 : 0);
+        // ─── Weighted Ensemble Score (−1..+1) ───
+        double weightedScore = (finalTrend * wTrend) + (finalOsc * wOsc) + (finalVolRev * wVolRev) + (finalVolume * wVol);
+
+        // Confidence based on indicators agreement with final score (using adaptive weights)
+        double agreement = (Math.Sign(finalTrend) == Math.Sign(weightedScore) ? wTrend : 0) +
+                           (Math.Sign(finalOsc) == Math.Sign(weightedScore) ? wOsc : 0) +
+                           (Math.Sign(finalVolRev) == Math.Sign(weightedScore) ? wVolRev : 0) +
+                           (Math.Sign(finalVolume) == Math.Sign(weightedScore) ? wVol : 0);
         double confidence = Math.Clamp(50 + agreement * 48, 50, 98);
 
         return (weightedScore, confidence, rsi, emaS, volStrength, atr);
@@ -1007,7 +1030,8 @@ public static class MiniAppController
             double mainAtr = mainOhlc != null ? ComputeAtr(mainOhlc) : 0;
 
             // Store results for conflict detection
-            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, mainAdx, mainAtr);
+            double mainTfSec = TimeframeSeconds(timeframe);
+            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, mainAdx, mainAtr, mainTfSec);
             double conflictPenalty = 1.0;
 
             if (higherResultData != null)
@@ -1179,9 +1203,13 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 ? (mainPrices[^1] - mainPrices[^4]) / mainPrices[^4] * 100 : 0;
             double mom5 = mainPrices.Length >= 6
                 ? (mainPrices[^1] - mainPrices[^6]) / mainPrices[^6] * 100 : 0;
+            // Scale thresholds by sqrt(timeframe): longer TFs need stronger momentum
+            double momScale = Math.Sqrt(timeframeSec / 60.0);
+            double momThresh3 = 0.15 * momScale;
+            double momThresh5 = 0.20 * momScale;
             int momentumSignal = 0;
-            if (mom3 > 0.15 || mom5 > 0.2) momentumSignal = 1;
-            else if (mom3 < -0.15 || mom5 < -0.2) momentumSignal = -1;
+            if (mom3 > momThresh3 || mom5 > momThresh5) momentumSignal = 1;
+            else if (mom3 < -momThresh3 || mom5 < -momThresh5) momentumSignal = -1;
 
             int rawProb = totalWeight > 0
                 ? (int)Math.Clamp(totalConfidence / totalWeight, 50, 98)
@@ -1246,7 +1274,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             {
                 // Claude не уверен (NEUTRAL или probability < 65)
                 // Используем математику с адаптивным порогом
-                bool aiWasAvailable = !string.IsNullOrEmpty(claudeResult.modelName);
+                bool aiWasAvailable = claudeResult.modelName is "Claude Sonnet" or "Gemini 2.0 Flash (Google)";
                 double absScore = Math.Abs(totalScore);
                 int scoreSign = totalScore >= 0 ? 1 : -1;
 
@@ -1279,8 +1307,8 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                         }
                     }
 
-                    // Adaptive safe distance using 1.2 * ATR
-                    double safeBuffer = mainAtr > 0 ? 1.2 * mainAtr : 0.00015 * currentPrice;
+                    // Adaptive safe distance using ATR
+                    double safeBuffer = mainAtr > 0 ? 0.8 * mainAtr : 0.00015 * currentPrice;
                     bool blockedByLevel = false;
                     string blockReason = "";
 

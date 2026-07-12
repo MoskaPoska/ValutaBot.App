@@ -12,11 +12,9 @@ public static class ClaudeSignalService
     public static string? GetLastRawResponse() => _lastRawResponse;
     public static string? GetLastPrimaryError() => _lastPrimaryError;
 
-    public static string GetOpenRouterApiKey()
+    private static string GetApiKey(string envVar, string configKey)
     {
-        string apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") 
-            ?? Environment.GetEnvironmentVariable("OpenRouterApiKey") ?? "";
-
+        string apiKey = Environment.GetEnvironmentVariable(envVar) ?? "";
         if (string.IsNullOrEmpty(apiKey))
         {
             try
@@ -26,7 +24,7 @@ public static class ClaudeSignalService
                 {
                     var json = File.ReadAllText(settingsPath);
                     using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty("OpenRouterApiKey", out var prop))
+                    if (doc.RootElement.TryGetProperty(configKey, out var prop))
                     {
                         apiKey = prop.GetString() ?? "";
                     }
@@ -34,38 +32,14 @@ public static class ClaudeSignalService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Claude] Failed to read appsettings.json: {ex.Message}");
-            }
-        }
-
-        return (apiKey ?? "").Trim();
-    }
-
-    public static string GetGeminiApiKey()
-    {
-        string apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
-        if (string.IsNullOrEmpty(apiKey))
-        {
-            try
-            {
-                string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
-                if (File.Exists(settingsPath))
-                {
-                    var json = File.ReadAllText(settingsPath);
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty("GeminiApiKey", out var prop))
-                    {
-                        apiKey = prop.GetString() ?? "";
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Gemini] Failed to read appsettings.json: {ex.Message}");
+                Console.WriteLine($"[{configKey}] Failed to read appsettings.json: {ex.Message}");
             }
         }
         return (apiKey ?? "").Trim();
     }
+
+    public static string GetOpenRouterApiKey() => GetApiKey("OPENROUTER_API_KEY", "OpenRouterApiKey");
+    public static string GetGeminiApiKey() => GetApiKey("GEMINI_API_KEY", "GeminiApiKey");
 
     public static async Task<(string direction, double probability, string reasoning, string modelName)> AnalyzeSignal(
         string asset, double[] prices, double[] volumes,
@@ -305,71 +279,8 @@ public static class ClaudeSignalService
         }
     }
 
-    private static async Task<(string direction, double probability, string reasoning)> SendOpenRouterRequestAsync(
-        string model, string apiKey, string systemPrompt, string asset, string indicators)
+    private static (string direction, double probability, string reasoning) ParseAiJsonResponse(string content, string source)
     {
-        Console.WriteLine($"[Claude] Attempting request to OpenRouter with model: {model}");
-        object body;
-        if (model.Contains("o1-"))
-        {
-            body = new Dictionary<string, object>
-            {
-                { "model", model },
-                { "messages", new[]
-                    {
-                        new Dictionary<string, string> { { "role", "user" }, { "content", $"{systemPrompt}\n\nTechnical indicators for {asset}:\n{indicators}" } }
-                    }
-                }
-            };
-        }
-        else
-        {
-            body = new Dictionary<string, object>
-            {
-                { "model", model },
-                { "messages", new[]
-                    {
-                        new Dictionary<string, string> { { "role", "system" }, { "content", systemPrompt } },
-                        new Dictionary<string, string> { { "role", "user" }, { "content", $"Technical indicators for {asset}:\n{indicators}" } }
-                    }
-                },
-                { "temperature", 0.2 },
-                { "max_tokens", 500 },
-                { "max_completion_tokens", 500 }
-            };
-        }
-
-        var json = JsonSerializer.Serialize(body);
-        var request = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-        request.Headers.Add("HTTP-Referer", "https://valutabotapp-production.up.railway.app");
-        request.Headers.Add("X-Title", "ValutaBot");
-
-        var response = await _http.SendAsync(request);
-        string responseBody = await response.Content.ReadAsStringAsync();
-        _lastRawResponse = responseBody;
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new Exception($"HTTP {(int)response.StatusCode}: {responseBody}");
-        }
-
-        using var doc = JsonDocument.Parse(responseBody);
-        if (doc.RootElement.TryGetProperty("error", out var errProp))
-        {
-            string errMsg = errProp.TryGetProperty("message", out var msgProp) ? msgProp.GetString() ?? "" : "";
-            throw new Exception($"OpenRouter error: {errMsg}");
-        }
-
-        string content = doc.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString() ?? "{}";
-
         content = CleanJsonString(content);
 
         try
@@ -381,16 +292,100 @@ public static class ClaudeSignalService
             string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
 
             direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
-            
             probability = Math.Clamp(probability, 50, 95);
 
             return (direction, probability, reasoning);
         }
         catch (Exception jsonEx)
         {
-            Console.WriteLine($"[Claude Parse Error] Failed to parse content: {content}");
+            Console.WriteLine($"[{source} Parse Error] Failed to parse content: {content}");
             throw new Exception($"JSON parse failed: {jsonEx.Message}. Raw text: {content}");
         }
+    }
+
+    private static async Task<(string direction, double probability, string reasoning)> SendOpenRouterRequestAsync(
+        string model, string apiKey, string systemPrompt, string asset, string indicators)
+    {
+        Console.WriteLine($"[Claude] Attempting request to OpenRouter with model: {model}");
+
+        for (int retry = 0; retry <= 3; retry++)
+        {
+            object body;
+            if (model.Contains("o1-"))
+            {
+                body = new Dictionary<string, object>
+                {
+                    { "model", model },
+                    { "messages", new[]
+                        {
+                            new Dictionary<string, string> { { "role", "user" }, { "content", $"{systemPrompt}\n\nTechnical indicators for {asset}:\n{indicators}" } }
+                        }
+                    }
+                };
+            }
+            else
+            {
+                body = new Dictionary<string, object>
+                {
+                    { "model", model },
+                    { "messages", new[]
+                        {
+                            new Dictionary<string, string> { { "role", "system" }, { "content", systemPrompt } },
+                            new Dictionary<string, string> { { "role", "user" }, { "content", $"Technical indicators for {asset}:\n{indicators}" } }
+                        }
+                    },
+                    { "temperature", 0.2 },
+                    { "max_tokens", 500 },
+                    { "max_completion_tokens", 500 }
+                };
+            }
+
+            var json = JsonSerializer.Serialize(body);
+            var request = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            request.Headers.Add("HTTP-Referer", "https://valutabotapp-production.up.railway.app");
+            request.Headers.Add("X-Title", "ValutaBot");
+
+            var response = await _http.SendAsync(request);
+            string responseBody = await response.Content.ReadAsStringAsync();
+            _lastRawResponse = responseBody;
+
+            int statusCode = (int)response.StatusCode;
+
+            // Retry on 429 (rate limit) or 5xx (server errors)
+            if ((statusCode == 429 || statusCode >= 500) && retry < 3)
+            {
+                int delayMs = (int)Math.Pow(2, retry) * 1000;
+                Console.WriteLine($"[Claude] HTTP {statusCode}, retry {retry + 1}/3 in {delayMs}ms...");
+                await Task.Delay(delayMs);
+                continue;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"HTTP {statusCode}: {responseBody}");
+            }
+
+            using var doc = JsonDocument.Parse(responseBody);
+            if (doc.RootElement.TryGetProperty("error", out var errProp))
+            {
+                string errMsg = errProp.TryGetProperty("message", out var msgProp) ? msgProp.GetString() ?? "" : "";
+                throw new Exception($"OpenRouter error: {errMsg}");
+            }
+
+            string content = doc.RootElement
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString() ?? "{}";
+
+            return ParseAiJsonResponse(content, "Claude");
+        }
+
+        throw new Exception("OpenRouter request failed after 3 retries");
     }
 
     private static async Task<(string direction, double probability, string reasoning)> SendGeminiRequestAsync(
@@ -485,26 +480,7 @@ public static class ClaudeSignalService
             .GetProperty("text")
             .GetString() ?? "{}";
 
-        content = CleanJsonString(content);
-
-        try
-        {
-            using var resultDoc = JsonDocument.Parse(content);
-            var root = resultDoc.RootElement;
-            string direction = root.TryGetProperty("direction", out var d) ? d.GetString() ?? "NEUTRAL" : "NEUTRAL";
-            double probability = root.TryGetProperty("probability", out var p) ? p.GetDouble() : 50;
-            string reasoning = root.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
-
-            direction = direction.ToUpper() switch { "BUY" => "BUY", "SELL" => "PUT", "PUT" => "PUT", _ => "NEUTRAL" };
-            probability = Math.Clamp(probability, 50, 95);
-
-            return (direction, probability, reasoning);
-        }
-        catch (Exception jsonEx)
-        {
-            Console.WriteLine($"[Gemini Parse Error] Failed to parse content: {content}");
-            throw new Exception($"JSON parse failed: {jsonEx.Message}. Raw text: {content}");
-        }
+        return ParseAiJsonResponse(content, "Gemini");
     }
 
     private static double SafeRound(double value, int decimals)

@@ -60,7 +60,7 @@ internal static class Program
                 Console.WriteLine("=> [FAIL] S5 test failed.");
             }
 
-            Console.WriteLine("\n[2] Testing regular timeframe M1 analysis...");
+            Console.WriteLine("\n[2] Testing M1 analysis...");
             var m1Result = await MiniAppController.ExecuteBinanceAnalysis("BTC/USDT", "m1");
             string m1Json = JsonSerializer.Serialize(m1Result, options);
             Console.WriteLine(m1Json);
