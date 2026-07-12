@@ -965,6 +965,7 @@ public static class MiniAppUI
             </div>
 
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
+            <div id='errorDisplay' style='color:#ff1744; text-align:center; padding:15px; margin-top:10px; font-weight:600; font-family:Inter, sans-serif; display:none; background:rgba(255,23,68,0.08); border:1px solid rgba(255,23,68,0.2); border-radius:12px; font-size:13px; line-height:1.5; white-space:pre-wrap; word-break:break-word;'></div>
 
             <div class='status-bar' id='statusBar'>
                 <div class='sb-text'>
@@ -1393,7 +1394,8 @@ public static class MiniAppUI
         document.getElementById('btnGet').onclick = async () => {
             const btn = document.getElementById('btnGet');
             const sphere = document.getElementById('mainSphere');
-
+            
+            document.getElementById('errorDisplay').style.display = 'none';
             clearResults();
             startStatusBar();
 
@@ -1423,9 +1425,10 @@ public static class MiniAppUI
                     btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
 
                     if(data.error) {
-                        const debugMsg = `${data.error}\n\nDebug Info:\n- initData length: ${tg && tg.initData ? tg.initData.length : 0}\n- Platform: ${tg ? tg.platform : 'unknown'}\n- URL: ${window.location.href}`;
-                        if(tg && tg.showAlert) tg.showAlert(debugMsg);
-                        else alert(debugMsg);
+                        const debugMsg = `⚠️ Ошибка: ${data.error}\n\n[Отладочные данные]:\n• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
+                        const errDisp = document.getElementById('errorDisplay');
+                        errDisp.innerText = debugMsg;
+                        errDisp.style.display = 'block';
                         return;
                     }
 
@@ -1547,9 +1550,10 @@ public static class MiniAppUI
                 sphere.classList.remove('analyzing');
                 btn.disabled = false;
                 btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
-                const catchMsg = `Error: ${e.message}\nStack: ${e.stack}\n\nDebug Info:\n- initData length: ${tg && tg.initData ? tg.initData.length : 0}\n- Platform: ${tg ? tg.platform : 'unknown'}\n- URL: ${window.location.href}`;
-                if(tg && tg.showAlert) tg.showAlert(catchMsg);
-                else alert(catchMsg);
+                const catchMsg = `⚠️ Сбой сети: ${e.message}\n\n[Отладочные данные]:\n• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
+                const errDisp = document.getElementById('errorDisplay');
+                errDisp.innerText = catchMsg;
+                errDisp.style.display = 'block';
             }
         };
 
