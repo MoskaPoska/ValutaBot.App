@@ -851,7 +851,8 @@ public class TelegramBotService : BackgroundService
                         has_registered BOOLEAN NOT NULL DEFAULT FALSE,
                         has_deposited BOOLEAN NOT NULL DEFAULT FALSE,
                         deposit_amount DOUBLE PRECISION NOT NULL DEFAULT 0
-                    );";
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_registrations_chat_id ON registrations(chat_id);";
                 cmd.ExecuteNonQuery();
 
                 cmd.CommandText = @"
