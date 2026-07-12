@@ -861,7 +861,11 @@ public static class MiniAppController
             bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
             int limit = 100;
             string tfLower = timeframe.ToLower().Trim();
-            if (tfLower == "m1" || tfLower == "m2" || tfLower == "m3" || tfLower == "m5")
+            if (tfLower == "s10" || tfLower == "s15" || tfLower == "s30")
+            {
+                limit = 130; // Slightly more history to stabilize levels on fast timeframes
+            }
+            else if (tfLower == "m1" || tfLower == "m2" || tfLower == "m3" || tfLower == "m5")
             {
                 limit = 150; // Extra history to detect strong support/resistance zones
             }
