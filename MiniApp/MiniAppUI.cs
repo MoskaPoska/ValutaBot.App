@@ -1547,6 +1547,9 @@ public static class MiniAppUI
                 sphere.classList.remove('analyzing');
                 btn.disabled = false;
                 btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
+                const catchMsg = `Error: ${e.message}\nStack: ${e.stack}\n\nDebug Info:\n- initData length: ${tg && tg.initData ? tg.initData.length : 0}\n- Platform: ${tg ? tg.platform : 'unknown'}\n- URL: ${window.location.href}`;
+                if(tg && tg.showAlert) tg.showAlert(catchMsg);
+                else alert(catchMsg);
             }
         };
 
