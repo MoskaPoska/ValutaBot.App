@@ -36,9 +36,18 @@ public static class MLForecastService
 
             var predicted = forecastResult.Forecast.Select(v => (double)v).ToArray();
 
+            // Sanitize predicted values against NaN/Infinity
+            for (int i = 0; i < predicted.Length; i++)
+            {
+                if (double.IsNaN(predicted[i]) || double.IsInfinity(predicted[i]))
+                    predicted[i] = prices[^1];
+            }
+
             double lastPrice = prices[^1];
             double predictedEnd = predicted[^1];
             double change = (predictedEnd - lastPrice) / lastPrice;
+            if (double.IsNaN(change) || double.IsInfinity(change))
+                change = 0;
 
             string direction = change > 0.001 ? "BUY" : change < -0.001 ? "PUT" : "NEUTRAL";
 
@@ -47,8 +56,14 @@ public static class MLForecastService
             for (int i = 0; i < prices.Length - 1; i++)
                 volatility += Math.Abs(prices[i + 1] - prices[i]);
             volatility /= (prices.Length - 1) * lastPrice;
+            if (double.IsNaN(volatility) || double.IsInfinity(volatility) || volatility < 1e-9)
+                volatility = 0.001;
 
-            double confidence = Math.Clamp(100 - Math.Abs(change) * 1000 / (volatility * 100 + 0.01), 55, 95);
+            double confidence = 100 - Math.Abs(change) * 1000 / (volatility * 100 + 0.01);
+            if (double.IsNaN(confidence) || double.IsInfinity(confidence))
+                confidence = 50;
+
+            confidence = Math.Clamp(confidence, 55, 95);
             confidence = Math.Round(confidence);
 
             return (direction, confidence, predicted);

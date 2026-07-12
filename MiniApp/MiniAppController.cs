@@ -85,7 +85,11 @@ public static class MiniAppController
             {
                 var result = await ExecuteBinanceAnalysis(originalAsset, tf);
                 // Serialize manually to catch float.NaN or reference errors during serialization
-                var json = JsonSerializer.Serialize(result);
+                var options = new JsonSerializerOptions
+                {
+                    NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
+                };
+                var json = JsonSerializer.Serialize(result, options);
                 return Results.Content(json, "application/json", Encoding.UTF8);
             }
             catch (Exception ex)
@@ -517,6 +521,8 @@ public static class MiniAppController
         if (n < 10) return 0;
 
         double avgVol = volumes.Skip(n - 10).Take(10).Average();
+        if (avgVol < 1e-9) return 0;
+
         double currentVol = volumes[^1];
         double prevClose = prices[^2];
         double currentClose = prices[^1];
