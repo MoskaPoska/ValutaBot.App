@@ -500,25 +500,14 @@ public static class MiniAppController
     private static double ComputeRsi(double[] data, int period, int index)
     {
         if (index < period) return double.NaN;
-
-        // Wilder's RSI: first SMA over period bars, then exponential smoothing
-        double avgGain = 0, avgLoss = 0;
-        for (int i = 1; i <= period; i++)
+        double gain = 0, loss = 0;
+        for (int i = index - period + 1; i <= index; i++)
         {
             double diff = data[i] - data[i - 1];
-            if (diff > 0) avgGain += diff; else avgLoss -= diff;
+            if (diff > 0) gain += diff; else loss -= diff;
         }
-        avgGain /= period;
-        avgLoss /= period;
-
-        // Wilder's smoothing for bars period+1 .. index
-        for (int i = period + 1; i <= index; i++)
-        {
-            double diff = data[i] - data[i - 1];
-            avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
-            avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
-        }
-
+        double avgGain = gain / period;
+        double avgLoss = loss / period;
         if (avgLoss < 1e-12) return 100;
         double rs = avgGain / avgLoss;
         return 100 - 100 / (1 + rs);
@@ -546,7 +535,7 @@ public static class MiniAppController
         int n = volumes.Length;
         if (n < 10) return 0;
 
-        double avgVol = volumes.Skip(n - 20).Take(20).Average();
+        double avgVol = volumes.Skip(n - 10).Take(10).Average();
         if (avgVol < 1e-9) return 0;
 
         double currentVol = volumes[^1];
@@ -727,9 +716,9 @@ public static class MiniAppController
         double bbZ = ComputeBollingerZscore(prices, 20);
         var (bullDiv, bearDiv) = DetectRsiDivergence(prices, RsiPeriod);
 
-        // Adaptive weights based on trendiness (True ADX) — smooth transition
-        double tw = 1.0 + 0.5 * Math.Clamp((adx - 20) / 10.0, 0, 1);
-        double mw = 1.0 + 0.5 * Math.Clamp((20 - adx) / 10.0, 0, 1);
+        // Adaptive weights based on trendiness (True ADX)
+        double tw = adx > 25 ? 1.5 : 1.0;
+        double mw = adx < 20 ? 1.5 : 1.0;
 
         // ─── Group 1: Trend Indicators ───
         double trendScore = 0;
@@ -1257,7 +1246,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             {
                 // Claude не уверен (NEUTRAL или probability < 65)
                 // Используем математику с адаптивным порогом
-                bool aiWasAvailable = claudeResult.modelName is "Claude Sonnet" or "Gemini 2.0 Flash (Google)";
+                bool aiWasAvailable = !string.IsNullOrEmpty(claudeResult.modelName);
                 double absScore = Math.Abs(totalScore);
                 int scoreSign = totalScore >= 0 ? 1 : -1;
 
@@ -1291,7 +1280,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     }
 
                     // Adaptive safe distance using ATR
-                    double safeBuffer = mainAtr > 0 ? 0.8 * mainAtr : 0.00015 * currentPrice;
+                    double safeBuffer = mainAtr > 0 ? 1.2 * mainAtr : 0.00015 * currentPrice;
                     bool blockedByLevel = false;
                     string blockReason = "";
 
