@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http;
 using System.Text;
@@ -76,6 +77,9 @@ public static class MiniAppController
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             if (!IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
+
+            if (IsRateLimited(context, out string? limitError))
+                return Results.Json(new { error = limitError }, statusCode: 429);
 
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
@@ -1573,6 +1577,8 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
         }
     }
 
+    private static readonly ConcurrentDictionary<long, DateTime> UserLastRequestTime = new();
+
     private static bool IsRequestAuthorized(HttpContext context, out string? errorMessage)
     {
         errorMessage = null;
@@ -1608,6 +1614,27 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             return false;
         }
 
+        context.Items["userId"] = userId;
         return true;
+    }
+
+    private static bool IsRateLimited(HttpContext context, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (context.Items.TryGetValue("userId", out var obj) && obj is long userId && userId > 0)
+        {
+            DateTime now = DateTime.UtcNow;
+            if (UserLastRequestTime.TryGetValue(userId, out DateTime lastTime))
+            {
+                double secondsSince = (now - lastTime).TotalSeconds;
+                if (secondsSince < 4) // 4 seconds rate limit
+                {
+                    errorMessage = $"Too many requests. Please wait {Math.Ceiling(4 - secondsSince)}s.";
+                    return true;
+                }
+            }
+            UserLastRequestTime[userId] = now;
+        }
+        return false;
     }
 }
