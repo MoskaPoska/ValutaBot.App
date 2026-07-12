@@ -645,6 +645,27 @@ public static class MiniAppController
         return atr;
     }
 
+    private static double CalculateVolatilityRatio(double[] prices)
+    {
+        int n = prices.Length;
+        if (n < 20) return 1.0;
+
+        var absoluteChanges = new List<double>();
+        for (int i = 1; i < n; i++)
+        {
+            absoluteChanges.Add(Math.Abs(prices[i] - prices[i - 1]));
+        }
+
+        if (absoluteChanges.Count < 10) return 1.0;
+
+        double currentVolatility = absoluteChanges.TakeLast(5).Average();
+        double historicalVolatility = absoluteChanges.Average();
+
+        if (historicalVolatility < 1e-10) return 1.0;
+
+        return currentVolatility / historicalVolatility;
+    }
+
     /* ─── Bollinger z-score ─── */
 
     private static double ComputeBollingerZscore(double[] data, int period)
@@ -1252,7 +1273,24 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
 
                 // Если AI был доступен, но не уверен — выше порог (AI не нашёл подтверждения)
                 // Если AI недоступен — ниже порог (только математика)
-                double minScore = aiWasAvailable ? 1.0 : 0.7;
+                double baseMinScore = aiWasAvailable ? 1.0 : 0.7;
+                double volatilityRatio = CalculateVolatilityRatio(mainPrices);
+                double minScore = baseMinScore;
+
+                if (volatilityRatio < 0.7)
+                {
+                    minScore = Math.Max(0.55, baseMinScore - 0.1);
+                    Console.WriteLine($"[Volatility-Sniper] Low volatility (ratio={volatilityRatio:F2}). Adjusted minScore from {baseMinScore:F1} to {minScore:F2}");
+                }
+                else if (volatilityRatio > 1.35)
+                {
+                    minScore = Math.Min(1.25, baseMinScore + 0.15);
+                    Console.WriteLine($"[Volatility-Sniper] High volatility (ratio={volatilityRatio:F2}). Adjusted minScore from {baseMinScore:F1} to {minScore:F2}");
+                }
+                else
+                {
+                    Console.WriteLine($"[Volatility-Sniper] Normal volatility (ratio={volatilityRatio:F2}). minScore is {minScore:F2}");
+                }
 
                 // momentum не должен противоречить totalScore
                 bool momentumOk = momentumSignal == 0 || momentumSignal == scoreSign;
