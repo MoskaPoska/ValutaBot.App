@@ -392,6 +392,15 @@ public static class MiniAppController
 
     private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50)
     {
+        if (symbol != null)
+        {
+            string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
+            if (_cache.TryGetValue(binanceCacheKey, out object? cachedVal) && cachedVal is ValueTuple<double[], double[]> cachedTuple)
+            {
+                return cachedTuple;
+            }
+        }
+
         // Skip Binance for forex pairs not listed on Binance (symbol == null)
         if (symbol == null)
         {
@@ -406,7 +415,10 @@ public static class MiniAppController
 
         try
         {
-            return await FetchBinanceCandles(symbol, interval, limit);
+            var res = await FetchBinanceCandles(symbol, interval, limit);
+            string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
+            _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(2));
+            return res;
         }
         catch
         {
@@ -438,7 +450,10 @@ public static class MiniAppController
             if (fallback != null)
             {
                 Console.WriteLine($"[Fetch] {symbol} not found, fallback to {fallback}");
-                return await FetchBinanceCandles(fallback, interval, limit);
+                var res = await FetchBinanceCandles(fallback, interval, limit);
+                string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
+                _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(2));
+                return res;
             }
 
             throw;
