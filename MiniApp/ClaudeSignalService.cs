@@ -336,7 +336,8 @@ public static class ClaudeSignalService
                     },
                     { "temperature", 0.2 },
                     { "max_tokens", 500 },
-                    { "max_completion_tokens", 500 }
+                    { "max_completion_tokens", 500 },
+                    { "response_format", new { type = "json_object" } }
                 };
             }
 
@@ -376,11 +377,18 @@ public static class ClaudeSignalService
                 throw new Exception($"OpenRouter error: {errMsg}");
             }
 
-            string content = doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString() ?? "{}";
+            if (!doc.RootElement.TryGetProperty("choices", out var choicesProp) || choicesProp.GetArrayLength() == 0)
+            {
+                throw new Exception("OpenRouter returned zero choices (possible filter block or empty response)");
+            }
+
+            var messageProp = choicesProp[0].GetProperty("message");
+            if (!messageProp.TryGetProperty("content", out var contentProp))
+            {
+                throw new Exception("OpenRouter choice does not contain message content");
+            }
+
+            string content = contentProp.GetString() ?? "{}";
 
             return ParseAiJsonResponse(content, "Claude");
         }
