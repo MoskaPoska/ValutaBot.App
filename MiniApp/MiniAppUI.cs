@@ -1517,7 +1517,7 @@ public static class MiniAppUI
                         senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
                         senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
                         let reasoningText = data.claudeReasoning;
-                        if (data.claudeProbability) {
+                        if (data.claudeProbability && data.claudeDirection !== 'NEUTRAL') {
                             reasoningText += ` (вероятность: ${data.claudeProbability}%)`;
                         }
                         document.getElementById('claudeReasoning').innerText = reasoningText;

@@ -294,14 +294,14 @@ public static class ClaudeSignalService
                         }
 
                         _lastRawResponse = $"ERROR: Both AI models failed. Claude: {ex.Message}. Gemini: {fallbackEx.Message}";
-                        return ("NEUTRAL", 50, "ИИ временно недоступен. Запущен локальный консенсус-анализ.", "Математический анализ");
+                        return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
                     }
                 }
                 else
                 {
                     Console.WriteLine($"[AI] Gemini API key not configured, no fallback available");
                     _lastRawResponse = $"ERROR: Claude failed and Gemini not configured. Claude: {ex.Message}";
-                    return ("NEUTRAL", 50, "ИИ временно недоступен. Запущен локальный консенсус-анализ.", "Математический анализ");
+                    return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
                 }
             }
         }
@@ -309,7 +309,7 @@ public static class ClaudeSignalService
         {
             Console.WriteLine($"[AI] Analysis failed: {ex.Message}");
             _lastRawResponse = $"ERROR: {ex.Message}";
-            return ("NEUTRAL", 50, "ИИ временно недоступен. Запущен локальный консенсус-анализ.", "Математический анализ");
+            return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
         }
     }
 

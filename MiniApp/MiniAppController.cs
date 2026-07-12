@@ -1547,8 +1547,8 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 newsSummary = "Анализ недоступен (режим fallback)",
                 newsHeadlines = Array.Empty<string>(),
                 claudeDirection = "NEUTRAL",
-                claudeProbability = 50,
-                claudeReasoning = "ИИ временно недоступен. Запущен локальный консенсус-анализ.",
+                claudeProbability = 0,
+                claudeReasoning = "Математический консенсус активен. Запущен локальный анализ индикаторов.",
                 aiModel = "Математический анализ"
             };
     }
