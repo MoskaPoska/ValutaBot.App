@@ -8,18 +8,7 @@ public static class ClaudeSignalService
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(60) };
     private static string? _lastRawResponse;
     private static string? _lastPrimaryError;
-    private static bool _claudeIsOut = false;
-    private static bool _geminiIsOut = false;
 
-    private static void NotifyAdminOfAiOutage(string provider, string errorMessage)
-    {
-        string text = $"⚠️ <b>Сбой в работе ИИ!</b>\n\n" +
-                      $"Поставщик: <code>{provider}</code>\n" +
-                      $"Ошибка: <code>{errorMessage}</code>\n\n" +
-                      $"Бот автоматически перешел на резервные механизмы анализа (Gemini / Математический анализ).";
-        
-        _ = TelegramBotService.SendMessageToAdmins(text);
-    }
 
     public static string? GetLastRawResponse() => _lastRawResponse;
     public static string? GetLastPrimaryError() => _lastPrimaryError;
@@ -254,22 +243,12 @@ public static class ClaudeSignalService
             {
                 _lastPrimaryError = null;
                 var result = await SendOpenRouterRequestAsync(primaryModel, apiKey, finalClaudePrompt, asset, indicators);
-                if (_claudeIsOut)
-                {
-                    _claudeIsOut = false;
-                    _ = TelegramBotService.SendMessageToAdmins("✅ <b>Claude Sonnet снова работает в штатном режиме.</b>");
-                }
                 return (result.direction, result.probability, result.reasoning, primaryLabel);
             }
             catch (Exception ex)
             {
                 _lastPrimaryError = ex.ToString();
                 Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {fallbackLabel}...");
-                if (!_claudeIsOut)
-                {
-                    _claudeIsOut = true;
-                    NotifyAdminOfAiOutage(primaryLabel, ex.Message);
-                }
 
                 if (!string.IsNullOrEmpty(geminiApiKey))
                 {
@@ -277,21 +256,11 @@ public static class ClaudeSignalService
                     {
                         string userContent = $"Technical indicators for {asset}:\n{indicators}";
                         var fallbackResult = await SendGeminiRequestAsync(geminiApiKey, finalGeminiPrompt, userContent);
-                        if (_geminiIsOut)
-                        {
-                            _geminiIsOut = false;
-                            _ = TelegramBotService.SendMessageToAdmins("✅ <b>Google Gemini снова работает в штатном режиме.</b>");
-                        }
                         return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning, fallbackLabel);
                     }
                     catch (Exception fallbackEx)
                     {
                         Console.WriteLine($"[AI] {fallbackLabel} failed: {fallbackEx.Message}");
-                        if (!_geminiIsOut)
-                        {
-                            _geminiIsOut = true;
-                            NotifyAdminOfAiOutage(fallbackLabel, fallbackEx.Message);
-                        }
 
                         _lastRawResponse = $"ERROR: Both AI models failed. Claude: {ex.Message}. Gemini: {fallbackEx.Message}";
                         return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
