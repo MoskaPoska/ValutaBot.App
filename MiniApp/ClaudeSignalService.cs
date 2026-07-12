@@ -337,7 +337,8 @@ public static class ClaudeSignalService
                     { "temperature", 0.2 },
                     { "max_tokens", 500 },
                     { "max_completion_tokens", 500 },
-                    { "response_format", new { type = "json_object" } }
+                    { "response_format", new { type = "json_object" } },
+                    { "cache_control", new { type = "ephemeral" } }
                 };
             }
 
