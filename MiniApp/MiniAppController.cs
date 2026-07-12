@@ -1124,12 +1124,39 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 _cache.Set(cacheKey, claudeResult, TimeSpan.FromSeconds(cacheTtlSec));
                 Console.WriteLine($"[Cache] Stored {cacheKey}, TTL={cacheTtlSec}s");
             }
+            if (claudeResult.direction != "NEUTRAL")
             {
                 double claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
                 totalScore += claudeSign * (claudeResult.probability / 100.0);
                 totalConfidence += claudeResult.probability;
                 totalWeight += 1.5;
                 Console.WriteLine($"[Claude] dir={claudeResult.direction} prob={claudeResult.probability:F0}% reasoning={claudeResult.reasoning}");
+            }
+            else
+            {
+                // If AI is offline or neutral, boost the local math fallback with Price Action and Imbalance!
+                if (detectedPatterns != null && detectedPatterns.Count > 0)
+                {
+                    double patternScore = 0;
+                    foreach (var pattern in detectedPatterns)
+                    {
+                        if (pattern.EndsWith("_bullish") || pattern == "HAMMER")
+                            patternScore += 0.4;
+                        else if (pattern.EndsWith("_bearish") || pattern == "HANGING_MAN")
+                            patternScore -= 0.4;
+                    }
+                    totalScore += patternScore;
+                    Console.WriteLine($"[Math-PA] Added candlestick pattern score: {patternScore:F2} (Patterns: {string.Join(", ", detectedPatterns)})");
+                }
+
+                // Add real-time order book imbalance
+                double bookImbalance = !string.IsNullOrEmpty(imbalanceKey) ? MarketDataService.GetBookImbalance(imbalanceKey) : 0;
+                if (Math.Abs(bookImbalance) > 0.15)
+                {
+                    double imbalanceScore = bookImbalance > 0 ? 0.3 : -0.3;
+                    totalScore += imbalanceScore;
+                    Console.WriteLine($"[Math-Imbalance] Added book imbalance score: {imbalanceScore:F2} (Imbalance: {bookImbalance:F2})");
+                }
             }
 
             // ─── Short-term momentum (3-bar + 5-bar) ───
