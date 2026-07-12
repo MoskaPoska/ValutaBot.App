@@ -455,11 +455,7 @@ public class TelegramBotService : BackgroundService
 
         if (data == "check_reg")
         {
-            bool isAllowed;
-            lock (_lock)
-            {
-                isAllowed = AllowedUsers.Contains(chatId);
-            }
+            bool isAllowed = IsUserAllowed(chatId);
 
             if (isAllowed)
             {
