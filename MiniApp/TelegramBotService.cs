@@ -40,6 +40,23 @@ public class TelegramBotService : BackgroundService
         }
     }
 
+    public static async Task SendMessageToAdmins(string text)
+    {
+        string? token = TelegramNotifier.GetToken();
+        if (string.IsNullOrEmpty(token)) return;
+
+        List<long> adminsToNotify;
+        lock (_lock)
+        {
+            adminsToNotify = AdminChatIds.ToList();
+        }
+
+        foreach (long adminId in adminsToNotify)
+        {
+            await SendMessage(token, adminId, text);
+        }
+    }
+
     private enum UserState
     {
         None,

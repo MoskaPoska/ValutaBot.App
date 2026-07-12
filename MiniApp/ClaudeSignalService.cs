@@ -8,6 +8,23 @@ public static class ClaudeSignalService
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(60) };
     private static string? _lastRawResponse;
     private static string? _lastPrimaryError;
+    private static DateTime _lastAdminAlertTime = DateTime.MinValue;
+
+    private static void NotifyAdminOfAiOutage(string provider, string errorMessage)
+    {
+        if ((DateTime.UtcNow - _lastAdminAlertTime).TotalMinutes < 15)
+        {
+            return;
+        }
+
+        _lastAdminAlertTime = DateTime.UtcNow;
+        string text = $"⚠️ <b>Сбой в работе ИИ!</b>\n\n" +
+                      $"Поставщик: <code>{provider}</code>\n" +
+                      $"Ошибка: <code>{errorMessage}</code>\n\n" +
+                      $"Бот автоматически перешел на резервные механизмы анализа (Gemini / Математический анализ).";
+        
+        _ = TelegramBotService.SendMessageToAdmins(text);
+    }
 
     public static string? GetLastRawResponse() => _lastRawResponse;
     public static string? GetLastPrimaryError() => _lastPrimaryError;
@@ -248,6 +265,8 @@ public static class ClaudeSignalService
             {
                 _lastPrimaryError = ex.ToString();
                 Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {fallbackLabel}...");
+                NotifyAdminOfAiOutage(primaryLabel, ex.Message);
+
                 if (!string.IsNullOrEmpty(geminiApiKey))
                 {
                     try
@@ -259,6 +278,8 @@ public static class ClaudeSignalService
                     catch (Exception fallbackEx)
                     {
                         Console.WriteLine($"[AI] {fallbackLabel} failed: {fallbackEx.Message}");
+                        NotifyAdminOfAiOutage(fallbackLabel, fallbackEx.Message);
+
                         _lastRawResponse = $"ERROR: Both AI models failed. Claude: {ex.Message}. Gemini: {fallbackEx.Message}";
                         return ("NEUTRAL", 50, "ИИ временно недоступен. Запущен локальный консенсус-анализ.", "Математический анализ");
                     }
