@@ -1423,8 +1423,9 @@ public static class MiniAppUI
                     btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
 
                     if(data.error) {
-                        if(tg && tg.showAlert) tg.showAlert(data.error);
-                        else alert(data.error);
+                        const debugMsg = `${data.error}\n\nDebug Info:\n- initData length: ${tg && tg.initData ? tg.initData.length : 0}\n- Platform: ${tg ? tg.platform : 'unknown'}\n- URL: ${window.location.href}`;
+                        if(tg && tg.showAlert) tg.showAlert(debugMsg);
+                        else alert(debugMsg);
                         return;
                     }
 
