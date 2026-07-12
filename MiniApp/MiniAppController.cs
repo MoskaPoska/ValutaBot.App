@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Web;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
@@ -1605,19 +1607,49 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             return false;
         }
 
-        if (!TelegramInitDataValidator.Validate(initData, botToken, out long userId, out _))
+        // ─── Custom Signed URL Validation ───
+        if (initData.Contains("custom_user_id=") && initData.Contains("custom_user_sign="))
+        {
+            var query = HttpUtility.ParseQueryString(initData);
+            string? customIdStr = query["custom_user_id"];
+            string? customSign = query["custom_user_sign"];
+
+            if (long.TryParse(customIdStr, out long userId))
+            {
+                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(botToken));
+                byte[] hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(userId.ToString()));
+                string expectedSign = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+                if (string.Equals(customSign, expectedSign, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TelegramBotService.IsUserAllowed(userId))
+                    {
+                        errorMessage = "Access Denied: Pocket Option registration and deposit required";
+                        return false;
+                    }
+                    context.Items["userId"] = userId;
+                    return true;
+                }
+            }
+
+            errorMessage = "Invalid custom authorization signature";
+            return false;
+        }
+
+        // ─── Standard Telegram InitData Validation ───
+        if (!TelegramInitDataValidator.Validate(initData, botToken, out long tgUserId, out _))
         {
             errorMessage = "Invalid Telegram authorization signature";
             return false;
         }
 
-        if (!TelegramBotService.IsUserAllowed(userId))
+        if (!TelegramBotService.IsUserAllowed(tgUserId))
         {
             errorMessage = "Access Denied: Pocket Option registration and deposit required";
             return false;
         }
 
-        context.Items["userId"] = userId;
+        context.Items["userId"] = tgUserId;
         return true;
     }
 

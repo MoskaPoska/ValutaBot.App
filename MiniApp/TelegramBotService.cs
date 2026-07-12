@@ -677,14 +677,22 @@ public class TelegramBotService : BackgroundService
         }
     }
 
+    private static string GetSignedWebAppUrl(long chatId, string webAppUrl, string token)
+    {
+        string separator = webAppUrl.Contains("?") ? "&" : "?";
+        using var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(token));
+        byte[] hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(chatId.ToString()));
+        string sign = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        return $"{webAppUrl}{separator}userId={chatId}&userSign={sign}&v=2.1";
+    }
+
     private static async Task SendUserWelcome(string token, long chatId, string webAppUrl)
     {
         _ = ResetChatMenuButton(token, chatId);
 
         string text = "✅ <b>Доступ открыт!</b>\n\nИспользуйте кнопку <b>📊 Открыть TradeAI</b> в меню внизу чата, чтобы запустить анализатор.";
 
-        string separator = webAppUrl.Contains("?") ? "&" : "?";
-        string cacheBustedUrl = $"{webAppUrl}{separator}v=2.1";
+        string cacheBustedUrl = GetSignedWebAppUrl(chatId, webAppUrl, token);
 
         var keyboard = new
         {
@@ -722,8 +730,7 @@ public class TelegramBotService : BackgroundService
 
         string text = "👑 <b>Панель администратора TradeAI</b>\n\nИспользуйте меню внизу экрана для управления ботом.";
 
-        string separator = webAppUrl.Contains("?") ? "&" : "?";
-        string cacheBustedUrl = $"{webAppUrl}{separator}v=2.1";
+        string cacheBustedUrl = GetSignedWebAppUrl(chatId, webAppUrl, token);
 
         var keyboard = new
         {

@@ -1073,6 +1073,16 @@ public static class MiniAppUI
         const tg = window.Telegram.WebApp;
         if(tg) tg.expand();
 
+        function getCustomInitData() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const userId = urlParams.get('userId');
+            const userSign = urlParams.get('userSign');
+            if (userId && userSign) {
+                return `custom_user_id=${userId}&custom_user_sign=${userSign}`;
+            }
+            return '';
+        }
+
         let currentAsset = 'EUR/USD OTC';
         let currentTf = 'm1';
 
@@ -1410,7 +1420,7 @@ public static class MiniAppUI
             try {
                 const res = await fetch(`/api/analyze?asset=${encodeURIComponent(currentAsset)}&timeframe=${currentTf}&_=${Date.now()}`, {
                     headers: {
-                        'X-Telegram-Init-Data': tg ? tg.initData : ''
+                        'X-Telegram-Init-Data': tg && tg.initData ? tg.initData : getCustomInitData()
                     }
                 });
                 const data = await res.json();
