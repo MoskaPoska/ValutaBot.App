@@ -280,14 +280,14 @@ public static class MiniAppController
 
     private static int GetExpiryCandles(string tf) => tf.ToLower() switch
     {
-        "s3" or "s5" or "s10" or "s15" or "s30" => 1,
-        "m1" => 1,
-        "m2" => 2,
-        "m3" => 1,
-        "m5" => 1,
-        "m15" => 1,
-        "m30" => 1,
-        "h1" => 1,
+        "s3" or "s5" or "s10" or "s15" or "s30" => 1, // Micro-scalps
+        "m1" => 3,   // 3 minutes (highly stable for M1 charts)
+        "m2" => 2,   // 4 minutes
+        "m3" => 2,   // 6 minutes
+        "m5" => 3,   // 15 minutes (standard binary options target)
+        "m15" => 2,  // 30 minutes
+        "m30" => 2,  // 60 minutes
+        "h1" => 2,   // 2 hours
         "h4" => 1,
         "d1" => 1,
         _ => 3
@@ -317,7 +317,7 @@ public static class MiniAppController
 
     private static string? HigherTf(string tf) => tf.ToLower() switch
     {
-        "s3" or "s5" or "s10" => "s30", "s15" or "s30" => "m1",
+        "s3" or "s5" or "s10" or "s15" or "s30" => "m5", // Verify micro-momentum trends against the 5-minute chart
         "m1" => "m5", "m2" => "m5", "m3" => "m5",
         "m5" => "m15", "m15" => "h1", "m30" => "h1",
         "h1" => "h4", "h4" => "d1", _ => null
@@ -325,7 +325,8 @@ public static class MiniAppController
 
     private static string? LowerTf(string tf) => tf.ToLower() switch
     {
-        "m1" => "s30", "m2" => "m1", "m3" => "m1",
+        "m1" => null, // Prevents duplicate fetching of 1m candles for lower TF
+        "m2" => "m1", "m3" => "m1",
         "m5" => "m1", "m15" => "m5", "m30" => "m15",
         "h1" => "m30", "h4" => "h1",
         "d1" => "h4", _ => null
@@ -858,7 +859,16 @@ public static class MiniAppController
 
             bool isForex = symbol == null;
             bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
-            int limit = 100; // Always use 100 candles for stable indicators
+            int limit = 100;
+            string tfLower = timeframe.ToLower().Trim();
+            if (tfLower == "m1" || tfLower == "m2" || tfLower == "m3" || tfLower == "m5")
+            {
+                limit = 150; // Extra history to detect strong support/resistance zones
+            }
+            else if (tfLower == "m15" || tfLower == "m30" || tfLower == "h1")
+            {
+                limit = 200; // Deep historical trend context
+            }
 
             // Disable multi-timeframe for Forex (TwelveData rate limit: 8 req/min — 2 TF requests would exhaust it)
             bool useMultiTf = !isForex;
@@ -997,7 +1007,6 @@ public static class MiniAppController
                 if (Math.Abs(imbalance) > 0.1)
                 {
                     double timeframeScale = 1.0;
-                    string tfLower = timeframe.ToLower().Trim();
                     if (tfLower == "m1" || tfLower == "m3" || tfLower == "m5" || tfLower.StartsWith("s"))
                     {
                         timeframeScale = 0.5;
