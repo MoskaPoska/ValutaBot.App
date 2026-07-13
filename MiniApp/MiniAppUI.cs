@@ -855,6 +855,56 @@ public static class MiniAppUI
         /* ─── Top asset star ─── */
         .top-star { font-size: 13px; line-height: 1; color: var(--gold); margin-left: 5px; display: inline-block; filter: drop-shadow(0 0 4px rgba(255,215,0,0.5)); }
 
+        /* ─── Live Price Display ─── */
+        .live-price-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--dim);
+            font-family: 'Outfit', sans-serif;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: 8px 16px;
+            border-radius: 20px;
+            width: fit-content;
+            margin: 10px auto 5px auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            transition: border-color 0.3s;
+        }
+        .live-price-dot {
+            color: #00e676;
+            font-size: 10px;
+            animation: pulse 1.5s infinite;
+        }
+        .live-price-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+        }
+        .live-price-value {
+            color: #ffffff;
+            font-family: 'Outfit', monospace;
+            font-size: 16px;
+            transition: color 0.15s ease-out;
+        }
+        .live-price-value.up {
+            color: #00e676 !important;
+            text-shadow: 0 0 8px rgba(0,230,118,0.4);
+        }
+        .live-price-value.down {
+            color: #ff1744 !important;
+            text-shadow: 0 0 8px rgba(255,23,68,0.4);
+        }
+        @keyframes pulse {
+            0% { opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+
     </style>
 </head>
 <body>
@@ -962,6 +1012,13 @@ public static class MiniAppUI
             <div class='candle-countdown'>
                 <span class='label'>До закрытия свечи</span>
                 <span class='time' id='candleTime'>--</span>
+            </div>
+
+            <!-- Live Price Panel -->
+            <div class='live-price-container' id='livePriceContainer' style='display:none'>
+                <span class='live-price-dot'>●</span>
+                <span class='live-price-label'>Поток:</span>
+                <span class='live-price-value' id='livePriceValue'>--</span>
             </div>
 
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
@@ -1134,6 +1191,95 @@ public static class MiniAppUI
             document.getElementById(m).classList.toggle('show');
         }
 
+        let priceSocket = null;
+        let lastPriceVal = 0;
+
+        function initPriceWebSocket() {
+            closePriceWebSocket();
+
+            const isSecondsTf = currentTf.startsWith('s');
+            const livePriceContainer = document.getElementById('livePriceContainer');
+            
+            if (!isSecondsTf) {
+                if (livePriceContainer) livePriceContainer.style.display = 'none';
+                return;
+            }
+
+            if (livePriceContainer) livePriceContainer.style.display = 'flex';
+            const valEl = document.getElementById('livePriceValue');
+            if (valEl) {
+                valEl.innerText = 'ЗАГРУЗКА...';
+                valEl.className = 'live-price-value';
+            }
+
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/prices?asset=${encodeURIComponent(currentAsset)}`;
+                
+                priceSocket = new WebSocket(wsUrl);
+
+                priceSocket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data && data.price !== undefined) {
+                            const newPrice = data.price;
+                            updateLivePriceUI(newPrice);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing WS message:', e);
+                    }
+                };
+
+                priceSocket.onclose = function() {
+                    console.log('Price WebSocket closed');
+                };
+
+                priceSocket.onerror = function(err) {
+                    console.error('Price WebSocket error:', err);
+                };
+            } catch (err) {
+                console.error('Failed to create WebSocket:', err);
+            }
+        }
+
+        function closePriceWebSocket() {
+            if (priceSocket) {
+                try {
+                    priceSocket.close();
+                } catch(e) {}
+                priceSocket = null;
+            }
+            lastPriceVal = 0;
+        }
+
+        function updateLivePriceUI(price) {
+            const valEl = document.getElementById('livePriceValue');
+            if (!valEl) return;
+
+            const isHighVal = price > 100;
+            const formatted = price.toFixed(isHighVal ? 2 : 5);
+
+            valEl.innerText = formatted;
+
+            if (lastPriceVal > 0) {
+                if (price > lastPriceVal) {
+                    valEl.className = 'live-price-value up';
+                } else if (price < lastPriceVal) {
+                    valEl.className = 'live-price-value down';
+                }
+                
+                setTimeout(() => {
+                    if (valEl.innerText === formatted) {
+                        valEl.className = 'live-price-value';
+                    }
+                }, 400);
+            } else {
+                valEl.className = 'live-price-value';
+            }
+
+            lastPriceVal = price;
+        }
+
         function setAsset(el) {
             let a = el.getAttribute('data-asset');
             currentAsset = a;
@@ -1141,6 +1287,7 @@ public static class MiniAppUI
             document.querySelectorAll('.asset-item').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
             document.getElementById('assetMenu').classList.remove('show');
+            initPriceWebSocket();
         }
 
         function setTf(el) {
@@ -1150,6 +1297,7 @@ public static class MiniAppUI
             document.querySelectorAll('.tf-btn').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
             document.getElementById('tfMenu').classList.remove('show');
+            initPriceWebSocket();
         }
 
         document.addEventListener('click', function(e) {
@@ -1173,7 +1321,8 @@ public static class MiniAppUI
 
         changeTopCategory(document.querySelector('.top-cat-btn'));
         syncTime();
-
+        initPriceWebSocket();
+        
         var timeOffset = 0;
 
         async function syncTime() {

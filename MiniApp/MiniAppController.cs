@@ -54,6 +54,7 @@ public static class MiniAppController
 
         var app = builder.Build();
         app.UseCors("AllowMiniApp");
+        app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
         app.MapGet("/", async (HttpContext context) =>
         {
@@ -163,6 +164,56 @@ public static class MiniAppController
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             return Results.Json(new { t = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        });
+
+        app.Map("/ws/prices", async (HttpContext context, string? asset) =>
+        {
+            if (string.IsNullOrEmpty(asset))
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync("asset parameter is required");
+                return;
+            }
+
+            if (!context.WebSockets.IsWebSocketRequest)
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
+
+            using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+            string clientId = Guid.NewGuid().ToString();
+
+            try
+            {
+                await TwelveDataWebSocketManager.RegisterClientAsync(asset, clientId, webSocket);
+
+                var buffer = new byte[1024 * 4];
+                while (webSocket.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                    if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WS Route] Connection error for {clientId}: {ex.Message}");
+            }
+            finally
+            {
+                TwelveDataWebSocketManager.UnregisterClient(asset, clientId);
+                if (webSocket.State != System.Net.WebSockets.WebSocketState.Aborted && webSocket.State != System.Net.WebSockets.WebSocketState.Closed)
+                {
+                    try
+                    {
+                        await webSocket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closed by server", CancellationToken.None);
+                    }
+                    catch { }
+                }
+            }
         });
 
         /* ─── Alerts ─── */

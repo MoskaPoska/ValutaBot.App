@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 
 namespace ValutaBot.MiniApp;
@@ -125,7 +126,7 @@ public static class TwelveDataService
         }
     }
 
-    private static string? ConvertToTwelveSymbol(string raw)
+    public static string? ConvertToTwelveSymbol(string raw)
     {
         if (raw.Contains("BTC") || raw.Contains("ETH") || raw.Contains("SOL"))
             return null;
@@ -174,4 +175,216 @@ public static class TwelveDataService
         "1d" or "d1" => "1day",
         _ => null
     };
+}
+
+public static class TwelveDataWebSocketManager
+{
+    private static readonly ConcurrentDictionary<string, ConcurrentDictionary<string, System.Net.WebSockets.WebSocket>> _clients = new();
+    private static readonly ConcurrentDictionary<string, double> _lastPrices = new();
+    private static System.Net.WebSockets.ClientWebSocket? _twelveWs;
+    private static readonly SemaphoreSlim _lock = new(1, 1);
+    private static CancellationTokenSource? _cts;
+
+    public static double GetLastPrice(string symbol)
+    {
+        return _lastPrices.TryGetValue(symbol, out double price) ? price : 0;
+    }
+
+    public static async Task RegisterClientAsync(string asset, string clientId, System.Net.WebSockets.WebSocket clientWs)
+    {
+        string symbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+        
+        _clients.GetOrAdd(symbol, _ => new())[clientId] = clientWs;
+        Console.WriteLine($"[WS Manager] Client {clientId} subscribed to {symbol}");
+
+        await EnsureTwelveWebSocketConnectedAsync();
+        await SubscribeToSymbolAsync(symbol);
+        
+        if (_lastPrices.TryGetValue(symbol, out double lastPrice))
+        {
+            await SendToClientAsync(clientWs, symbol, lastPrice);
+        }
+    }
+
+    public static void UnregisterClient(string asset, string clientId)
+    {
+        string symbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+        if (_clients.TryGetValue(symbol, out var dict))
+        {
+            dict.TryRemove(clientId, out _);
+        }
+    }
+
+    private static async Task EnsureTwelveWebSocketConnectedAsync()
+    {
+        if (_twelveWs != null && _twelveWs.State == System.Net.WebSockets.WebSocketState.Open)
+            return;
+
+        await _lock.WaitAsync();
+        try
+        {
+            if (_twelveWs != null && _twelveWs.State == System.Net.WebSockets.WebSocketState.Open)
+                return;
+
+            string apiKey = Environment.GetEnvironmentVariable("TwelveDataApiKey") ?? "";
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                Console.WriteLine("[WS Manager] TwelveData API Key is missing, cannot start WebSocket connection.");
+                return;
+            }
+
+            _cts?.Cancel();
+            _cts = new CancellationTokenSource();
+
+            _twelveWs = new System.Net.WebSockets.ClientWebSocket();
+            string wsUrl = $"wss://ws.twelvedata.com/v1/quotes/price?apikey={apiKey}";
+            
+            Console.WriteLine("[WS Manager] Connecting to TwelveData WebSocket...");
+            await _twelveWs.ConnectAsync(new Uri(wsUrl), _cts.Token);
+            Console.WriteLine("[WS Manager] TwelveData WebSocket connected!");
+
+            _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
+
+            foreach (var symbol in _clients.Keys)
+            {
+                await SubscribeToSymbolAsync(symbol);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WS Manager] Connection error: {ex.Message}");
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private static async Task SubscribeToSymbolAsync(string symbol)
+    {
+        if (_twelveWs == null || _twelveWs.State != System.Net.WebSockets.WebSocketState.Open)
+            return;
+
+        try
+        {
+            var subMsg = new
+            {
+                action = "subscribe",
+                @params = new
+                {
+                    symbols = symbol
+                }
+            };
+            string json = JsonSerializer.Serialize(subMsg);
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+            await _twelveWs.SendAsync(new ArraySegment<byte>(bytes), System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
+            Console.WriteLine($"[WS Manager] Subscribed to {symbol} on TwelveData");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WS Manager] Subscription failed for {symbol}: {ex.Message}");
+        }
+    }
+
+    private static async Task ReceiveLoopAsync(CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+        while (!ct.IsCancellationRequested && _twelveWs != null && _twelveWs.State == System.Net.WebSockets.WebSocketState.Open)
+        {
+            try
+            {
+                var result = await _twelveWs.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                {
+                    Console.WriteLine("[WS Manager] TwelveData closed the connection.");
+                    break;
+                }
+
+                string msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                while (!result.EndOfMessage)
+                {
+                    var extraBuffer = new byte[4096];
+                    result = await _twelveWs.ReceiveAsync(new ArraySegment<byte>(extraBuffer), ct);
+                    msg += Encoding.UTF8.GetString(extraBuffer, 0, result.Count);
+                }
+
+                using var doc = JsonDocument.Parse(msg);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("event", out var ev) && ev.GetString() == "price")
+                {
+                    string? symbol = root.TryGetProperty("symbol", out var symProp) ? symProp.GetString() : null;
+                    if (symbol != null && root.TryGetProperty("price", out var priceProp))
+                    {
+                        double price = 0;
+                        if (priceProp.ValueKind == JsonValueKind.Number)
+                        {
+                            price = priceProp.GetDouble();
+                        }
+                        else if (priceProp.ValueKind == JsonValueKind.String)
+                        {
+                            double.TryParse(priceProp.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out price);
+                        }
+
+                        if (price > 0)
+                        {
+                            _lastPrices[symbol] = price;
+                            await BroadcastToClientsAsync(symbol, price);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WS Manager] Error in receive loop: {ex.Message}");
+                break;
+            }
+        }
+
+        if (!ct.IsCancellationRequested)
+        {
+            Console.WriteLine("[WS Manager] Reconnecting in 5 seconds...");
+            try { await Task.Delay(5000, ct); } catch { }
+            _ = EnsureTwelveWebSocketConnectedAsync();
+        }
+    }
+
+    private static async Task BroadcastToClientsAsync(string symbol, double price)
+    {
+        if (_clients.TryGetValue(symbol, out var dict))
+        {
+            var deadClients = new List<string>();
+            foreach (var pair in dict)
+            {
+                var clientWs = pair.Value;
+                if (clientWs.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    try
+                    {
+                        await SendToClientAsync(clientWs, symbol, price);
+                    }
+                    catch
+                    {
+                        deadClients.Add(pair.Key);
+                    }
+                }
+                else
+                {
+                    deadClients.Add(pair.Key);
+                }
+            }
+
+            foreach (var id in deadClients)
+            {
+                dict.TryRemove(id, out _);
+            }
+        }
+    }
+
+    private static async Task SendToClientAsync(System.Net.WebSockets.WebSocket ws, string symbol, double price)
+    {
+        var msgObj = new { symbol, price };
+        string json = JsonSerializer.Serialize(msgObj);
+        byte[] bytes = Encoding.UTF8.GetBytes(json);
+        await ws.SendAsync(new ArraySegment<byte>(bytes), System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
+    }
 }
