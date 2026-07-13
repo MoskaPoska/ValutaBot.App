@@ -905,6 +905,173 @@ public static class MiniAppUI
             100% { opacity: 0.3; }
         }
 
+        /* ─── Dynamic Sphere States ─── */
+        .sphere-container.buy-signal .magic-ball {
+            background:
+                repeating-linear-gradient(85deg,
+                    transparent 0px, transparent 5px,
+                    rgba(180,255,200,0.10) 5px, rgba(180,255,200,0.10) 6px
+                ),
+                repeating-radial-gradient(circle at 50% 50%,
+                    transparent 0px, transparent 7px,
+                    rgba(180,255,200,0.08) 7px, rgba(180,255,200,0.08) 8px
+                ),
+                radial-gradient(circle at 30% 35%, rgba(215,255,240,0.45) 0%, rgba(120,255,180,0.3) 20%, rgba(40,200,100,0.5) 45%, rgba(10,120,50,0.75) 70%, rgba(0,40,10,0.95) 100%);
+            box-shadow:
+                inset -10px 25px 45px rgba(255,255,255,0.08),
+                inset 15px -25px 50px rgba(20,180,80,0.35),
+                inset 0 -40px 50px rgba(0,0,0,0.35),
+                0 0 65px rgba(0,230,118,0.35);
+            animation: ball3dSpin 18s linear infinite, pulseGlowBuy 1.5s infinite ease-in-out;
+        }
+        @keyframes pulseGlowBuy {
+            0% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(20,180,80,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(0,230,118,0.35); }
+            50% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.15), inset 15px -25px 50px rgba(0,230,118,0.45), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 80px rgba(0,230,118,0.7); }
+            100% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(20,180,80,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(0,230,118,0.35); }
+        }
+
+        .sphere-container.put-signal .magic-ball {
+            background:
+                repeating-linear-gradient(85deg,
+                    transparent 0px, transparent 5px,
+                    rgba(255,180,200,0.10) 5px, rgba(255,180,200,0.10) 6px
+                ),
+                repeating-radial-gradient(circle at 50% 50%,
+                    transparent 0px, transparent 7px,
+                    rgba(255,180,200,0.08) 7px, rgba(255,180,200,0.08) 8px
+                ),
+                radial-gradient(circle at 30% 35%, rgba(255,215,220,0.45) 0%, rgba(255,120,150,0.3) 20%, rgba(200,40,70,0.5) 45%, rgba(120,10,35,0.75) 70%, rgba(40,0,10,0.95) 100%);
+            box-shadow:
+                inset -10px 25px 45px rgba(255,255,255,0.08),
+                inset 15px -25px 50px rgba(180,20,50,0.35),
+                inset 0 -40px 50px rgba(0,0,0,0.35),
+                0 0 65px rgba(255,23,68,0.35);
+            animation: ball3dSpin 18s linear infinite, pulseGlowPut 1.5s infinite ease-in-out;
+        }
+        @keyframes pulseGlowPut {
+            0% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(180,20,50,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(255,23,68,0.35); }
+            50% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.15), inset 15px -25px 50px rgba(255,23,68,0.45), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 80px rgba(255,23,68,0.7); }
+            100% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(180,20,50,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(255,23,68,0.35); }
+        }
+
+        /* Orbit adjustments in active states */
+        .sphere-container.buy-signal .orbit.o1 {
+            border-color: rgba(0, 230, 118, 0.85);
+            box-shadow: 0 0 25px rgba(0, 230, 118, 0.6), inset 0 0 25px rgba(0, 230, 118, 0.4);
+        }
+        .sphere-container.buy-signal .orbit.o2 {
+            border-color: rgba(180, 255, 200, 0.7);
+            box-shadow: 0 0 20px rgba(180, 255, 200, 0.45), inset 0 0 20px rgba(180, 255, 200, 0.35);
+        }
+        .sphere-container.buy-signal .orbit.o3 {
+            border-color: rgba(0, 230, 118, 0.6);
+            box-shadow: 0 0 16px rgba(0, 230, 118, 0.35), inset 0 0 16px rgba(0, 230, 118, 0.25);
+        }
+
+        .sphere-container.put-signal .orbit.o1 {
+            border-color: rgba(255, 23, 68, 0.85);
+            box-shadow: 0 0 25px rgba(255, 23, 68, 0.6), inset 0 0 25px rgba(255, 23, 68, 0.4);
+        }
+        .sphere-container.put-signal .orbit.o2 {
+            border-color: rgba(255, 180, 200, 0.7);
+            box-shadow: 0 0 20px rgba(255, 180, 200, 0.45), inset 0 0 20px rgba(255, 180, 200, 0.35);
+        }
+        .sphere-container.put-signal .orbit.o3 {
+            border-color: rgba(255, 23, 68, 0.6);
+            box-shadow: 0 0 16px rgba(255, 23, 68, 0.35), inset 0 0 16px rgba(255, 23, 68, 0.25);
+        }
+
+        /* Floating particles inside the sphere */
+        .sphere-particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            pointer-events: none;
+            overflow: visible;
+        }
+        .sp {
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #a78bfa;
+            opacity: 0;
+            pointer-events: none;
+            transition: background 0.5s, opacity 0.5s;
+        }
+        .sphere-container.buy-signal .sp {
+            background: #00e676;
+            opacity: 0.85;
+            box-shadow: 0 0 8px #00e676;
+        }
+        .sphere-container.buy-signal .sp1 { animation: floatUp1 2.5s infinite linear; }
+        .sphere-container.buy-signal .sp2 { animation: floatUp2 2.2s infinite linear; }
+        .sphere-container.buy-signal .sp3 { animation: floatUp3 2.8s infinite linear; }
+        .sphere-container.buy-signal .sp4 { animation: floatUp4 2.4s infinite linear; }
+        .sphere-container.buy-signal .sp5 { animation: floatUp1 2.6s infinite linear 0.5s; }
+        .sphere-container.buy-signal .sp6 { animation: floatUp2 2.3s infinite linear 0.7s; }
+        .sphere-container.buy-signal .sp7 { animation: floatUp3 2.7s infinite linear 0.3s; }
+        .sphere-container.buy-signal .sp8 { animation: floatUp4 2.5s infinite linear 0.6s; }
+
+        @keyframes floatUp1 {
+            0% { transform: translate(30px, 90px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(20px, -20px) scale(1.2); opacity: 0; }
+        }
+        @keyframes floatUp2 {
+            0% { transform: translate(70px, 90px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(80px, -20px) scale(1.2); opacity: 0; }
+        }
+        @keyframes floatUp3 {
+            0% { transform: translate(50px, 100px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(40px, -30px) scale(1.2); opacity: 0; }
+        }
+        @keyframes floatUp4 {
+            0% { transform: translate(20px, 80px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(30px, -15px) scale(1.2); opacity: 0; }
+        }
+
+        .sphere-container.put-signal .sp {
+            background: #ff1744;
+            opacity: 0.85;
+            box-shadow: 0 0 8px #ff1744;
+        }
+        .sphere-container.put-signal .sp1 { animation: floatDown1 2.5s infinite linear; }
+        .sphere-container.put-signal .sp2 { animation: floatDown2 2.2s infinite linear; }
+        .sphere-container.put-signal .sp3 { animation: floatDown3 2.8s infinite linear; }
+        .sphere-container.put-signal .sp4 { animation: floatDown4 2.4s infinite linear; }
+        .sphere-container.put-signal .sp5 { animation: floatDown1 2.6s infinite linear 0.5s; }
+        .sphere-container.put-signal .sp6 { animation: floatDown2 2.3s infinite linear 0.7s; }
+        .sphere-container.put-signal .sp7 { animation: floatDown3 2.7s infinite linear 0.3s; }
+        .sphere-container.put-signal .sp8 { animation: floatDown4 2.5s infinite linear 0.6s; }
+
+        @keyframes floatDown1 {
+            0% { transform: translate(20px, -10px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(30px, 110px) scale(0.5); opacity: 0; }
+        }
+        @keyframes floatDown2 {
+            0% { transform: translate(80px, -10px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(70px, 110px) scale(0.5); opacity: 0; }
+        }
+        @keyframes floatDown3 {
+            0% { transform: translate(40px, -20px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(50px, 120px) scale(0.5); opacity: 0; }
+        }
+        @keyframes floatDown4 {
+            0% { transform: translate(30px, -5px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(20px, 105px) scale(0.5); opacity: 0; }
+        }
+
     </style>
 </head>
 <body>
@@ -922,6 +1089,16 @@ public static class MiniAppUI
             <div class='welcome-title'>Приветствую<br>на голодных<br>играх</div>
             <div id='mainSphere' class='sphere-container'>
                 <div class='sphere-scene'>
+                    <div class='sphere-particles'>
+                        <div class='sp sp1'></div>
+                        <div class='sp sp2'></div>
+                        <div class='sp sp3'></div>
+                        <div class='sp sp4'></div>
+                        <div class='sp sp5'></div>
+                        <div class='sp sp6'></div>
+                        <div class='sp sp7'></div>
+                        <div class='sp sp8'></div>
+                    </div>
                     <div class='orbits'>
                         <div class='orbit o1'></div>
                         <div class='orbit o2'></div>
@@ -1287,6 +1464,8 @@ public static class MiniAppUI
             document.querySelectorAll('.asset-item').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
             document.getElementById('assetMenu').classList.remove('show');
+            const sphere = document.getElementById('mainSphere');
+            if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
             initPriceWebSocket();
         }
 
@@ -1297,6 +1476,8 @@ public static class MiniAppUI
             document.querySelectorAll('.tf-btn').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
             document.getElementById('tfMenu').classList.remove('show');
+            const sphere = document.getElementById('mainSphere');
+            if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
             initPriceWebSocket();
         }
 
@@ -1559,6 +1740,7 @@ public static class MiniAppUI
             startStatusBar();
 
             requestAnimationFrame(() => {
+                sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
                 sphere.classList.add('analyzing');
                 btn.disabled = true;
                 btn.innerText = 'СКАНИРОВАНИЕ...';
@@ -1598,12 +1780,15 @@ public static class MiniAppUI
                     if (data.direction === 'BUY') {
                         resDir.innerText = 'ВВЕРХ';
                         resDir.style.color = '#00e676';
+                        sphere.classList.add('buy-signal');
                     } else if (data.direction === 'PUT') {
                         resDir.innerText = 'ВНИЗ';
                         resDir.style.color = '#ff1744';
+                        sphere.classList.add('put-signal');
                     } else {
                         resDir.innerText = 'НЕЙТРАЛЬНО';
                         resDir.style.color = 'var(--dim)';
+                        sphere.classList.add('neutral-signal');
                     }
 
                     document.getElementById('resProb').innerText = data.probability + '%';
