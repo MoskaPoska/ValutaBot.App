@@ -1794,19 +1794,45 @@ public static class MiniAppUI
             const errDisp = document.getElementById('errorDisplay');
             if (!errDisp) return;
 
-            let title = '⚠️ Ошибка запроса';
-            let desc = rawError;
+            let title = '⚠️ Ошибка';
+            let desc = 'Произошла непредвиденная ошибка при обработке запроса.';
 
-            const errLower = rawError.toLowerCase();
-            if (errLower.includes('too many requests') || errLower.includes('rate limit') || errLower.includes('429')) {
-                title = '⚠️ Превышен лимит запросов';
-                desc = 'Слишком много запросов. Пожалуйста, подождите немного перед следующим сканированием.';
-            } else if (errLower.includes('unauthorized') || errLower.includes('sign') || errLower.includes('401')) {
-                title = '⚠️ Ошибка авторизации';
-                desc = 'Пожалуйста, перезапустите бота через Telegram, чтобы обновить сессию.';
-            } else if (errLower.includes('fetch') || errLower.includes('network') || errLower.includes('failed')) {
-                title = '⚠️ Ошибка соединения';
-                desc = 'Не удалось подключиться к серверу. Проверьте интернет-соединение.';
+            if (rawError) {
+                const errLower = rawError.toLowerCase();
+                
+                if (errLower.includes('too many requests') || errLower.includes('rate limit') || errLower.includes('429')) {
+                    title = '⚠️ Превышен лимит запросов';
+                    const match = rawError.match(/(\d+)s/);
+                    const sec = match ? ` на ${match[1]} сек.` : '';
+                    desc = `Слишком много запросов. Пожалуйста, подождите${sec} перед следующим сканированием.`;
+                } else if (errLower.includes('access denied') || errLower.includes('deposit required')) {
+                    title = '⚠️ Доступ ограничен';
+                    desc = 'Для использования бота необходима регистрация на Pocket Option и внесение депозита.';
+                } else if (errLower.includes('signature') || errLower.includes('initdata') || errLower.includes('unauthorized') || errLower.includes('401')) {
+                    title = '⚠️ Ошибка авторизации';
+                    desc = 'Пожалуйста, перезапустите бота через Telegram, чтобы обновить сессию.';
+                } else if (errLower.includes('asset and timeframe')) {
+                    title = '⚠️ Неверные параметры';
+                    desc = 'Необходимо выбрать валютную пару и таймфрейм.';
+                } else if (errLower.includes('pocketid')) {
+                    title = '⚠️ Ошибка профиля';
+                    desc = 'Не указан Pocket Option ID.';
+                } else if (errLower.includes('api key') || errLower.includes('apikey')) {
+                    title = '⚠️ Сбой конфигурации';
+                    desc = 'На сервере не настроен API-ключ TwelveData.';
+                } else if (errLower.includes('plan') || errLower.includes('subscription') || errLower.includes('tier')) {
+                    title = '⚠️ Ограничение тарифа';
+                    desc = 'Ваш тариф TwelveData не поддерживает этот актив или таймфрейм. Попробуйте выбрать другой инструмент.';
+                } else if (errLower.includes('fetch') || errLower.includes('network') || errLower.includes('failed') || errLower.includes('connect')) {
+                    title = '⚠️ Ошибка соединения';
+                    desc = 'Не удалось подключиться к серверу. Пожалуйста, проверьте интернет-соединение.';
+                } else {
+                    title = '⚠️ Сбой операции';
+                    desc = rawError;
+                    desc = desc.replace(/failed/gi, 'ошибка');
+                    desc = desc.replace(/error/gi, 'сбой');
+                    desc = desc.replace(/internal server error/gi, 'Внутренняя ошибка сервера');
+                }
             }
 
             errDisp.innerHTML = `
