@@ -1072,6 +1072,65 @@ public static class MiniAppUI
             100% { transform: translate(20px, 105px) scale(0.5); opacity: 0; }
         }
 
+        /* ─── Beautiful Error Box ─── */
+        .error-box {
+            background: rgba(255, 23, 68, 0.08);
+            border: 1px solid rgba(255, 23, 68, 0.25);
+            border-radius: 16px;
+            padding: 16px;
+            margin-top: 14px;
+            font-family: 'Inter', sans-serif;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(255, 23, 68, 0.05);
+            animation: slideUp 0.3s ease-out;
+        }
+        .error-header {
+            color: #ff3b30;
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 6px;
+            letter-spacing: 0.2px;
+        }
+        .error-desc {
+            color: #ff6b6b;
+            font-size: 12.5px;
+            line-height: 1.4;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+        .error-debug-toggle {
+            display: inline-block;
+            font-size: 11px;
+            color: var(--dim);
+            cursor: pointer;
+            padding: 4px 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .error-debug-toggle:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .error-debug-content {
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 10.5px;
+            color: rgba(255, 255, 255, 0.5);
+            text-align: left;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 100px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
     </style>
 </head>
 <body>
@@ -1199,7 +1258,7 @@ public static class MiniAppUI
             </div>
 
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
-            <div id='errorDisplay' style='color:#ff1744; text-align:center; padding:15px; margin-top:10px; font-weight:600; font-family:Inter, sans-serif; display:none; background:rgba(255,23,68,0.08); border:1px solid rgba(255,23,68,0.2); border-radius:12px; font-size:13px; line-height:1.5; white-space:pre-wrap; word-break:break-word;'></div>
+            <div id='errorDisplay' class=""error-box"" style=""display:none""></div>
 
             <div class='status-bar' id='statusBar'>
                 <div class='sb-text'>
@@ -1731,6 +1790,42 @@ public static class MiniAppUI
             ctx.fillText(lastTxt, lx - tw - 6, ly + 3);
         }
 
+        function renderError(rawError, debugText) {
+            const errDisp = document.getElementById('errorDisplay');
+            if (!errDisp) return;
+
+            let title = '⚠️ Ошибка запроса';
+            let desc = rawError;
+
+            const errLower = rawError.toLowerCase();
+            if (errLower.includes('too many requests') || errLower.includes('rate limit') || errLower.includes('429')) {
+                title = '⚠️ Превышен лимит запросов';
+                desc = 'Слишком много запросов. Пожалуйста, подождите немного перед следующим сканированием.';
+            } else if (errLower.includes('unauthorized') || errLower.includes('sign') || errLower.includes('401')) {
+                title = '⚠️ Ошибка авторизации';
+                desc = 'Пожалуйста, перезапустите бота через Telegram, чтобы обновить сессию.';
+            } else if (errLower.includes('fetch') || errLower.includes('network') || errLower.includes('failed')) {
+                title = '⚠️ Ошибка соединения';
+                desc = 'Не удалось подключиться к серверу. Проверьте интернет-соединение.';
+            }
+
+            errDisp.innerHTML = `
+                <div class=""error-header"">${title}</div>
+                <div class=""error-desc"">${desc}</div>
+                <div class=""error-debug-toggle"" onclick=""toggleErrorDebug(this)"">▸ Детали отладки</div>
+                <div class=""error-debug-content"" id=""errorDebugContent"" style=""display: none;"">${debugText}</div>
+            `;
+            errDisp.style.display = 'block';
+        }
+
+        function toggleErrorDebug(btn) {
+            const content = document.getElementById('errorDebugContent');
+            if (!content) return;
+            const isHidden = content.style.display === 'none';
+            content.style.display = isHidden ? 'block' : 'none';
+            btn.innerText = isHidden ? '▾ Скрыть детали' : '▸ Детали отладки';
+        }
+
         document.getElementById('btnGet').onclick = async () => {
             const btn = document.getElementById('btnGet');
             const sphere = document.getElementById('mainSphere');
@@ -1766,10 +1861,8 @@ public static class MiniAppUI
                     btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
 
                     if(data.error) {
-                        const debugMsg = `⚠️ Ошибка: ${data.error}\n\n[Отладочные данные]:\n• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
-                        const errDisp = document.getElementById('errorDisplay');
-                        errDisp.innerText = debugMsg;
-                        errDisp.style.display = 'block';
+                        const debugMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
+                        renderError(data.error, debugMsg);
                         return;
                     }
 
@@ -1894,10 +1987,8 @@ public static class MiniAppUI
                 sphere.classList.remove('analyzing');
                 btn.disabled = false;
                 btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
-                const catchMsg = `⚠️ Сбой сети: ${e.message}\n\n[Отладочные данные]:\n• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
-                const errDisp = document.getElementById('errorDisplay');
-                errDisp.innerText = catchMsg;
-                errDisp.style.display = 'block';
+                const catchMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
+                renderError(e.message, catchMsg);
             }
         };
 
