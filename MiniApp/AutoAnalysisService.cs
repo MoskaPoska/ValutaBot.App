@@ -21,7 +21,14 @@ public class AutoAnalysisService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.WriteLine("[Auto] Service started — will analyze every ~15 min");
+        string disableVal = Environment.GetEnvironmentVariable("DISABLE_AUTO_ANALYSIS") ?? "false";
+        if (disableVal.Equals("true", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("[Auto] AutoAnalysisService is disabled via environment variable to preserve TwelveData API credits.");
+            return;
+        }
+
+        Console.WriteLine("[Auto] Service started — will analyze every ~15 min (or custom interval)");
         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -58,6 +65,12 @@ public class AutoAnalysisService : BackgroundService
             }
 
             int delayMin = 12 + _jitter.Next(6);
+            string intervalStr = Environment.GetEnvironmentVariable("AUTO_ANALYSIS_INTERVAL_MINUTES") ?? "";
+            if (int.TryParse(intervalStr, out int customInterval) && customInterval > 0)
+            {
+                delayMin = customInterval;
+            }
+
             Console.WriteLine($"[Auto] Next cycle in ~{delayMin} min");
             await Task.Delay(TimeSpan.FromMinutes(delayMin), stoppingToken);
         }
