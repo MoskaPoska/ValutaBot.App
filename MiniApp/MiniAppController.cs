@@ -46,7 +46,6 @@ public static class MiniAppController
         });
         builder.Services.AddHostedService<MarketDataService>();
         builder.Services.AddHostedService<LiquidationHeatmapService>();
-        builder.Services.AddHostedService<AutoAnalysisService>();
         builder.Services.AddHostedService<TelegramBotService>();
 
         // Init Telegram notifier from config or env (set in Railway dashboard)
