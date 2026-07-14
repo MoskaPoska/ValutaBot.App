@@ -70,9 +70,55 @@ public static class MLForecastService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ML] SSA failed: {ex.Message}");
-            return ("NEUTRAL", 50, Array.Empty<double>());
+            Console.WriteLine($"[ML] SSA failed: {ex.Message}. Falling back to Holt-Linear forecast.");
+            return PredictHoltLinear(prices, horizon);
         }
+    }
+
+    private static (string direction, double confidence, double[] predicted) PredictHoltLinear(double[] prices, int horizon)
+    {
+        int n = prices.Length;
+        if (n < 10) return ("NEUTRAL", 50, Array.Empty<double>());
+
+        double alpha = 0.3; // Level smoothing coefficient
+        double beta = 0.2;  // Trend smoothing coefficient
+
+        double level = prices[0];
+        double trend = prices[1] - prices[0];
+
+        for (int i = 1; i < n; i++)
+        {
+            double lastLevel = level;
+            level = alpha * prices[i] + (1 - alpha) * (level + trend);
+            trend = beta * (level - lastLevel) + (1 - beta) * trend;
+        }
+
+        var predicted = new double[horizon];
+        for (int h = 1; h <= horizon; h++)
+        {
+            predicted[h - 1] = level + h * trend;
+        }
+
+        double lastPrice = prices[^1];
+        double predictedEnd = predicted[^1];
+        double change = (predictedEnd - lastPrice) / lastPrice;
+
+        string direction = change > 0.0015 ? "BUY" : change < -0.0015 ? "PUT" : "NEUTRAL";
+
+        // Confidence estimation
+        double mean = prices.Average();
+        double variance = prices.Sum(p => Math.Pow(p - mean, 2)) / n;
+        double std = Math.Sqrt(variance);
+        
+        double confidence = 50;
+        if (std > 1e-9)
+        {
+            confidence = 100 - (Math.Abs(predictedEnd - lastPrice) / std) * 12;
+        }
+        confidence = Math.Clamp(confidence, 55, 90);
+        confidence = Math.Round(confidence);
+
+        return (direction, confidence, predicted);
     }
 
     private class PricePoint

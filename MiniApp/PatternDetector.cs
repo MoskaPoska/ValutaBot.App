@@ -58,6 +58,7 @@ public static class PatternDetector
         if (prices == null || prices.Length < swingLookback * 2) return ([], []);
 
         double currentPrice = prices[^1];
+        if (currentPrice <= 0) return ([], []);
 
         // Swing highs / lows
         for (int i = swingLookback; i < prices.Length - swingLookback; i++)
