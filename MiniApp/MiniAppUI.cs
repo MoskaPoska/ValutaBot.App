@@ -857,7 +857,7 @@ public static class MiniAppUI
 
         /* ─── Live Price Display ─── */
         .live-price-container {
-            display: flex;
+            display: none !important;
             justify-content: center;
             align-items: center;
             gap: 8px;
