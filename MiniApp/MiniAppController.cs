@@ -110,7 +110,7 @@ public static class MiniAppController
                 Console.WriteLine($"[API ERR] /api/analyze failed: {ex}");
                 return Results.Json(new
                 {
-                    error = "Internal Server Error in Analysis Pipeline",
+                    error = ex.Message,
                     message = ex.Message,
                     details = ex.ToString()
                 });

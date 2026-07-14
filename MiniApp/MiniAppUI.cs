@@ -1800,7 +1800,10 @@ public static class MiniAppUI
             if (rawError) {
                 const errLower = rawError.toLowerCase();
                 
-                if (errLower.includes('too many requests') || errLower.includes('rate limit') || errLower.includes('429')) {
+                if (errLower.includes('run out of api credits') || errLower.includes('api credits') || (errLower.includes('limit') && errLower.includes('twelvedata'))) {
+                    title = '⚠️ Лимит TwelveData исчерпан';
+                    desc = 'Превышен суточный лимит запросов к API TwelveData (800 шт). Пожалуйста, подождите обновления лимита (следующий день).';
+                } else if (errLower.includes('too many requests') || errLower.includes('rate limit') || errLower.includes('429')) {
                     title = '⚠️ Превышен лимит запросов';
                     const match = rawError.match(/(\d+)s/);
                     const sec = match ? ` на ${match[1]} сек.` : '';

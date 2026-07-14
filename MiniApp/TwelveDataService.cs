@@ -49,13 +49,7 @@ public static class TwelveDataService
             {
                 var msg = doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() : "";
                 Console.WriteLine($"[TwelveData] API error: {msg}");
-
-                if (_cache.TryGetValue(key, out var last))
-                {
-                    Console.WriteLine($"[TwelveData] Using last known data for {rawAsset}");
-                    return (last.prices, last.volumes);
-                }
-                return null;
+                throw new Exception($"TwelveData API error: {msg}");
             }
 
             if (!doc.RootElement.TryGetProperty("values", out var values))
