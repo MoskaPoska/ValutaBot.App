@@ -1123,6 +1123,48 @@ public static class MiniAppController
             var higherOhlc = higherOhlcKey != null ? GetOhlcCandles(higherOhlcKey) : null;
             var lowerOhlc = lowerOhlcKey != null ? GetOhlcCandles(lowerOhlcKey) : null;
 
+            if (symbol == null)
+            {
+                string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+                double lastWsPrice = TwelveDataWebSocketManager.GetLastPrice(tdSymbol);
+                if (lastWsPrice > 0)
+                {
+                    if (mainPrices != null && mainPrices.Length > 0)
+                        mainPrices[^1] = lastWsPrice;
+                    if (mainOhlc != null && mainOhlc.Length > 0)
+                    {
+                        var lastCandle = mainOhlc[^1];
+                        mainOhlc[^1] = new OhlcCandle(
+                            lastCandle.Open,
+                            Math.Max(lastCandle.High, lastWsPrice),
+                            Math.Min(lastCandle.Low, lastWsPrice),
+                            lastWsPrice,
+                            lastCandle.Volume
+                        );
+                    }
+
+                    if (higherResultData != null)
+                    {
+                        var hPrices = higherResultData.Value.prices;
+                        if (hPrices != null && hPrices.Length > 0)
+                            hPrices[^1] = lastWsPrice;
+                        if (higherOhlc != null && higherOhlc.Length > 0)
+                        {
+                            var lastCandle = higherOhlc[^1];
+                            higherOhlc[^1] = new OhlcCandle(
+                                lastCandle.Open,
+                                Math.Max(lastCandle.High, lastWsPrice),
+                                Math.Min(lastCandle.Low, lastWsPrice),
+                                lastWsPrice,
+                                lastCandle.Volume
+                            );
+                        }
+                    }
+
+                    Console.WriteLine($"[LivePrice] Updated last candle close of main and higher TFs to live WS price: {lastWsPrice}");
+                }
+            }
+
             var (mainAdx, mainPdi, mainMdi) = mainOhlc != null ? ComputeTrueAdx(mainOhlc) : (20.0, 0.0, 0.0);
             double mainAtr = mainOhlc != null ? ComputeAtr(mainOhlc) : 0;
 
