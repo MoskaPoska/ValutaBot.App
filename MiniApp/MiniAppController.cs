@@ -18,7 +18,7 @@ public static class MiniAppController
 {
     private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
-    private static readonly Random _rng = new();
+    // Random.Shared is used directly for thread-safety.
     private static readonly AsyncRetryPolicy _retryPolicy = Policy
         .Handle<HttpRequestException>()
         .Or<TaskCanceledException>()
@@ -1429,7 +1429,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 else if (blockedByLevel || absScore < minScore || !momentumOk)
                 {
                     direction = candidateDir;
-                    probability = Math.Clamp(62 + _rng.Next(-2, 3), 58, 68);
+                    probability = Math.Clamp(62 + Random.Shared.Next(-2, 3), 58, 68);
 
                     claudeResult.modelName = "Математический анализ";
                     claudeResult.direction = direction;
@@ -1456,7 +1456,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 {
                     direction = candidateDir;
 
-                    double rawProbFloat = 75.0 + (absScore - minScore) * 15.0 + (_rng.NextDouble() - 0.5) * 4.0;
+                    double rawProbFloat = 75.0 + (absScore - minScore) * 15.0 + (Random.Shared.NextDouble() - 0.5) * 4.0;
                     probability = Math.Clamp((int)Math.Round(rawProbFloat), 75, 95);
 
                     claudeResult.modelName = "Математический анализ";
@@ -1554,11 +1554,11 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
 
         var chartData = new double[15];
         double currentPrice = startPrice;
-        double mainTrend = (_rng.NextDouble() - 0.5) * volatility;
+        double mainTrend = (Random.Shared.NextDouble() - 0.5) * volatility;
 
         for (int i = 0; i < 15; i++)
         {
-            currentPrice += mainTrend + (_rng.NextDouble() - 0.5) * (volatility / 2);
+            currentPrice += mainTrend + (Random.Shared.NextDouble() - 0.5) * (volatility / 2);
             chartData[i] = Math.Round(currentPrice, startPrice > 100 ? 2 : 5);
         }
 
@@ -1575,8 +1575,8 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             duration = $"{tf.ToUpper()} ({expiryCandles} свечи)",
             expiryCandles,
             chartData,
-            rsi = Math.Round(50 + (_rng.NextDouble() - 0.5) * 40, 1),
-            ema = Math.Round(startPrice + (_rng.NextDouble() - 0.5) * volatility, 2),
+            rsi = Math.Round(50 + (Random.Shared.NextDouble() - 0.5) * 40, 1),
+            ema = Math.Round(startPrice + (Random.Shared.NextDouble() - 0.5) * volatility, 2),
             volumeStrength = 0.0,
             tfConflict = false,
                 mlDirection = "NEUTRAL",
