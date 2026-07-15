@@ -1440,87 +1440,98 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     Console.WriteLine($"[Volatility-Sniper] Normal volatility (ratio={volatilityRatio:F2}). minScore is {minScore:F2}");
                 }
 
-                // momentum не должен противоречить totalScore
+                // momentum не должен противоречить totalScore для сильного тренда
                 bool momentumOk = momentumSignal == 0 || momentumSignal == scoreSign;
 
-                if (absScore >= minScore && momentumOk)
+                string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
+                double currentPrice = mainPrices[^1];
+                double nearestSupport = 0;
+                double nearestResistance = 0;
+
+                if (supports != null && supports.Length > 0)
                 {
-                    string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
-                    double currentPrice = mainPrices[^1];
-                    double nearestSupport = 0;
-                    double nearestResistance = 0;
-
-                    if (supports != null && supports.Length > 0)
+                    foreach (var s in supports)
                     {
-                        foreach (var s in supports)
-                        {
-                            if (s < currentPrice && s > 0) { nearestSupport = s; break; }
-                        }
-                    }
-                    if (resistances != null && resistances.Length > 0)
-                    {
-                        foreach (var r in resistances)
-                        {
-                            if (r > currentPrice && r > 0) { nearestResistance = r; break; }
-                        }
-                    }
-
-                    // Adaptive safe distance using ATR
-                    double safeBuffer = mainAtr > 0 ? 1.2 * mainAtr : 0.00015 * currentPrice;
-                    bool blockedByLevel = false;
-                    string blockReason = "";
-
-                    if (candidateDir == "BUY" && nearestResistance > 0 && (nearestResistance - currentPrice) < safeBuffer)
-                    {
-                        blockedByLevel = true;
-                        blockReason = $"Рядом сопротивление: {nearestResistance:F5} (дист={nearestResistance - currentPrice:F5}, порог ATR={safeBuffer:F5})";
-                    }
-                    else if (candidateDir == "PUT" && nearestSupport > 0 && (currentPrice - nearestSupport) < safeBuffer)
-                    {
-                        blockedByLevel = true;
-                        blockReason = $"Рядом поддержка: {nearestSupport:F5} (дист={currentPrice - nearestSupport:F5}, порог ATR={safeBuffer:F5})";
-                    }
-
-                    if (blockedByLevel)
-                    {
-                        direction = "NEUTRAL";
-                        probability = 50;
-
-                        claudeResult.modelName = "Математический анализ";
-                        claudeResult.direction = "NEUTRAL";
-                        claudeResult.probability = 50;
-                        claudeResult.reasoning = $"Сигнал {candidateDir} отменен: близко ценовой барьер. {blockReason}";
-
-                        Console.WriteLine($"[Sniper-Levels] Programmatic signal {candidateDir} BLOCKED: {blockReason}");
-                    }
-                    else
-                    {
-                        direction = candidateDir;
-
-                        double rawProbFloat = 72.0 + (absScore - minScore) * 15.0 + (_rng.NextDouble() - 0.5) * 4.0;
-                        probability = Math.Clamp((int)Math.Round(rawProbFloat), 70, 95);
-
-                        // Update claudeResult so the frontend card shows the programmatic details
-                        claudeResult.modelName = "Математический анализ";
-                        claudeResult.direction = direction;
-                        claudeResult.probability = probability;
-                        claudeResult.reasoning = "Сигнал сформирован на основе технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML (так как ИИ отключен).";
-
-                        Console.WriteLine($"[Sniper] Programmatic signal: {direction} {probability}% (score={totalScore:F1}, ai={aiWasAvailable})");
+                        if (s < currentPrice && s > 0) { nearestSupport = s; break; }
                     }
                 }
-                else
+                if (resistances != null && resistances.Length > 0)
+                {
+                    foreach (var r in resistances)
+                    {
+                        if (r > currentPrice && r > 0) { nearestResistance = r; break; }
+                    }
+                }
+
+                // Adaptive safe distance using ATR
+                double safeBuffer = mainAtr > 0 ? 1.2 * mainAtr : 0.00015 * currentPrice;
+                bool blockedByLevel = false;
+                string blockReason = "";
+
+                if (candidateDir == "BUY" && nearestResistance > 0 && (nearestResistance - currentPrice) < safeBuffer)
+                {
+                    blockedByLevel = true;
+                    blockReason = $"сопротивление {nearestResistance:F5}";
+                }
+                else if (candidateDir == "PUT" && nearestSupport > 0 && (currentPrice - nearestSupport) < safeBuffer)
+                {
+                    blockedByLevel = true;
+                    blockReason = $"поддержка {nearestSupport:F5}";
+                }
+
+                // --- 1. КРАСНЫЙ СВЕТ: Полный флэт (очень низкий балл консенсуса) ---
+                if (absScore < 0.30)
                 {
                     direction = "NEUTRAL";
                     probability = 50;
 
-                    // Update claudeResult for neutral state
                     claudeResult.modelName = "Математический анализ";
                     claudeResult.direction = "NEUTRAL";
                     claudeResult.probability = 50;
-                    claudeResult.reasoning = "Рынок находится во флэте или индикаторы противоречат друг другу. Рекомендуется воздержаться от сделок.";
+                    claudeResult.reasoning = "Рынок находится в мертвом флэте или индикаторы полностью противоречат друг другу. Рекомендуется воздержаться от сделок.";
 
-                    Console.WriteLine($"[Sniper] No signal: score={totalScore:F1} (need {minScore:F1}), momentumOk={momentumOk}");
+                    Console.WriteLine($"[Sniper-Flat] Neutral due to dead flat (score={totalScore:F2})");
+                }
+                // --- 2. ЖЕЛТЫЙ СВЕТ: Близко уровень поддержки/сопротивления или слабый тренд ---
+                else if (blockedByLevel || absScore < minScore || !momentumOk)
+                {
+                    direction = candidateDir;
+                    probability = Math.Clamp(62 + _rng.Next(-2, 3), 58, 68);
+
+                    claudeResult.modelName = "Математический анализ";
+                    claudeResult.direction = direction;
+                    claudeResult.probability = probability;
+
+                    if (blockedByLevel)
+                    {
+                        claudeResult.reasoning = $"Внимание: близко {blockReason}. Сигнал сформирован локально, рекомендуется повышенная осторожность.";
+                        Console.WriteLine($"[Sniper-Warning] Level block ({blockReason}) -> downgraded signal: {direction} {probability}%");
+                    }
+                    else if (!momentumOk)
+                    {
+                        claudeResult.reasoning = "Внимание: импульс противоречит общему тренду. Локальный откат, рекомендуется осторожность.";
+                        Console.WriteLine($"[Sniper-Warning] Momentum conflict -> downgraded signal: {direction} {probability}%");
+                    }
+                    else
+                    {
+                        claudeResult.reasoning = "Внимание: слабый тренд. Возможны ложные колебания, рекомендуется осторожность.";
+                        Console.WriteLine($"[Sniper-Warning] Weak trend (score={totalScore:F2} < {minScore:F2}) -> downgraded signal: {direction} {probability}%");
+                    }
+                }
+                // --- 3. ЗЕЛЕНЫЙ СВЕТ: Сильный тренд с подтверждением ---
+                else
+                {
+                    direction = candidateDir;
+
+                    double rawProbFloat = 75.0 + (absScore - minScore) * 15.0 + (_rng.NextDouble() - 0.5) * 4.0;
+                    probability = Math.Clamp((int)Math.Round(rawProbFloat), 75, 95);
+
+                    claudeResult.modelName = "Математический анализ";
+                    claudeResult.direction = direction;
+                    claudeResult.probability = probability;
+                    claudeResult.reasoning = "Сигнал сформирован на основе сильного технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML.";
+
+                    Console.WriteLine($"[Sniper-Strong] Strong signal: {direction} {probability}% (score={totalScore:F2})");
                 }
             }
 
