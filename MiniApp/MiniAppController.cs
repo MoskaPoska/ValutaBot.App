@@ -806,7 +806,7 @@ public static class MiniAppController
         ScoreTimeframe(double[] prices, double[] volumes, double? adxOverride = null, double? atrOverride = null)
     {
         int n = prices.Length;
-        if (n < EmaLong + 5) return (0, 0, 50, 0, 0, 0);
+        if (n < EmaLong + 5) return (0, 50, 50, 0, 0, 0);
 
         var emaShortArr = ComputeEmaArray(prices, EmaShort);
         var emaLongArr = ComputeEmaArray(prices, EmaLong);
@@ -815,104 +815,37 @@ public static class MiniAppController
         double lastPrice = prices[^1];
         double emaS = emaShortArr[^1];
         double emaL = emaLongArr[^1];
-        double prevEmaS = emaShortArr[^2];
-        double change = (prices[^1] - prices[0]) / prices[0];
-        double volStrength = VolumeStrength(prices, volumes);
         double atr = atrOverride ?? 0;
 
-        double adx = adxOverride ?? 20;
-        double bbZ = ComputeBollingerZscore(prices, 20);
-        var (bullDiv, bearDiv) = DetectRsiDivergence(prices, RsiPeriod);
+        double score = 0;
 
-        // Adaptive weights based on trendiness (True ADX)
-        double tw = adx > 25 ? 1.5 : 1.0;
-        double mw = adx < 20 ? 1.5 : 1.0;
+        // 1. Trend Direction (EMA 9 and 21)
+        if (lastPrice > emaS && emaS > emaL) score += 1.0;
+        else if (lastPrice < emaS && emaS < emaL) score -= 1.0;
 
-        // ─── Group 1: Trend Indicators ───
-        double trendScore = 0;
-        double trendTotalWeight = 0;
+        // 2. Momentum (MACD vs Signal)
+        if (macd > signal) score += 1.0;
+        else score -= 1.0;
 
-        // EMA Position (price vs EMAs)
-        int emaPos = (lastPrice > emaS ? 1 : 0) + (lastPrice > emaL ? 1 : 0) + (emaS > emaL ? 1 : 0);
-        if (emaPos >= 2) { trendScore += 0.8 * tw; trendTotalWeight += 0.8 * tw; }
-        else if (emaPos <= 1) { trendScore -= 0.8 * tw; trendTotalWeight += 0.8 * tw; }
+        // 3. Acceleration (ROC 3 and 5)
+        double mom3 = prices.Length >= 4 ? (prices[^1] - prices[^4]) / prices[^4] * 100 : 0;
+        double mom5 = prices.Length >= 6 ? (prices[^1] - prices[^6]) / prices[^6] * 100 : 0;
+        double roccScore = 0;
+        if (mom3 > 0.005) roccScore += 0.5; else if (mom3 < -0.005) roccScore -= 0.5;
+        if (mom5 > 0.005) roccScore += 0.5; else if (mom5 < -0.005) roccScore -= 0.5;
+        score += roccScore;
 
-        // EMA Momentum (short EMA rising/falling)
-        if (emaS > prevEmaS) { trendScore += 0.4 * tw; trendTotalWeight += 0.4 * tw; }
-        else { trendScore -= 0.4 * tw; trendTotalWeight += 0.4 * tw; }
+        // 4. RSI Overbought/Oversold extreme filters (Veto)
+        if (rsi > 75 && score > 0) score = -1.0;
+        else if (rsi < 25 && score < 0) score = 1.0;
 
-        // ADX Trend confirmation
-        if (adx > 25)
-        {
-            double trendDir = lastPrice - prices[n / 2];
-            trendScore += (trendDir > 0 ? 1 : -1) * tw;
-            trendTotalWeight += tw;
-        }
+        double confidence = 50;
+        double absScore = Math.Abs(score);
+        if (absScore >= 2.5) confidence = 90;
+        else if (absScore >= 1.5) confidence = 75;
+        else confidence = 50;
 
-        // Overall price change
-        if (Math.Abs(change) > 0.001)
-        {
-            trendScore += (change > 0 ? 1 : -1) * 1.0;
-            trendTotalWeight += 1.0;
-        }
-
-        double finalTrend = trendTotalWeight > 0 ? (trendScore / trendTotalWeight) : 0;
-
-        // ─── Group 2: Oscillators ───
-        double oscScore = 0;
-        double oscTotalWeight = 0;
-
-        // RSI
-        if (rsi < 30) { oscScore += 2 * mw; oscTotalWeight += 2 * mw; }
-        else if (rsi < 40) { oscScore += 1 * mw; oscTotalWeight += 1 * mw; }
-        else if (rsi > 70) { oscScore -= 2 * mw; oscTotalWeight += 2 * mw; }
-        else if (rsi > 60) { oscScore -= 1 * mw; oscTotalWeight += 1 * mw; }
-
-        // MACD
-        oscScore += (macd > signal ? 1 : -1) * 1.0;
-        oscTotalWeight += 1.0;
-
-        // RSI Divergence
-        if (bullDiv) { oscScore += 2 * mw; oscTotalWeight += 2 * mw; }
-        if (bearDiv) { oscScore -= 2 * mw; oscTotalWeight += 2 * mw; }
-
-        double finalOsc = oscTotalWeight > 0 ? (oscScore / oscTotalWeight) : 0;
-
-        // ─── Group 3: Volatility & Mean Reversion ───
-        double volRevScore = 0;
-        double volRevTotalWeight = 0;
-
-        // Bollinger Bands Z-score mean reversion
-        if (Math.Abs(bbZ) > 2.0)
-        {
-            volRevScore += (bbZ > 0 ? -2 : 2) * mw;
-            volRevTotalWeight += 2 * mw;
-        }
-        else if (Math.Abs(bbZ) > 1.5)
-        {
-            volRevScore += (bbZ > 0 ? -1 : 1) * mw;
-            volRevTotalWeight += 1 * mw;
-        }
-
-        double finalVolRev = volRevTotalWeight > 0 ? (volRevScore / volRevTotalWeight) : 0;
-
-        // ─── Group 4: Volume Strength ───
-        double finalVolume = 0;
-        if (Math.Abs(volStrength) > 0.5)
-            finalVolume = Math.Clamp((volStrength - Math.Sign(volStrength) * 0.5) * 0.67, -1.0, 1.0);
-
-        // ─── Weighted Ensemble Score (−1..+1) ───
-        // Uniform weights for all TFs: 35% trend, 25% oscillators, 20% mean-reversion, 20% volume
-        double weightedScore = (finalTrend * 0.35) + (finalOsc * 0.25) + (finalVolRev * 0.20) + (finalVolume * 0.20);
-
-        // Confidence based on indicators agreement with final score
-        double agreement = (Math.Sign(finalTrend) == Math.Sign(weightedScore) ? 0.35 : 0) +
-                           (Math.Sign(finalOsc) == Math.Sign(weightedScore) ? 0.25 : 0) +
-                           (Math.Sign(finalVolRev) == Math.Sign(weightedScore) ? 0.20 : 0) +
-                           (Math.Sign(finalVolume) == Math.Sign(weightedScore) ? 0.20 : 0);
-        double confidence = Math.Clamp(50 + agreement * 48, 50, 98);
-
-        return (weightedScore, confidence, rsi, emaS, volStrength, atr);
+        return (score, confidence, rsi, emaS, 0.0, atr);
     }
 
     /* ─── Multi-TF conflict penalty ─── */
