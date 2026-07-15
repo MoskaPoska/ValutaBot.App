@@ -1444,13 +1444,13 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     if (blockedByLevel)
                     {
                         probability = Math.Clamp(62 + _rng.Next(-2, 3), 58, 66);
-                        claudeResult.reasoning = $"Внимание: близко {blockReason}. Математический сигнал {candidateDir} подтвержден, но рекомендуется осторожность.";
+                        claudeResult.reasoning = $"Внимание: близко {blockReason}. Сигнал {candidateDir} сформирован локально (баланс ИИ исчерпан). Рекомендуется осторожность.";
                     }
                     else
                     {
                         double rawProbFloat = 72.0 + absScore * 20.0 + (_rng.NextDouble() - 0.5) * 4.0;
                         probability = Math.Clamp((int)Math.Round(rawProbFloat), 65, 95);
-                        claudeResult.reasoning = $"Сигнал {candidateDir} сформирован на основе технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML.";
+                        claudeResult.reasoning = $"Сигнал {candidateDir} сформирован локально (индикаторы RSI, EMA, MACD, ML). Баланс ИИ (Claude/Gemini) исчерпан — для PREMIUM-сигналов пополните баланс ключей.";
                     }
 
                     claudeResult.modelName = "Математический анализ";
