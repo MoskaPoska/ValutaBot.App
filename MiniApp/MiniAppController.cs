@@ -1443,12 +1443,13 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     direction = candidateDir;
                     if (blockedByLevel)
                     {
-                        probability = 62;
+                        probability = Math.Clamp(62 + _rng.Next(-2, 3), 58, 66);
                         claudeResult.reasoning = $"Внимание: близко {blockReason}. Математический сигнал {candidateDir} подтвержден, но рекомендуется осторожность.";
                     }
                     else
                     {
-                        probability = Math.Clamp(72 + (int)(absScore * 18), 72, 92);
+                        double rawProbFloat = 72.0 + absScore * 20.0 + (_rng.NextDouble() - 0.5) * 4.0;
+                        probability = Math.Clamp((int)Math.Round(rawProbFloat), 65, 95);
                         claudeResult.reasoning = $"Сигнал {candidateDir} сформирован на основе технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML.";
                     }
 
@@ -1512,12 +1513,13 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     {
                         direction = candidateDir;
 
+                        int randNoise = _rng.Next(-2, 3);
                         if (absScore >= 2.5)
-                            probability = Math.Clamp(rawProb, 72, 88);
+                            probability = Math.Clamp(rawProb + randNoise, 72, 88);
                         else if (absScore >= 1.5)
-                            probability = Math.Clamp(rawProb, 62, 76);
+                            probability = Math.Clamp(rawProb + randNoise, 62, 76);
                         else
-                            probability = Math.Clamp(rawProb, 55, 66);
+                            probability = Math.Clamp(rawProb + randNoise, 55, 66);
 
                         // Update claudeResult so the frontend card shows the programmatic details
                         claudeResult.modelName = "Математический анализ";
