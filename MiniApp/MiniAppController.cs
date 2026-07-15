@@ -1366,7 +1366,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
             {
                 // Claude не уверен (NEUTRAL или probability < 65)
                 // Используем математику с адаптивным порогом
-                bool aiWasAvailable = !string.IsNullOrEmpty(claudeResult.modelName);
+                bool aiWasAvailable = !string.IsNullOrEmpty(claudeResult.modelName) && claudeResult.modelName != "Математический анализ";
                 double absScore = Math.Abs(totalScore);
                 int scoreSign = totalScore >= 0 ? 1 : -1;
 
