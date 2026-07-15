@@ -960,12 +960,12 @@ public static class MiniAppController
                 limit = 200; // Deep historical trend context
             }
 
-            // Disable multi-timeframe for Forex (TwelveData rate limit: 8 req/min — 2 TF requests would exhaust it)
-            bool useMultiTf = !isForex;
+            // Enable multi-timeframe for all assets (leveraging the 60-second TwelveData cache to prevent rate-limit depletion)
+            bool useMultiTf = true;
 
             string mainInterval = IntervalMap(timeframe);
             string? higherTf = useMultiTf ? HigherTf(timeframe) : null;
-            string? lowerTf = (useMultiTf && !isForex) ? LowerTf(timeframe) : null;
+            string? lowerTf = useMultiTf ? LowerTf(timeframe) : null;
 
             // Helper function to safely fetch other timeframes without failing the entire analysis
             async Task<(double[] prices, double[] volumes)?> SafeFetch(string tf)
@@ -1374,11 +1374,11 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 // Если AI недоступен — ниже порог (только математика)
                 double baseMinScore = aiWasAvailable ? 1.0 : 0.7;
 
-                // Для Forex-пар (где нет стакана Binance и мульти-таймфрейма) снижаем порог в два раза,
-                // так как максимальный суммарный вес компонентов значительно ниже.
+                // Для Forex-пар (где нет стакана Binance) снижаем порог на 20%,
+                // так как максимальный суммарный вес компонентов немного ниже.
                 if (isForex)
                 {
-                    baseMinScore *= 0.5;
+                    baseMinScore *= 0.8;
                 }
                 double volatilityRatio = CalculateVolatilityRatio(mainPrices);
                 double minScore = baseMinScore;
