@@ -103,7 +103,8 @@ public static class MLForecastService
         double predictedEnd = predicted[^1];
         double change = (predictedEnd - lastPrice) / lastPrice;
 
-        string direction = change > 0.0015 ? "BUY" : change < -0.0015 ? "PUT" : "NEUTRAL";
+        double threshold = prices[0] > 100 ? 0.0015 : 0.00015;
+        string direction = change > threshold ? "BUY" : change < -threshold ? "PUT" : "NEUTRAL";
 
         // Confidence estimation
         double mean = prices.Average();
