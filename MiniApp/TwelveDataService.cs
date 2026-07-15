@@ -174,14 +174,18 @@ public static class TwelveDataService
 public static class TwelveDataWebSocketManager
 {
     private static readonly ConcurrentDictionary<string, ConcurrentDictionary<string, System.Net.WebSockets.WebSocket>> _clients = new();
-    private static readonly ConcurrentDictionary<string, double> _lastPrices = new();
+    private static readonly ConcurrentDictionary<string, (double price, DateTime updatedAt)> _lastPrices = new();
     private static System.Net.WebSockets.ClientWebSocket? _twelveWs;
     private static readonly SemaphoreSlim _lock = new(1, 1);
     private static CancellationTokenSource? _cts;
 
     public static double GetLastPrice(string symbol)
     {
-        return _lastPrices.TryGetValue(symbol, out double price) ? price : 0;
+        if (_lastPrices.TryGetValue(symbol, out var val) && (DateTime.UtcNow - val.updatedAt).TotalSeconds < 15)
+        {
+            return val.price;
+        }
+        return 0;
     }
 
     public static async Task RegisterClientAsync(string asset, string clientId, System.Net.WebSockets.WebSocket clientWs)
@@ -194,9 +198,9 @@ public static class TwelveDataWebSocketManager
         await EnsureTwelveWebSocketConnectedAsync();
         await SubscribeToSymbolAsync(symbol);
         
-        if (_lastPrices.TryGetValue(symbol, out double lastPrice))
+        if (_lastPrices.TryGetValue(symbol, out var lastVal) && (DateTime.UtcNow - lastVal.updatedAt).TotalSeconds < 15)
         {
-            await SendToClientAsync(clientWs, symbol, lastPrice);
+            await SendToClientAsync(clientWs, symbol, lastVal.price);
         }
     }
 
@@ -321,7 +325,7 @@ public static class TwelveDataWebSocketManager
 
                         if (price > 0)
                         {
-                            _lastPrices[symbol] = price;
+                            _lastPrices[symbol] = (price, DateTime.UtcNow);
                             await BroadcastToClientsAsync(symbol, price);
                         }
                     }
