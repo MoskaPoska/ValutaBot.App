@@ -1373,6 +1373,13 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 // Если AI был доступен, но не уверен — выше порог (AI не нашёл подтверждения)
                 // Если AI недоступен — ниже порог (только математика)
                 double baseMinScore = aiWasAvailable ? 1.0 : 0.7;
+
+                // Для Forex-пар (где нет стакана Binance и мульти-таймфрейма) снижаем порог в два раза,
+                // так как максимальный суммарный вес компонентов значительно ниже.
+                if (isForex)
+                {
+                    baseMinScore *= 0.5;
+                }
                 double volatilityRatio = CalculateVolatilityRatio(mainPrices);
                 double minScore = baseMinScore;
 
