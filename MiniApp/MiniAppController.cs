@@ -1398,10 +1398,67 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     Console.WriteLine($"[Volatility-Sniper] Normal volatility (ratio={volatilityRatio:F2}). minScore is {minScore:F2}");
                 }
 
-                // momentum не должен противоречить totalScore
-                bool momentumOk = momentumSignal == 0 || momentumSignal == scoreSign;
+                // momentum не должен противоречить totalScore (только если ИИ был доступен)
+                bool momentumOk = !aiWasAvailable || (momentumSignal == 0 || momentumSignal == scoreSign);
 
-                if (absScore >= minScore && momentumOk)
+                // Если ИИ недоступен, мы всегда выдаем сигнал (BUY или PUT) без нейтрального состояния.
+                if (!aiWasAvailable)
+                {
+                    string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
+                    double currentPrice = mainPrices[^1];
+                    double nearestSupport = 0;
+                    double nearestResistance = 0;
+
+                    if (supports != null && supports.Length > 0)
+                    {
+                        foreach (var s in supports)
+                        {
+                            if (s < currentPrice && s > 0) { nearestSupport = s; break; }
+                        }
+                    }
+                    if (resistances != null && resistances.Length > 0)
+                    {
+                        foreach (var r in resistances)
+                        {
+                            if (r > currentPrice && r > 0) { nearestResistance = r; break; }
+                        }
+                    }
+
+                    // Adaptive safe distance using ATR
+                    double safeBuffer = mainAtr > 0 ? 1.2 * mainAtr : 0.00015 * currentPrice;
+                    bool blockedByLevel = false;
+                    string blockReason = "";
+
+                    if (candidateDir == "BUY" && nearestResistance > 0 && (nearestResistance - currentPrice) < safeBuffer)
+                    {
+                        blockedByLevel = true;
+                        blockReason = $"сопротивление {nearestResistance:F5}";
+                    }
+                    else if (candidateDir == "PUT" && nearestSupport > 0 && (currentPrice - nearestSupport) < safeBuffer)
+                    {
+                        blockedByLevel = true;
+                        blockReason = $"поддержка {nearestSupport:F5}";
+                    }
+
+                    direction = candidateDir;
+                    if (blockedByLevel)
+                    {
+                        probability = 62;
+                        claudeResult.reasoning = $"Внимание: близко {blockReason}. Математический сигнал {candidateDir} подтвержден, но рекомендуется осторожность.";
+                    }
+                    else
+                    {
+                        probability = Math.Clamp(72 + (int)(absScore * 18), 72, 92);
+                        claudeResult.reasoning = $"Сигнал {candidateDir} сформирован на основе технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML.";
+                    }
+
+                    claudeResult.modelName = "Математический анализ";
+                    claudeResult.direction = direction;
+                    claudeResult.probability = probability;
+
+                    Console.WriteLine($"[Sniper-Forced] Programmatic signal: {direction} {probability}% (score={totalScore:F1}, blocked={blockedByLevel})");
+                }
+                else if (absScore >= minScore && momentumOk)
                 {
                     string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
                     double currentPrice = mainPrices[^1];
