@@ -1440,68 +1440,10 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     Console.WriteLine($"[Volatility-Sniper] Normal volatility (ratio={volatilityRatio:F2}). minScore is {minScore:F2}");
                 }
 
-                // momentum не должен противоречить totalScore (только если ИИ был доступен)
-                bool momentumOk = !aiWasAvailable || (momentumSignal == 0 || momentumSignal == scoreSign);
+                // momentum не должен противоречить totalScore
+                bool momentumOk = momentumSignal == 0 || momentumSignal == scoreSign;
 
-                // Если ИИ недоступен, мы всегда выдаем сигнал (BUY или PUT) без нейтрального состояния.
-                if (!aiWasAvailable)
-                {
-                    string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
-                    double currentPrice = mainPrices[^1];
-                    double nearestSupport = 0;
-                    double nearestResistance = 0;
-
-                    if (supports != null && supports.Length > 0)
-                    {
-                        foreach (var s in supports)
-                        {
-                            if (s < currentPrice && s > 0) { nearestSupport = s; break; }
-                        }
-                    }
-                    if (resistances != null && resistances.Length > 0)
-                    {
-                        foreach (var r in resistances)
-                        {
-                            if (r > currentPrice && r > 0) { nearestResistance = r; break; }
-                        }
-                    }
-
-                    // Adaptive safe distance using ATR
-                    double safeBuffer = mainAtr > 0 ? 1.2 * mainAtr : 0.00015 * currentPrice;
-                    bool blockedByLevel = false;
-                    string blockReason = "";
-
-                    if (candidateDir == "BUY" && nearestResistance > 0 && (nearestResistance - currentPrice) < safeBuffer)
-                    {
-                        blockedByLevel = true;
-                        blockReason = $"сопротивление {nearestResistance:F5}";
-                    }
-                    else if (candidateDir == "PUT" && nearestSupport > 0 && (currentPrice - nearestSupport) < safeBuffer)
-                    {
-                        blockedByLevel = true;
-                        blockReason = $"поддержка {nearestSupport:F5}";
-                    }
-
-                    direction = candidateDir;
-                    if (blockedByLevel)
-                    {
-                        probability = Math.Clamp(62 + _rng.Next(-2, 3), 58, 66);
-                        claudeResult.reasoning = $"Внимание: близко {blockReason}. Сигнал {candidateDir} сформирован локально (баланс ИИ исчерпан). Рекомендуется осторожность.";
-                    }
-                    else
-                    {
-                        double rawProbFloat = 72.0 + absScore * 20.0 + (_rng.NextDouble() - 0.5) * 4.0;
-                        probability = Math.Clamp((int)Math.Round(rawProbFloat), 65, 95);
-                        claudeResult.reasoning = $"Сигнал {candidateDir} сформирован локально (индикаторы RSI, EMA, MACD, ML). Баланс ИИ (Claude/Gemini) исчерпан — для PREMIUM-сигналов пополните баланс ключей.";
-                    }
-
-                    claudeResult.modelName = "Математический анализ";
-                    claudeResult.direction = direction;
-                    claudeResult.probability = probability;
-
-                    Console.WriteLine($"[Sniper-Forced] Programmatic signal: {direction} {probability}% (score={totalScore:F1}, blocked={blockedByLevel})");
-                }
-                else if (absScore >= minScore && momentumOk)
+                if (absScore >= minScore && momentumOk)
                 {
                     string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
                     double currentPrice = mainPrices[^1];
@@ -1555,13 +1497,8 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                     {
                         direction = candidateDir;
 
-                        int randNoise = _rng.Next(-2, 3);
-                        if (absScore >= 2.5)
-                            probability = Math.Clamp(rawProb + randNoise, 72, 88);
-                        else if (absScore >= 1.5)
-                            probability = Math.Clamp(rawProb + randNoise, 62, 76);
-                        else
-                            probability = Math.Clamp(rawProb + randNoise, 55, 66);
+                        double rawProbFloat = 72.0 + (absScore - minScore) * 15.0 + (_rng.NextDouble() - 0.5) * 4.0;
+                        probability = Math.Clamp((int)Math.Round(rawProbFloat), 70, 95);
 
                         // Update claudeResult so the frontend card shows the programmatic details
                         claudeResult.modelName = "Математический анализ";
