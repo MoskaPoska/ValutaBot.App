@@ -819,15 +819,13 @@ public static class MiniAppController
 
         double score = 0;
 
-        // 1. Trend Direction (EMA 9 vs 21) — proportional with dead zone
+        // 1. Trend Direction (EMA 9 vs 21) — proportional (no dead zone needed)
         double emaSpread = (emaS - emaL) / (lastPrice + 1e-10) * 10000; // basis points
-        if (Math.Abs(emaSpread) > 0.5) // dead zone: ignore noise < 0.5 bps
-            score += Math.Clamp(emaSpread / 5.0, -1.0, 1.0);
+        score += Math.Clamp(emaSpread / 5.0, -1.0, 1.0);
 
-        // 2. Momentum (MACD vs Signal) — proportional with dead zone
+        // 2. Momentum (MACD vs Signal) — proportional (no dead zone needed)
         double macdDiff = (macd - signal) / (lastPrice + 1e-10) * 10000; // basis points
-        if (Math.Abs(macdDiff) > 0.3) // dead zone: ignore noise < 0.3 bps
-            score += Math.Clamp(macdDiff / 3.0, -1.0, 1.0);
+        score += Math.Clamp(macdDiff / 3.0, -1.0, 1.0);
 
         // 3. Acceleration (ROC 3 and 5) — raised threshold to filter 1-min noise
         double mom3 = prices.Length >= 4 ? (prices[^1] - prices[^4]) / prices[^4] * 100 : 0;
@@ -1381,12 +1379,10 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 double absScore = Math.Abs(totalScore);
                 int scoreSign = totalScore >= 0 ? 1 : -1;
 
-                // Если AI был доступен, но не уверен — выше порог (AI не нашёл подтверждения)
-                // Если AI недоступен — ниже порог (только математика)
-                double baseMinScore = aiWasAvailable ? 1.0 : 0.7;
+                // Пороги откалиброваны для пропорциональных оценок (диапазон ~±2.0)
+                double baseMinScore = aiWasAvailable ? 0.50 : 0.30;
 
-                // Для Forex-пар (где нет стакана Binance) снижаем порог на 20%,
-                // так как максимальный суммарный вес компонентов немного ниже.
+                // Для Forex-пар (где нет стакана Binance) снижаем порог на 20%
                 if (isForex)
                 {
                     baseMinScore *= 0.8;
@@ -1396,13 +1392,13 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
 
                 if (volatilityRatio < 0.7)
                 {
-                    minScore = Math.Max(0.55, baseMinScore - 0.1);
-                    Console.WriteLine($"[Volatility-Sniper] Low volatility (ratio={volatilityRatio:F2}). Adjusted minScore from {baseMinScore:F1} to {minScore:F2}");
+                    minScore = Math.Max(0.15, baseMinScore - 0.05);
+                    Console.WriteLine($"[Volatility-Sniper] Low volatility (ratio={volatilityRatio:F2}). Adjusted minScore from {baseMinScore:F2} to {minScore:F2}");
                 }
                 else if (volatilityRatio > 1.35)
                 {
-                    minScore = Math.Min(1.25, baseMinScore + 0.15);
-                    Console.WriteLine($"[Volatility-Sniper] High volatility (ratio={volatilityRatio:F2}). Adjusted minScore from {baseMinScore:F1} to {minScore:F2}");
+                    minScore = Math.Min(0.60, baseMinScore + 0.10);
+                    Console.WriteLine($"[Volatility-Sniper] High volatility (ratio={volatilityRatio:F2}). Adjusted minScore from {baseMinScore:F2} to {minScore:F2}");
                 }
                 else
                 {
@@ -1449,7 +1445,7 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 }
 
                 // --- 1. КРАСНЫЙ СВЕТ: Полный флэт (очень низкий балл консенсуса) ---
-                if (absScore < 0.30)
+                if (absScore < 0.10)
                 {
                     direction = "NEUTRAL";
                     probability = 50;
