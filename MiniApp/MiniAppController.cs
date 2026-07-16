@@ -837,9 +837,13 @@ public static class MiniAppController
         if (mom5 > 0.02) roccScore += 0.5; else if (mom5 < -0.02) roccScore -= 0.5;
         score += roccScore;
 
-        // 4. RSI Overbought/Oversold extreme filters (Veto)
-        if (rsi > 75 && score > 0) score = -1.0;
-        else if (rsi < 25 && score < 0) score = 1.0;
+        // 4. RSI — active mean-reversion signal (replaces old veto)
+        // Overbought (>65): bearish pressure, strongest above 80
+        // Oversold  (<35): bullish pressure, strongest below 20
+        if (rsi > 65)
+            score -= Math.Clamp((rsi - 50) / 25.0, 0.0, 1.2);
+        else if (rsi < 35)
+            score += Math.Clamp((50 - rsi) / 25.0, 0.0, 1.2);
 
         double confidence = 50;
         double absScore = Math.Abs(score);
