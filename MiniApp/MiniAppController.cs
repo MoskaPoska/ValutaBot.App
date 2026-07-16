@@ -918,10 +918,28 @@ public static class MiniAppController
                 }
             }
 
-            // Fetch main timeframe (must succeed)
             var mainResultTuple = await FetchBinanceWithFallback(symbol, mainInterval, asset, limit);
             var mainPrices = mainResultTuple.prices;
             var mainVolumes = mainResultTuple.volumes;
+
+            // Check for flat/closed market (all prices identical or static)
+            if (mainPrices != null && mainPrices.Length >= 15)
+            {
+                bool isFlat = true;
+                double first = mainPrices[^1];
+                for (int i = 2; i <= 15; i++)
+                {
+                    if (Math.Abs(mainPrices[^i] - first) > 1e-7)
+                    {
+                        isFlat = false;
+                        break;
+                    }
+                }
+                if (isFlat)
+                {
+                    throw new Exception("Market data is completely flat/closed.");
+                }
+            }
 
             // Fetch higher/lower timeframes safely
             Task<(double[] prices, double[] volumes)?>? higherTask = higherTf != null ? SafeFetch(IntervalMap(higherTf)) : null;

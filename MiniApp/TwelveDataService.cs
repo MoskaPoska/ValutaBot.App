@@ -111,9 +111,9 @@ public static class TwelveDataService
         {
             Console.WriteLine($"[TwelveData] Fetch failed: {ex.Message}");
 
-            if (_cache.TryGetValue(key, out var last))
+            if (_cache.TryGetValue(key, out var last) && (DateTime.UtcNow - last.fetchedAt).TotalSeconds < 60)
             {
-                Console.WriteLine($"[TwelveData] Using last known data for {rawAsset}");
+                Console.WriteLine($"[TwelveData] Using fresh last known data for {rawAsset}");
                 return (last.prices, last.volumes);
             }
             return null;
