@@ -1333,6 +1333,36 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 probability = rawProb;
             }
 
+            // ─── Sub-minute override: simple decisive scoring ───
+            // Proportional ensemble produces near-zero for forex (score=-0.03).
+            // For 5-second trades, use last-candle direction + EMA + RSI instead.
+            if (isSubMinute && mainPrices.Length >= 5)
+            {
+                double overrideScore = 0;
+
+                // 1. Last candle direction (most immediate signal)
+                double d1 = mainPrices[^1] - mainPrices[^2];
+                if (d1 > 0) overrideScore += 1.0; else if (d1 < 0) overrideScore -= 1.0;
+
+                // 2. Last 3 candles net direction (short-term trend)
+                double d3 = mainPrices[^1] - mainPrices[^4];
+                if (d3 > 0) overrideScore += 0.8; else if (d3 < 0) overrideScore -= 0.8;
+
+                // 3. Price vs EMA9 (trend bias)
+                double emaPos = mainPrices[^1] - mainResult.emaVal;
+                if (emaPos > 0) overrideScore += 0.5; else if (emaPos < 0) overrideScore -= 0.5;
+
+                // 4. RSI mean-reversion at extremes
+                double rsiVal = mainResult.rsiVal;
+                if (rsiVal > 70) overrideScore -= 1.0;       // overbought → expect down
+                else if (rsiVal < 30) overrideScore += 1.0;  // oversold → expect up
+                else if (rsiVal > 55) overrideScore += 0.3;  // mild bullish
+                else if (rsiVal < 45) overrideScore -= 0.3;  // mild bearish
+
+                totalScore = overrideScore;
+                Console.WriteLine($"[SubMin] Override score={totalScore:F2} (d1={d1:F6}, d3={d3:F6}, emaPos={emaPos:F6}, rsi={rsiVal:F1})");
+            }
+
             // ─── SNIPER MODE: Направление и вероятность ───
             // Правило #1: Если Claude не уверен → НЕ ТОРГУЕМ
             // Правило #2: Если Claude уверен, но индикаторы противоречат → НЕ ТОРГУЕМ
