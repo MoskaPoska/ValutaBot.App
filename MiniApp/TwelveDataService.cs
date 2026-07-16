@@ -16,12 +16,12 @@ public static class TwelveDataService
         return _apiKey;
     }
 
-    public static (double[] prices, double[] volumes)? FetchCandles(string rawAsset, string interval, int limit = 100)
+    public static (double[] prices, double[] volumes)? FetchCandles(string rawAsset, string interval, int limit = 100, int cacheTtlSeconds = 10)
     {
         string key = $"{rawAsset}_{interval}";
 
-        // 1. Check cache first for fresh data (less than 60 seconds old)
-        if (_cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < 60)
+        // 1. Check cache first for fresh data (less than cacheTtlSeconds old)
+        if (_cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < cacheTtlSeconds)
         {
             Console.WriteLine($"[TwelveData] Using cached data for {rawAsset} ({interval}) - fresh");
             return (cached.prices, cached.volumes);
