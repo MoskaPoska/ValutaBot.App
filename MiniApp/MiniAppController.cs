@@ -819,20 +819,22 @@ public static class MiniAppController
 
         double score = 0;
 
-        // 1. Trend Direction (EMA 9 and 21)
-        if (lastPrice > emaS && emaS > emaL) score += 1.0;
-        else if (lastPrice < emaS && emaS < emaL) score -= 1.0;
+        // 1. Trend Direction (EMA 9 vs 21) — proportional with dead zone
+        double emaSpread = (emaS - emaL) / (lastPrice + 1e-10) * 10000; // basis points
+        if (Math.Abs(emaSpread) > 0.5) // dead zone: ignore noise < 0.5 bps
+            score += Math.Clamp(emaSpread / 5.0, -1.0, 1.0);
 
-        // 2. Momentum (MACD vs Signal)
-        if (macd > signal) score += 1.0;
-        else score -= 1.0;
+        // 2. Momentum (MACD vs Signal) — proportional with dead zone
+        double macdDiff = (macd - signal) / (lastPrice + 1e-10) * 10000; // basis points
+        if (Math.Abs(macdDiff) > 0.3) // dead zone: ignore noise < 0.3 bps
+            score += Math.Clamp(macdDiff / 3.0, -1.0, 1.0);
 
-        // 3. Acceleration (ROC 3 and 5)
+        // 3. Acceleration (ROC 3 and 5) — raised threshold to filter 1-min noise
         double mom3 = prices.Length >= 4 ? (prices[^1] - prices[^4]) / prices[^4] * 100 : 0;
         double mom5 = prices.Length >= 6 ? (prices[^1] - prices[^6]) / prices[^6] * 100 : 0;
         double roccScore = 0;
-        if (mom3 > 0.005) roccScore += 0.5; else if (mom3 < -0.005) roccScore -= 0.5;
-        if (mom5 > 0.005) roccScore += 0.5; else if (mom5 < -0.005) roccScore -= 0.5;
+        if (mom3 > 0.02) roccScore += 0.5; else if (mom3 < -0.02) roccScore -= 0.5;
+        if (mom5 > 0.02) roccScore += 0.5; else if (mom5 < -0.02) roccScore -= 0.5;
         score += roccScore;
 
         // 4. RSI Overbought/Oversold extreme filters (Veto)
@@ -1269,14 +1271,44 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 }
             }
 
+            // ─── Micro-momentum for sub-minute timeframes ───
+            // For 5-second trades, the last 1-2 candle direction is more relevant than EMA/MACD trends
+            if (isSubMinute && mainPrices.Length >= 3)
+            {
+                double lastChange = (mainPrices[^1] - mainPrices[^2]) / (mainPrices[^2] + 1e-10) * 10000; // bps
+                double prevChange = (mainPrices[^2] - mainPrices[^3]) / (mainPrices[^3] + 1e-10) * 10000; // bps
+
+                // If last two candles agree on direction → strong micro-signal
+                if (lastChange > 1.0 && prevChange > 1.0)
+                {
+                    totalScore += 1.0;
+                    Console.WriteLine($"[Micro] Last 2 candles UP → +1.0 (Δ1={lastChange:F1}bps, Δ2={prevChange:F1}bps)");
+                }
+                else if (lastChange < -1.0 && prevChange < -1.0)
+                {
+                    totalScore -= 1.0;
+                    Console.WriteLine($"[Micro] Last 2 candles DOWN → -1.0 (Δ1={lastChange:F1}bps, Δ2={prevChange:F1}bps)");
+                }
+                else if (Math.Abs(lastChange) > 3.0)
+                {
+                    double microBoost = lastChange > 0 ? 0.6 : -0.6;
+                    totalScore += microBoost;
+                    Console.WriteLine($"[Micro] Last candle strong → {microBoost:+0.0;-0.0} (Δ={lastChange:F1}bps)");
+                }
+                totalWeight += 0.5;
+            }
+
             // ─── Short-term momentum (3-bar + 5-bar) ───
             double mom3 = mainPrices.Length >= 4
                 ? (mainPrices[^1] - mainPrices[^4]) / mainPrices[^4] * 100 : 0;
             double mom5 = mainPrices.Length >= 6
                 ? (mainPrices[^1] - mainPrices[^6]) / mainPrices[^6] * 100 : 0;
             int momentumSignal = 0;
-            if (mom3 > 0.15 || mom5 > 0.2) momentumSignal = 1;
-            else if (mom3 < -0.15 || mom5 < -0.2) momentumSignal = -1;
+            // Lower thresholds for forex (where 0.15% is a huge move on 1-min candles)
+            double momThresh3 = isForex ? 0.03 : 0.15;
+            double momThresh5 = isForex ? 0.05 : 0.2;
+            if (mom3 > momThresh3 || mom5 > momThresh5) momentumSignal = 1;
+            else if (mom3 < -momThresh3 || mom5 < -momThresh5) momentumSignal = -1;
 
             int rawProb = totalWeight > 0
                 ? (int)Math.Clamp(totalConfidence / totalWeight, 50, 98)
