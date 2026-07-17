@@ -2076,7 +2076,10 @@ public static class MiniAppUI
         let isDragging = false;
         let previousMousePosition = { x: 0, y: 0 };
 
-        document.getElementById('mainSphere').onclick = () => {
+        let openTime = 0;
+
+        document.getElementById('mainSphere').onclick = (e) => {
+            e.stopPropagation();
             open3DModal();
         };
 
@@ -2092,11 +2095,13 @@ public static class MiniAppUI
             modal.offsetHeight; // trigger reflow
             modal.style.opacity = '1';
             activeScene = true;
+            openTime = Date.now();
 
             init3DScene();
         }
 
         function close3DModal() {
+            if (Date.now() - openTime < 300) return;
             const modal = document.getElementById('magic3DModal');
             if (!modal) return;
             modal.style.opacity = '0';
@@ -2415,8 +2420,6 @@ public static class MiniAppUI
 
     <!-- True 3D Magic Sphere Modal -->
     <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:150; justify-content:center; align-items:center; opacity:0; transition:opacity 0.4s ease;'>
-        <!-- Dedicated Close Button -->
-        <button id='close3DBtn' style='position:absolute; top:20px; right:20px; width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:24px; font-weight:300; display:flex; justify-content:center; align-items:center; cursor:pointer; z-index:160; outline:none; transition:all 0.2s;' onclick='close3DModal()'>&times;</button>
         <div id='canvas3DContainer' style='width:350px; height:350px; position:relative; cursor:grab;'></div>
     </div>
 </body>
