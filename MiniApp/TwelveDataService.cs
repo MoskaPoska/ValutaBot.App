@@ -224,6 +224,13 @@ public static class TwelveDataWebSocketManager
         return 0;
     }
 
+    public static void UpdatePrice(string symbol, double price)
+    {
+        if (string.IsNullOrEmpty(symbol) || price <= 0) return;
+        _lastPrices[symbol] = (price, DateTime.UtcNow);
+        _ = BroadcastToClientsAsync(symbol, price);
+    }
+
     public static async Task RegisterClientAsync(string asset, string clientId, System.Net.WebSockets.WebSocket clientWs)
     {
         string symbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;

@@ -1130,6 +1130,46 @@ public static class MiniAppUI
             overflow-y: auto;
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
+
+        /* ─── Sync Status Bar ─── */
+        .sync-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--dim);
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--panel-border);
+            padding: 8px 14px;
+            border-radius: 12px;
+            margin: 10px 0 0 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .sync-container:hover {
+            background: rgba(124,77,255,0.06);
+            border-color: rgba(124,77,255,0.25);
+            color: #fff;
+        }
+        .sync-status-dot {
+            color: #ff1744;
+            font-size: 10px;
+            animation: pulse 1.5s infinite;
+        }
+        .sync-status-dot.online {
+            color: #00e676 !important;
+            filter: drop-shadow(0 0 4px #00e676);
+        }
+        .sync-status-text {
+            flex: 1;
+            text-align: left;
+        }
+        .sync-help-icon {
+            font-size: 11px;
+            opacity: 0.6;
+        }
     </style>
 </head>
 <body>
@@ -1248,11 +1288,13 @@ public static class MiniAppUI
                 <span class='label'>До закрытия свечи</span>
                 <span class='time' id='candleTime'>--</span>
             </div>
-            <!-- Live Price Panel -->
-            <div class='live-price-container' id='livePriceContainer' style='display:none'>
-                <span class='live-price-dot'>●</span>
-                <span class='live-price-label'>Поток:</span>
-                <span class='live-price-value' id='livePriceValue'>--</span>
+            </div>
+
+            <!-- Sync Status Button & Indicator -->
+            <div class='sync-container' id='syncContainer' onclick='openSyncModal()'>
+                <span class='sync-status-dot' id='syncStatusDot'>●</span>
+                <span class='sync-status-text' id='syncStatusText'>Синхронизация: Ожидание скрипта</span>
+                <span class='sync-help-icon'>❓</span>
             </div>
 
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
@@ -1524,6 +1566,7 @@ public static class MiniAppUI
             const sphere = document.getElementById('mainSphere');
             if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
             initPriceWebSocket();
+            pollSyncStatus();
         }
 
         function setTf(el) {
@@ -1560,6 +1603,7 @@ public static class MiniAppUI
         changeTopCategory(document.querySelector('.top-cat-btn'));
         syncTime();
         initPriceWebSocket();
+        startSyncStatusPoller();
         
         var timeOffset = 0;
 
@@ -2027,7 +2071,227 @@ public static class MiniAppUI
             toggle.innerText = open ? '\u25BD Заголовки' : '\u25B8 Заголовки';
         }
 
+        /* ─── Sync Modal Functions ─── */
+        function openSyncModal() {
+            const modal = document.getElementById('syncModal');
+            const txt = document.getElementById('userscriptText');
+            if (modal && txt) {
+                txt.value = generateUserscript();
+                modal.style.display = 'flex';
+                // Trigger reflow for transition
+                modal.offsetHeight;
+                modal.style.opacity = '1';
+            }
+        }
+
+        function closeSyncModal() {
+            const modal = document.getElementById('syncModal');
+            if (modal) {
+                modal.style.opacity = '0';
+                setTimeout(() => { modal.style.display = 'none'; }, 300);
+            }
+        }
+
+        function copyUserscript() {
+            const txt = document.getElementById('userscriptText');
+            if (!txt) return;
+            txt.select();
+            txt.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(txt.value).then(() => {
+                const btn = document.getElementById('btnCopyScript');
+                if (btn) {
+                    const old = btn.innerText;
+                    btn.innerText = 'Скопировано!';
+                    btn.style.background = 'rgba(0, 230, 118, 0.2)';
+                    btn.style.borderColor = '#00e676';
+                    setTimeout(() => {
+                        btn.innerText = old;
+                        btn.style.background = 'rgba(124,77,255,0.15)';
+                        btn.style.borderColor = 'var(--accent)';
+                    }, 2000);
+                }
+            });
+        }
+
+        function generateUserscript() {
+            const host = window.location.origin;
+            return `// ==UserScript==
+// @name         Pocket Option Live price sync for ValutaBot
+// @namespace    http://tampermonkey.net/
+// @version      1.2
+// @description  Streams real-time Pocket Option OTC ticks to ValutaBot server
+// @author       TradeBE
+// @match        https://pocketoption.com/*
+// @match        https://*.pocketoption.com/*
+// @match        https://po.cash/*
+// @match        https://*.po.cash/*
+// @match        https://po6.cash/*
+// @match        https://*.po6.cash/*
+// @match        https://po.zone/*
+// @match        https://*.po.zone/*
+// @grant        none
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    console.log('[ValutaBot Sync] Userscript active. Intercepting WebSockets...');
+
+    const BACKEND_URL = '${host}';
+
+    // Hook WebSocket constructor
+    const RealWebSocket = window.WebSocket;
+    window.WebSocket = function(url, protocols) {
+        const ws = new RealWebSocket(url, protocols);
+        console.log('[ValutaBot Sync] Intercepted WebSocket connection:', url);
+
+        ws.addEventListener('message', function(event) {
+            try {
+                const data = event.data;
+                if (typeof data === 'string') {
+                    if (data.startsWith('42')) {
+                        const parsed = JSON.parse(data.substring(2));
+                        if (Array.isArray(parsed) && parsed.length >= 2) {
+                            const eventName = parsed[0];
+                            const payload = parsed[1];
+                            
+                            if (eventName === 'updateStream') {
+                                processUpdateStream(payload);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // Ignore parse/format errors
+            }
+        });
+
+        return ws;
+    };
+
+    function processUpdateStream(payload) {
+        if (Array.isArray(payload)) {
+            for (const item of payload) {
+                if (Array.isArray(item)) {
+                    // [asset, price, timestamp]
+                    sendPrice(item[0], parseFloat(item[1]));
+                } else if (item && typeof item === 'object') {
+                    const asset = item.asset || item.symbol || item.id || item.ticker;
+                    const price = parseFloat(item.price || item.value || item.close);
+                    if (asset && !isNaN(price)) {
+                        sendPrice(asset, price);
+                    }
+                }
+            }
+        } else if (payload && typeof payload === 'object') {
+            const asset = payload.asset || payload.symbol || payload.id || payload.ticker;
+            const price = parseFloat(payload.price || payload.value || payload.close);
+            if (asset && !isNaN(price)) {
+                sendPrice(asset, price);
+            }
+        }
+    }
+
+    let lastSent = {};
+    function sendPrice(asset, price) {
+        const normalized = normalize(asset);
+        
+        // Limit updates to 10 per second per asset to save bandwidth
+        const now = Date.now();
+        if (lastSent[normalized] && (now - lastSent[normalized]) < 100) {
+            return;
+        }
+        lastSent[normalized] = now;
+
+        const endpoint = BACKEND_URL + '/api/update-otc-price?asset=' + encodeURIComponent(normalized) + '&price=' + price;
+        fetch(endpoint, { method: 'POST', mode: 'no-cors' })
+            .catch(err => {
+                // Background failures are ignored
+            });
+    }
+
+    function normalize(name) {
+        let clean = name.toUpperCase().replace('_', ' ').replace('-', ' ').trim();
+        if (clean.includes('OTC') && !clean.endsWith(' OTC')) {
+            clean = clean.replace('OTC', '').trim() + ' OTC';
+        }
+        if (clean.length >= 6) {
+            const first3 = clean.substring(0, 3);
+            const next3 = clean.substring(3, 6);
+            const remaining = clean.substring(6);
+            if (/^[A-Z]{3}$/.test(first3) && /^[A-Z]{3}$/.test(next3)) {
+                clean = first3 + '/' + next3 + remaining;
+            }
+        }
+        return clean;
+    }
+})();`;
+        }
+
+        let syncStatusInterval = null;
+        
+        function startSyncStatusPoller() {
+            if (syncStatusInterval) clearInterval(syncStatusInterval);
+            pollSyncStatus();
+            syncStatusInterval = setInterval(pollSyncStatus, 3000);
+        }
+        
+        async function pollSyncStatus() {
+            try {
+                const res = await fetch(`/api/otc-status?asset=${encodeURIComponent(currentAsset)}`);
+                const data = await res.json();
+                
+                const dot = document.getElementById('syncStatusDot');
+                const txt = document.getElementById('syncStatusText');
+                if (!dot || !txt) return;
+
+                if (data.active) {
+                    dot.classList.add('online');
+                    txt.innerText = `Синхронизация: Активна (${data.lastPrice > 100 ? data.lastPrice.toFixed(2) : data.lastPrice.toFixed(5)})`;
+                    txt.style.color = '#00e676';
+                } else {
+                    dot.classList.remove('online');
+                    txt.innerText = 'Синхронизация: Ожидание скрипта';
+                    txt.style.color = 'var(--dim)';
+                }
+            } catch (e) {
+                // Ignore background errors
+            }
+        }
+
     </script>
+
+    <!-- Sync Modal -->
+    <div id='syncModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:100; justify-content:center; align-items:center; padding:20px; transition: opacity 0.3s ease; opacity:0;'>
+        <div style='background:var(--panel); border:1px solid var(--panel-border); border-radius:20px; padding:20px; width:100%; max-width:400px; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column; gap:14px; position:relative;'>
+            <div style='display:flex; justify-content:space-between; align-items:center;'>
+                <span style='font-family:Unbounded, sans-serif; font-size:15px; font-weight:800; color:#fff;'>Синхронизация OTC</span>
+                <span style='font-size:20px; cursor:pointer; color:var(--dim); font-weight:bold;' onclick='closeSyncModal()'>&times;</span>
+            </div>
+            
+            <div style='font-size:11.5px; color:var(--subtext); line-height:1.5; display:flex; flex-direction:column; gap:10px;'>
+                <div>Для 100% точности анализа S5-M5 на Pocket Option (особенно в выходные и ночью) боту нужны живые котировки из вашего терминала.</div>
+                
+                <div style='font-weight:700; color:var(--cyan);'>Инструкция по установке:</div>
+                <ol style='padding-left:16px; display:flex; flex-direction:column; gap:4px;'>
+                    <li>Установите расширение <b>Tampermonkey</b> в браузер на ПК.</li>
+                    <li>Откройте Tampermonkey и выберите <b>'Создать новый скрипт'</b>.</li>
+                    <li>Скопируйте скрипт ниже, вставьте его в редактор и нажмите <b>Ctrl+S</b> (Сохранить).</li>
+                    <li>Откройте вкладку торговли Pocket Option. Скрипт подключися автоматически!</li>
+                </ol>
+            </div>
+            
+            <div style='display:flex; flex-direction:column; gap:4px;'>
+                <div style='display:flex; justify-content:space-between; align-items:center;'>
+                    <span style='font-size:9.5px; color:var(--dim); font-weight:700; text-transform:uppercase;'>Текст скрипта Tampermonkey</span>
+                    <button id='btnCopyScript' style='background:rgba(124,77,255,0.15); border:1px solid var(--accent); color:#fff; font-size:10px; font-weight:700; padding:4px 10px; border-radius:8px; cursor:pointer; transition:all 0.2s;' onclick='copyUserscript()'>Копировать</button>
+                </div>
+                <textarea id='userscriptText' readonly style='width:100%; height:130px; background:#07051a; border:1px solid var(--panel-border); border-radius:10px; padding:8px; color:var(--magenta); font-family:monospace; font-size:9px; resize:none; outline:none; white-space:pre;'></textarea>
+            </div>
+            
+            <button style='background:linear-gradient(135deg, var(--accent), #5a2abf); border:none; color:#fff; font-size:12px; font-weight:800; padding:10px; border-radius:12px; cursor:pointer; width:100%; font-family:Inter, sans-serif;' onclick='closeSyncModal()'>ГОТОВО</button>
+        </div>
+    </div>
 </body>
 </html>";
     }

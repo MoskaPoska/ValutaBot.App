@@ -77,6 +77,25 @@ public static class MiniAppController
             await context.Response.WriteAsync(MiniAppUI.GetHtml());
         });
 
+        app.MapPost("/api/update-otc-price", (HttpContext context, string asset, double price) =>
+        {
+            OtcTickService.AddTick(asset, price);
+            return Results.Ok(new { success = true });
+        });
+
+        app.MapGet("/api/update-otc-price", (HttpContext context, string asset, double price) =>
+        {
+            OtcTickService.AddTick(asset, price);
+            return Results.Ok(new { success = true });
+        });
+
+        app.MapGet("/api/otc-status", (HttpContext context, string asset) =>
+        {
+            bool active = OtcTickService.IsAssetActive(asset);
+            double lastPrice = OtcTickService.GetLastPrice(asset);
+            return Results.Json(new { active, lastPrice });
+        });
+
         app.MapGet("/api/analyze", async (HttpContext context, string? asset, string? timeframe) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
@@ -596,6 +615,11 @@ public static class MiniAppController
 
     private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
     {
+        if (originalAsset != null && originalAsset.Contains("OTC"))
+        {
+            return OtcTickService.GetCandles(originalAsset, interval, limit);
+        }
+
         if (symbol != null)
         {
             string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
