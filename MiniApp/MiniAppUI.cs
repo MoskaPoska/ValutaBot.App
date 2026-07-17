@@ -1396,8 +1396,11 @@ public static class MiniAppUI
             </div>
         </div>
     </div>
+    <!-- True 3D Magic Sphere Modal -->
+    <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:150; justify-content:center; align-items:center; opacity:0; transition:opacity 0.4s ease;'>
+        <div id='canvas3DContainer' style='width:350px; height:350px; position:relative; cursor:grab;'></div>
+    </div>
 
-    
     <script>
         const tg = window.Telegram.WebApp;
         if(tg) tg.expand();
@@ -2075,8 +2078,56 @@ public static class MiniAppUI
         let renderer = null, scene = null, camera = null, sphereGroup = null;
         let isDragging = false;
         let previousMousePosition = { x: 0, y: 0 };
-
         let openTime = 0;
+        window.dragDistance = 0;
+
+        const onPointerDown = (e) => {
+            if (!activeScene) return;
+            isDragging = true;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            previousMousePosition = { x: clientX, y: clientY };
+            window.dragDistance = 0;
+        };
+
+        const onPointerMove = (e) => {
+            if (!isDragging || !sphereGroup || !activeScene) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const deltaMove = {
+                x: clientX - previousMousePosition.x,
+                y: clientY - previousMousePosition.y
+            };
+
+            sphereGroup.rotation.y += deltaMove.x * 0.006;
+            sphereGroup.rotation.x += deltaMove.y * 0.006;
+
+            window.dragDistance += Math.sqrt(deltaMove.x * deltaMove.x + deltaMove.y * deltaMove.y);
+            previousMousePosition = { x: clientX, y: clientY };
+        };
+
+        const onPointerUp = (e) => {
+            isDragging = false;
+        };
+
+        // Static event binding once on load
+        const container3D = document.getElementById('canvas3DContainer');
+        if (container3D) {
+            container3D.addEventListener('mousedown', onPointerDown);
+            container3D.addEventListener('mousemove', onPointerMove);
+            container3D.addEventListener('touchstart', onPointerDown, { passive: true });
+            container3D.addEventListener('touchmove', onPointerMove, { passive: true });
+
+            container3D.onclick = (e) => {
+                e.stopPropagation();
+                if (window.dragDistance < 10) {
+                    close3DModal();
+                }
+            };
+        }
+        window.addEventListener('mouseup', onPointerUp);
+        window.addEventListener('touchend', onPointerUp);
 
         document.getElementById('mainSphere').onclick = (e) => {
             e.stopPropagation();
@@ -2116,17 +2167,6 @@ public static class MiniAppUI
             const container = document.getElementById('canvas3DContainer');
             if (!container) return;
             container.innerHTML = '';
-
-            window.dragDistance = 0;
-
-            // Close the modal on click/tap if there was no drag, else stop propagation
-            container.onclick = (e) => {
-                if (window.dragDistance < 10) {
-                    close3DModal();
-                } else {
-                    e.stopPropagation();
-                }
-            };
 
             const width = container.clientWidth;
             const height = container.clientHeight;
@@ -2334,52 +2374,6 @@ public static class MiniAppUI
             pointLight.position.set(0, 0, 0);
             scene.add(pointLight);
 
-            // Drag Rotation Handlers
-            let startX = 0, startY = 0;
-
-            const onPointerDown = (e) => {
-                isDragging = true;
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                previousMousePosition = { x: clientX, y: clientY };
-                startX = clientX;
-                startY = clientY;
-                window.dragDistance = 0;
-            };
-
-            const onPointerMove = (e) => {
-                if (!isDragging || !sphereGroup) return;
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-                const deltaMove = {
-                    x: clientX - previousMousePosition.x,
-                    y: clientY - previousMousePosition.y
-                };
-
-                sphereGroup.rotation.y += deltaMove.x * 0.006;
-                sphereGroup.rotation.x += deltaMove.y * 0.006;
-
-                window.dragDistance += Math.sqrt(deltaMove.x * deltaMove.x + deltaMove.y * deltaMove.y);
-                previousMousePosition = { x: clientX, y: clientY };
-            };
-
-            const onPointerUp = (e) => {
-                isDragging = false;
-                // If they just tapped/clicked without dragging, close the 3D modal
-                if (window.dragDistance < 8) {
-                    close3DModal();
-                }
-            };
-
-            container.addEventListener('mousedown', onPointerDown);
-            container.addEventListener('mousemove', onPointerMove);
-            window.addEventListener('mouseup', onPointerUp);
-
-            container.addEventListener('touchstart', onPointerDown, { passive: true });
-            container.addEventListener('touchmove', onPointerMove, { passive: true });
-            window.addEventListener('touchend', onPointerUp);
-
             // Render loop
             function animate() {
                 if (!activeScene) return;
@@ -2417,11 +2411,6 @@ public static class MiniAppUI
         }
 
     </script>
-
-    <!-- True 3D Magic Sphere Modal -->
-    <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:150; justify-content:center; align-items:center; opacity:0; transition:opacity 0.4s ease;'>
-        <div id='canvas3DContainer' style='width:350px; height:350px; position:relative; cursor:grab;'></div>
-    </div>
 </body>
 </html>";
     }
