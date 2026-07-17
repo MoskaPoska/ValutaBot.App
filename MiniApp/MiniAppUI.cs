@@ -2315,8 +2315,14 @@ public static class MiniAppUI
         if (Array.isArray(payload)) {
             for (const item of payload) {
                 if (Array.isArray(item)) {
-                    // [asset, price, timestamp]
-                    sendPrice(item[0], parseFloat(item[1]));
+                    // [asset, timestamp, price] or [asset, price, timestamp]
+                    let price = parseFloat(item[1]);
+                    if (!isNaN(price) && price > 1000000) {
+                        price = parseFloat(item[2]);
+                    }
+                    if (!isNaN(price)) {
+                        sendPrice(item[0], price);
+                    }
                 } else if (item && typeof item === 'object') {
                     const asset = item.asset || item.symbol || item.id || item.ticker;
                     const price = parseFloat(item.price || item.value || item.close);
