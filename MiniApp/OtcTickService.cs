@@ -49,6 +49,19 @@ public static class OtcTickService
         return _lastPrices.TryGetValue(normalized, out double p) ? p : 0;
     }
 
+    public static OtcTick[] GetRawTicks(string asset)
+    {
+        string normalized = NormalizeAsset(asset);
+        if (_ticks.TryGetValue(normalized, out var list))
+        {
+            lock (list)
+            {
+                return list.ToArray();
+            }
+        }
+        return Array.Empty<OtcTick>();
+    }
+
     public static bool IsAssetActive(string asset)
     {
         string normalized = NormalizeAsset(asset);

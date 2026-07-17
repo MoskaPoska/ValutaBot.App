@@ -379,8 +379,17 @@ public static class MiniAppController
 
     private static async Task<(double[] prices, double[] volumes)> GetSubMinuteCandles(string? symbol, string asset, string timeframe, int limit)
     {
-        string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
-        var ticks = TwelveDataWebSocketManager.GetTicks(tdSymbol);
+        (double price, DateTime timestamp)[] ticks;
+        if (asset.Contains("OTC"))
+        {
+            var raw = OtcTickService.GetRawTicks(asset);
+            ticks = raw.Select(t => (t.Price, t.Time)).ToArray();
+        }
+        else
+        {
+            string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+            ticks = TwelveDataWebSocketManager.GetTicks(tdSymbol);
+        }
         int tfSec = TimeframeSeconds(timeframe);
 
         List<OhlcCandle> aggregatedCandles = new();
