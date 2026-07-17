@@ -1418,6 +1418,7 @@ public static class MiniAppUI
 
         let currentAsset = 'EUR/USD OTC';
         let currentTf = 'm1';
+        let syncStatusInterval = null;
 
         const assetsData = {
             fiat: {
@@ -2395,8 +2396,6 @@ public static class MiniAppUI
     }
 })();`;
         }
-
-        let syncStatusInterval = null;
         
         function startSyncStatusPoller() {
             if (syncStatusInterval) clearInterval(syncStatusInterval);
