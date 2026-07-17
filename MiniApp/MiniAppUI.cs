@@ -2395,6 +2395,7 @@ public static class MiniAppUI
             })
             .then(() => console.log('[ValutaBot Sync] History synced via fetch for ' + normalized))
             .catch(err => console.error('[ValutaBot Sync] Fetch history failed:', err));
+        }
     }
 
     let lastSent = {};
