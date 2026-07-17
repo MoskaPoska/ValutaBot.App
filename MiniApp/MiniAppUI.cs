@@ -1901,20 +1901,24 @@ public static class MiniAppUI
             const btn = document.getElementById('btnGet');
             const sphere = document.getElementById('mainSphere');
             
-            document.getElementById('errorDisplay').style.display = 'none';
-            clearResults();
-            startStatusBar();
-
-            requestAnimationFrame(() => {
-                sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
-                sphere.classList.add('analyzing');
-                btn.disabled = true;
-                btn.innerText = 'СКАНИРОВАНИЕ...';
-            });
-
-            const startTime = Date.now();
-
             try {
+                document.getElementById('errorDisplay').style.display = 'none';
+                clearResults();
+                startStatusBar();
+
+                requestAnimationFrame(() => {
+                    if (sphere) {
+                        sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
+                        sphere.classList.add('analyzing');
+                    }
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.innerText = 'СКАНИРОВАНИЕ...';
+                    }
+                });
+
+                const startTime = Date.now();
+
                 const res = await fetch(`/api/analyze?asset=${encodeURIComponent(currentAsset)}&timeframe=${currentTf}&_=${Date.now()}`, {
                     headers: {
                         'X-Telegram-Init-Data': tg && tg.initData ? tg.initData : getCustomInitData()
