@@ -77,52 +77,7 @@ public static class MiniAppController
             await context.Response.WriteAsync(MiniAppUI.GetHtml());
         });
 
-        app.MapPost("/api/update-otc-price", (HttpContext context, string asset, double price) =>
-        {
-            OtcTickService.AddTick(asset, price);
-            return Results.Ok(new { success = true });
-        });
 
-        app.MapGet("/api/update-otc-price", (HttpContext context, string asset, double price) =>
-        {
-            OtcTickService.AddTick(asset, price);
-            return Results.Ok(new { success = true });
-        });
-
-        app.MapPost("/api/update-otc-history", async (HttpContext context) =>
-        {
-            try
-            {
-                using var reader = new System.IO.StreamReader(context.Request.Body);
-                string body = await reader.ReadToEndAsync();
-                using var doc = System.Text.Json.JsonDocument.Parse(body);
-                var root = doc.RootElement;
-                string asset = root.GetProperty("asset").GetString() ?? "";
-                var historyElement = root.GetProperty("history");
-                var history = new List<OtcTickService.OtcHistoryPoint>();
-                foreach (var item in historyElement.EnumerateArray())
-                {
-                    history.Add(new OtcTickService.OtcHistoryPoint
-                    {
-                        Price = item.GetProperty("price").GetDouble(),
-                        Timestamp = item.GetProperty("timestamp").GetInt64()
-                    });
-                }
-                OtcTickService.AddHistory(asset, history);
-                return Results.Ok(new { success = true });
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { error = ex.Message });
-            }
-        });
-
-        app.MapGet("/api/otc-status", (HttpContext context, string asset) =>
-        {
-            bool active = OtcTickService.IsAssetActive(asset);
-            double lastPrice = OtcTickService.GetLastPrice(asset);
-            return Results.Json(new { active, lastPrice });
-        });
 
         app.MapGet("/api/analyze", async (HttpContext context, string? asset, string? timeframe) =>
         {
@@ -136,7 +91,7 @@ public static class MiniAppController
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
 
-            string originalAsset = asset.ToUpper().Trim();
+            string originalAsset = asset.ToUpper().Replace(" OTC", "").Replace("OTC", "").Trim();
             string tf = timeframe.ToLower().Trim();
             Console.WriteLine($"[ANALYZE] {originalAsset} | TF: {timeframe}");
 
@@ -407,17 +362,8 @@ public static class MiniAppController
 
     private static async Task<(double[] prices, double[] volumes)> GetSubMinuteCandles(string? symbol, string asset, string timeframe, int limit)
     {
-        (double price, DateTime timestamp)[] ticks;
-        if (asset.Contains("OTC"))
-        {
-            var raw = OtcTickService.GetRawTicks(asset);
-            ticks = raw.Select(t => (t.Price, t.Time)).ToArray();
-        }
-        else
-        {
-            string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
-            ticks = TwelveDataWebSocketManager.GetTicks(tdSymbol);
-        }
+        string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+        var ticks = TwelveDataWebSocketManager.GetTicks(tdSymbol);
         int tfSec = TimeframeSeconds(timeframe);
 
         List<OhlcCandle> aggregatedCandles = new();
@@ -652,10 +598,7 @@ public static class MiniAppController
 
     private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
     {
-        if (originalAsset != null && originalAsset.Contains("OTC"))
-        {
-            return OtcTickService.GetCandles(originalAsset, interval, limit);
-        }
+
 
         if (symbol != null)
         {
@@ -1055,7 +998,8 @@ public static class MiniAppController
     {
         try
         {
-            string raw = asset.Replace(" OTC", "").Replace("/", "").Trim();
+            asset = asset.ToUpper().Replace(" OTC", "").Replace("OTC", "").Trim();
+            string raw = asset.Replace("/", "").Trim();
             string? symbol = raw switch
             {
                 "BTCUSDT" or "BTC" => "BTCUSDT",
@@ -1233,7 +1177,7 @@ public static class MiniAppController
 
             // ─── News Analysis (нормализован к −1..+1) ───
             var newsResult = NewsAnalysisService.Analyze(asset);
-            if (Math.Abs(newsResult.score) > 0.1 && !asset.Contains("OTC"))
+            if (Math.Abs(newsResult.score) > 0.1)
             {
                 double newsScoreNormalized = Math.Clamp(newsResult.score / 2.0, -1, 1);
                 totalScore += newsScoreNormalized;
@@ -1277,7 +1221,7 @@ public static class MiniAppController
             var higherOhlc = higherOhlcKey != null ? GetOhlcCandles(higherOhlcKey) : null;
             var lowerOhlc = lowerOhlcKey != null ? GetOhlcCandles(lowerOhlcKey) : null;
 
-            if (symbol == null && !asset.Contains("OTC"))
+            if (symbol == null)
             {
                 string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
                 double lastWsPrice = TwelveDataWebSocketManager.GetLastPrice(tdSymbol);
