@@ -2357,7 +2357,7 @@ public static class MiniAppUI
                 method: 'POST',
                 url: endpoint,
                 onload: function(response) {
-                    console.log('[ValutaBot Sync] Price sent successfully for ' + normalized + ': ' + price);
+                    console.log('[ValutaBot Sync] Price sent. Status: ' + response.status + ' Response: ' + response.responseText + ' for ' + normalized + ': ' + price);
                 },
                 onerror: function(err) {
                     console.error('[ValutaBot Sync] Failed to send price for ' + normalized + ':', err);
