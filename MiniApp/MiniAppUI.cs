@@ -2155,6 +2155,8 @@ public static class MiniAppUI
 // @match        *://*.po-ru.co/*
 // @match        *://pocketoption-ru.co/*
 // @match        *://*.pocketoption-ru.co/*
+// @match        *://po.market/*
+// @match        *://*.po.market/*
 // @allFrames    true
 // @grant        none
 // @run-at       document-start
