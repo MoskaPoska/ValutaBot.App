@@ -2179,10 +2179,15 @@ public static class MiniAppUI
                 console.log('[ValutaBot Sync] Intercepted WebSocket connection:', url);
                 const ws = new RealWebSocket(url, protocols);
                 
+                let msgCount = 0;
                 ws.addEventListener('message', function(event) {
                     try {
                         const data = event.data;
                         if (typeof data === 'string') {
+                            if (msgCount < 15) {
+                                msgCount++;
+                                console.log('[ValutaBot Sync] Msg #' + msgCount + ' (String):', data.substring(0, 150));
+                            }
                             if (data.startsWith('42')) {
                                 const parsed = JSON.parse(data.substring(2));
                                 if (Array.isArray(parsed) && parsed.length >= 2) {
@@ -2193,6 +2198,11 @@ public static class MiniAppUI
                                         processUpdateStream(payload);
                                     }
                                 }
+                            }
+                        } else {
+                            if (msgCount < 15) {
+                                msgCount++;
+                                console.log('[ValutaBot Sync] Msg #' + msgCount + ' (Binary type):', data.constructor.name);
                             }
                         }
                     } catch (e) {
