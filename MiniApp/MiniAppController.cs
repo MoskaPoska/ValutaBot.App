@@ -352,7 +352,124 @@ public static class MiniAppController
             return Results.Ok(new { success = true, message = "Postback processed successfully" });
         });
 
+        // Start background TwelveData WebSocket connection immediately to start accumulating ticks
+        _ = TwelveDataWebSocketManager.StartBackgroundStreamingAsync();
+
         app.Run($"http://0.0.0.0:{port}");
+    }
+
+    private static async Task<(double[] prices, double[] volumes)> GetSubMinuteCandles(string? symbol, string asset, string timeframe, int limit)
+    {
+        string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+        var ticks = TwelveDataWebSocketManager.GetTicks(tdSymbol);
+        int tfSec = TimeframeSeconds(timeframe);
+
+        List<OhlcCandle> aggregatedCandles = new();
+
+        if (ticks.Length > 0)
+        {
+            // Sort ticks chronologically
+            var sortedTicks = ticks.OrderBy(t => t.timestamp).ToList();
+            
+            long firstBucket = ((DateTimeOffset)sortedTicks[0].timestamp).ToUnixTimeSeconds() / tfSec;
+            long lastBucket = ((DateTimeOffset)DateTime.UtcNow).ToUnixTimeSeconds() / tfSec;
+
+            // Group ticks by bucket
+            var tickBuckets = sortedTicks
+                .GroupBy(t => ((DateTimeOffset)t.timestamp).ToUnixTimeSeconds() / tfSec)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            double lastClose = sortedTicks[0].price;
+
+            for (long b = firstBucket; b <= lastBucket; b++)
+            {
+                if (tickBuckets.TryGetValue(b, out var bTicks))
+                {
+                    double open = bTicks[0].price;
+                    double close = bTicks[^1].price;
+                    double high = bTicks.Max(t => t.price);
+                    double low = bTicks.Min(t => t.price);
+                    double vol = bTicks.Count;
+
+                    aggregatedCandles.Add(new OhlcCandle(open, high, low, close, vol));
+                    lastClose = close;
+                }
+                else
+                {
+                    // Forward fill if bucket is empty
+                    aggregatedCandles.Add(new OhlcCandle(lastClose, lastClose, lastClose, lastClose, 0));
+                }
+            }
+        }
+
+        // If we don't have enough candles to satisfy the limit, fetch 1m candles and interpolate them
+        if (aggregatedCandles.Count < limit)
+        {
+            int needed = limit - aggregatedCandles.Count;
+            int subCandlesPerMinute = 60 / tfSec;
+            int fetchLimit = Math.Max(needed / subCandlesPerMinute + 10, 50);
+
+            try
+            {
+                var m1Result = await FetchBinanceWithFallback(symbol, "1m", asset, fetchLimit, 10);
+                string ohlcKey = symbol != null ? $"{symbol}_1m" : $"{asset}_1m";
+                var m1Ohlc = GetOhlcCandles(ohlcKey);
+
+                if (m1Ohlc != null && m1Ohlc.Length > 0)
+                {
+                    List<OhlcCandle> interpolated = new();
+
+                    foreach (var mCandle in m1Ohlc)
+                    {
+                        double startPrice = mCandle.Open;
+                        double endPrice = mCandle.Close;
+                        double range = endPrice - startPrice;
+
+                        for (int i = 0; i < subCandlesPerMinute; i++)
+                        {
+                            double fractionStart = (double)i / subCandlesPerMinute;
+                            double fractionEnd = (double)(i + 1) / subCandlesPerMinute;
+
+                            double open = startPrice + range * fractionStart;
+                            double close = startPrice + range * fractionEnd;
+                            
+                            double stepVol = (mCandle.High - mCandle.Low) / subCandlesPerMinute;
+                            double randomOffset = (Random.Shared.NextDouble() - 0.5) * stepVol * 0.5;
+
+                            double high = Math.Max(open, close) + Math.Abs(randomOffset);
+                            double low = Math.Min(open, close) - Math.Abs(randomOffset);
+
+                            high = Math.Min(high, mCandle.High);
+                            low = Math.Max(low, mCandle.Low);
+
+                            interpolated.Add(new OhlcCandle(open, high, low, close, mCandle.Volume / subCandlesPerMinute));
+                        }
+                    }
+
+                    // Prepend interpolated candles
+                    interpolated.AddRange(aggregatedCandles);
+                    aggregatedCandles = interpolated;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Aggregator Warning] Interpolation base fetch failed: {ex.Message}");
+            }
+        }
+
+        // Slice to the requested limit
+        if (aggregatedCandles.Count > limit)
+        {
+            aggregatedCandles = aggregatedCandles.Skip(aggregatedCandles.Count - limit).ToList();
+        }
+
+        // Cache the custom sub-minute OHLC candles for indicator/pattern analysis
+        string cacheKey = symbol != null ? $"{symbol}_{timeframe.ToLower()}" : $"{asset}_{timeframe.ToLower()}";
+        SetOhlcCandles(cacheKey, aggregatedCandles.ToArray());
+
+        var prices = aggregatedCandles.Select(c => c.Close).ToArray();
+        var volumes = aggregatedCandles.Select(c => c.Volume).ToArray();
+        return (prices, volumes);
     }
 
     private static string IntervalMap(string tf) => tf.ToLower() switch
@@ -477,12 +594,12 @@ public static class MiniAppController
         return (prices, volumes);
     }
 
-    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50)
+    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
     {
         if (symbol != null)
         {
             string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
-            if (_cache.TryGetValue(binanceCacheKey, out object? cachedVal) && cachedVal is ValueTuple<double[], double[]> cachedTuple)
+            if (cacheTtlSeconds > 0 && _cache.TryGetValue(binanceCacheKey, out object? cachedVal) && cachedVal is ValueTuple<double[], double[]> cachedTuple)
             {
                 return cachedTuple;
             }
@@ -493,7 +610,7 @@ public static class MiniAppController
         {
             if (originalAsset != null)
             {
-                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval);
+                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval, limit, cacheTtlSeconds);
                 if (tdResult != null)
                     return tdResult.Value;
             }
@@ -503,8 +620,11 @@ public static class MiniAppController
         try
         {
             var res = await FetchBinanceCandles(symbol, interval, limit);
-            string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
-            _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(2));
+            if (cacheTtlSeconds > 0)
+            {
+                string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
+                _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(Math.Min(2, cacheTtlSeconds)));
+            }
             return res;
         }
         catch
@@ -512,7 +632,7 @@ public static class MiniAppController
             // Try Twelve Data for forex pairs
             if (originalAsset != null)
             {
-                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval);
+                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval, limit, cacheTtlSeconds);
                 if (tdResult != null)
                 {
                     Console.WriteLine($"[Fetch] Binance {symbol} not found, got from TwelveData ({originalAsset})");
@@ -595,7 +715,10 @@ public static class MiniAppController
         }
         double avgGain = gain / period;
         double avgLoss = loss / period;
-        if (avgLoss < 1e-12) return 100;
+        if (avgLoss < 1e-12)
+        {
+            return avgGain < 1e-12 ? 50.0 : 100.0;
+        }
         double rs = avgGain / avgLoss;
         return 100 - 100 / (1 + rs);
     }
@@ -918,9 +1041,22 @@ public static class MiniAppController
                 }
             }
 
-            var mainResultTuple = await FetchBinanceWithFallback(symbol, mainInterval, asset, limit);
-            var mainPrices = mainResultTuple.prices;
-            var mainVolumes = mainResultTuple.volumes;
+            double[] mainPrices;
+            double[] mainVolumes;
+
+            if (timeframe.ToLower().StartsWith("s"))
+            {
+                var subMinuteResult = await GetSubMinuteCandles(symbol, asset, timeframe, limit);
+                mainPrices = subMinuteResult.prices;
+                mainVolumes = subMinuteResult.volumes;
+            }
+            else
+            {
+                int mainCacheTtl = 10;
+                var mainResultTuple = await FetchBinanceWithFallback(symbol, mainInterval, asset, limit, mainCacheTtl);
+                mainPrices = mainResultTuple.prices;
+                mainVolumes = mainResultTuple.volumes;
+            }
 
             // Check for flat/closed market (all prices identical or static)
             if (mainPrices != null && mainPrices.Length >= 15)
@@ -1068,7 +1204,9 @@ public static class MiniAppController
             }
 
             // ─── OHLC keys для True ADX + ATR ───
-            string mainOhlcKey = symbol != null ? $"{symbol}_{mainInterval}" : $"{asset}_{mainInterval}";
+            string mainOhlcKey = timeframe.ToLower().StartsWith("s")
+                ? (symbol != null ? $"{symbol}_{timeframe.ToLower()}" : $"{asset}_{timeframe.ToLower()}")
+                : (symbol != null ? $"{symbol}_{mainInterval}" : $"{asset}_{mainInterval}");
             string? higherOhlcKey = higherTf != null
                 ? (symbol != null ? $"{symbol}_{IntervalMap(higherTf)}" : $"{asset}_{IntervalMap(higherTf)}") : null;
             string? lowerOhlcKey = lowerTf != null

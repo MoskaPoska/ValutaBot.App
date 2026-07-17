@@ -21,7 +21,7 @@ public static class TwelveDataService
         string key = $"{rawAsset}_{interval}";
 
         // 1. Check cache first for fresh data (less than cacheTtlSeconds old)
-        if (_cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < cacheTtlSeconds)
+        if (cacheTtlSeconds > 0 && _cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < cacheTtlSeconds)
         {
             Console.WriteLine($"[TwelveData] Using cached data for {rawAsset} ({interval}) - fresh");
             return (cached.prices, cached.volumes);
@@ -179,6 +179,42 @@ public static class TwelveDataWebSocketManager
     private static readonly SemaphoreSlim _lock = new(1, 1);
     private static CancellationTokenSource? _cts;
 
+    private static readonly ConcurrentDictionary<string, ConcurrentQueue<(double price, DateTime timestamp)>> _tickHistory = new();
+
+    public static void RecordTick(string symbol, double price)
+    {
+        if (string.IsNullOrEmpty(symbol) || price <= 0) return;
+        var queue = _tickHistory.GetOrAdd(symbol, _ => new ConcurrentQueue<(double price, DateTime timestamp)>());
+        queue.Enqueue((price, DateTime.UtcNow));
+        
+        // Keep history limited to 15 minutes to save memory
+        DateTime cutoff = DateTime.UtcNow.AddMinutes(-15);
+        while (queue.TryPeek(out var oldest) && oldest.timestamp < cutoff)
+        {
+            queue.TryDequeue(out _);
+        }
+    }
+
+    public static (double price, DateTime timestamp)[] GetTicks(string symbol)
+    {
+        if (_tickHistory.TryGetValue(symbol, out var queue))
+        {
+            return queue.ToArray();
+        }
+        return Array.Empty<(double price, DateTime timestamp)>();
+    }
+
+    public static async Task StartBackgroundStreamingAsync()
+    {
+        string[] defaultSymbols = new[] { "EUR/USD", "GBP/USD", "AUD/USD", "USD/JPY", "USD/CHF", "USD/CAD", "NZD/USD", "BTC/USD" };
+        
+        await EnsureTwelveWebSocketConnectedAsync();
+        foreach (var symbol in defaultSymbols)
+        {
+            await SubscribeToSymbolAsync(symbol);
+        }
+    }
+
     public static double GetLastPrice(string symbol)
     {
         if (_lastPrices.TryGetValue(symbol, out var val) && (DateTime.UtcNow - val.updatedAt).TotalSeconds < 15)
@@ -326,6 +362,7 @@ public static class TwelveDataWebSocketManager
                         if (price > 0)
                         {
                             _lastPrices[symbol] = (price, DateTime.UtcNow);
+                            RecordTick(symbol, price);
                             await BroadcastToClientsAsync(symbol, price);
                         }
                     }

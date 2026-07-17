@@ -1130,7 +1130,6 @@ public static class MiniAppUI
             overflow-y: auto;
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
-
     </style>
 </head>
 <body>
@@ -1249,7 +1248,6 @@ public static class MiniAppUI
                 <span class='label'>До закрытия свечи</span>
                 <span class='time' id='candleTime'>--</span>
             </div>
-
             <!-- Live Price Panel -->
             <div class='live-price-container' id='livePriceContainer' style='display:none'>
                 <span class='live-price-dot'>●</span>
@@ -2034,3 +2032,4 @@ public static class MiniAppUI
 </html>";
     }
 }
+
