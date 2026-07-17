@@ -2235,7 +2235,9 @@ public static class MiniAppUI
                                     
                                     try {
                                         const parsed = JSON.parse(text);
-                                        if (lastBinaryEvent === 'updateCharts' || lastBinaryEvent === 'updateStream') {
+                                        if (lastBinaryEvent === 'updateCharts') {
+                                            processUpdateCharts(parsed);
+                                        } else if (lastBinaryEvent === 'updateStream') {
                                             processUpdateStream(parsed);
                                         }
                                     } catch (jsonErr) {}
@@ -2343,6 +2345,56 @@ public static class MiniAppUI
                 sendPrice(asset, price);
             }
         }
+    }
+
+    function processUpdateCharts(payload) {
+        if (Array.isArray(payload)) {
+            for (const item of payload) {
+                if (item && item.symbol && Array.isArray(item.data)) {
+                    const symbol = item.symbol;
+                    const history = item.data.map(c => ({
+                        price: parseFloat(c[4]),
+                        timestamp: parseInt(c[0])
+                    })).filter(h => !isNaN(h.price) && !isNaN(h.timestamp));
+                    
+                    if (history.length > 0) {
+                        sendHistory(symbol, history);
+                    }
+                }
+            }
+        }
+    }
+
+    function sendHistory(asset, history) {
+        const normalized = normalize(asset);
+        const endpoint = BACKEND_URL + '/api/update-otc-history';
+        const payload = JSON.stringify({ asset: normalized, history: history });
+        
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: endpoint,
+                data: payload,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                onload: function(response) {
+                    console.log('[ValutaBot Sync] History synced for ' + normalized + ' (' + history.length + ' points)');
+                },
+                onerror: function(err) {
+                    console.error('[ValutaBot Sync] History sync failed for ' + normalized + ':', err);
+                }
+            });
+        } else {
+            fetch(endpoint, {
+                method: 'POST',
+                body: payload,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(() => console.log('[ValutaBot Sync] History synced via fetch for ' + normalized))
+            .catch(err => console.error('[ValutaBot Sync] Fetch history failed:', err));
     }
 
     let lastSent = {};

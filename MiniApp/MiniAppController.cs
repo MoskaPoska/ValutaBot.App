@@ -89,6 +89,34 @@ public static class MiniAppController
             return Results.Ok(new { success = true });
         });
 
+        app.MapPost("/api/update-otc-history", async (HttpContext context) =>
+        {
+            try
+            {
+                using var reader = new System.IO.StreamReader(context.Request.Body);
+                string body = await reader.ReadToEndAsync();
+                using var doc = System.Text.Json.JsonDocument.Parse(body);
+                var root = doc.RootElement;
+                string asset = root.GetProperty("asset").GetString() ?? "";
+                var historyElement = root.GetProperty("history");
+                var history = new List<OtcTickService.OtcHistoryPoint>();
+                foreach (var item in historyElement.EnumerateArray())
+                {
+                    history.Add(new OtcTickService.OtcHistoryPoint
+                    {
+                        Price = item.GetProperty("price").GetDouble(),
+                        Timestamp = item.GetProperty("timestamp").GetInt64()
+                    });
+                }
+                OtcTickService.AddHistory(asset, history);
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         app.MapGet("/api/otc-status", (HttpContext context, string asset) =>
         {
             bool active = OtcTickService.IsAssetActive(asset);

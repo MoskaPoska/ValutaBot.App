@@ -49,8 +49,6 @@ public static class MLForecastService
             if (double.IsNaN(change) || double.IsInfinity(change))
                 change = 0;
 
-            string direction = change > 0.001 ? "BUY" : change < -0.001 ? "PUT" : "NEUTRAL";
-
             // Confidence based on volatility of prediction vs actual
             double volatility = 0;
             for (int i = 0; i < prices.Length - 1; i++)
@@ -58,6 +56,10 @@ public static class MLForecastService
             volatility /= (prices.Length - 1) * lastPrice;
             if (double.IsNaN(volatility) || double.IsInfinity(volatility) || volatility < 1e-9)
                 volatility = 0.001;
+
+            double minThreshold = prices[0] > 100 ? 0.0015 : 0.00015; // 0.15% for crypto, 0.015% for forex
+            double threshold = Math.Max(volatility * 0.15, minThreshold * 0.5);
+            string direction = change > threshold ? "BUY" : change < -threshold ? "PUT" : "NEUTRAL";
 
             double confidence = 100 - Math.Abs(change) * 1000 / (volatility * 100 + 0.01);
             if (double.IsNaN(confidence) || double.IsInfinity(confidence))

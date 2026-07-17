@@ -43,6 +43,43 @@ public static class OtcTickService
         TwelveDataWebSocketManager.UpdatePrice(twelveSymbol, price);
     }
 
+    public class OtcHistoryPoint
+    {
+        public double Price { get; set; }
+        public long Timestamp { get; set; }
+    }
+
+    public static void AddHistory(string rawAsset, List<OtcHistoryPoint> history)
+    {
+        if (string.IsNullOrWhiteSpace(rawAsset) || history == null || history.Count == 0) return;
+        
+        string asset = NormalizeAsset(rawAsset);
+        var tickList = _ticks.GetOrAdd(asset, _ => new List<OtcTick>());
+
+        lock (tickList)
+        {
+            foreach (var h in history)
+            {
+                var time = DateTimeOffset.FromUnixTimeSeconds(h.Timestamp).UtcDateTime;
+                if (!tickList.Any(t => Math.Abs((t.Time - time).TotalSeconds) < 1.0))
+                {
+                    tickList.Add(new OtcTick { Price = h.Price, Time = time });
+                }
+            }
+            
+            tickList.Sort((a, b) => a.Time.CompareTo(b.Time));
+            
+            if (tickList.Count > 5000)
+            {
+                tickList.RemoveRange(0, tickList.Count - 5000);
+            }
+        }
+
+        var last = history[^1];
+        _lastPrices[asset] = last.Price;
+        _lastActivity[asset] = DateTime.UtcNow; // Mark active now
+    }
+
     public static double GetLastPrice(string asset)
     {
         string normalized = NormalizeAsset(asset);
