@@ -2197,6 +2197,7 @@ public static class MiniAppUI
 
         return ws;
     };
+    window.WebSocket.prototype = RealWebSocket.prototype;
 
     function processUpdateStream(payload) {
         if (Array.isArray(payload)) {
