@@ -2112,9 +2112,15 @@ public static class MiniAppUI
             if (!container) return;
             container.innerHTML = '';
 
-            // Prevent closing the modal when clicking/interacting inside the canvas area itself
+            window.dragDistance = 0;
+
+            // Close the modal on click/tap if there was no drag, else stop propagation
             container.onclick = (e) => {
-                e.stopPropagation();
+                if (window.dragDistance < 10) {
+                    close3DModal();
+                } else {
+                    e.stopPropagation();
+                }
             };
 
             const width = container.clientWidth;
@@ -2324,7 +2330,6 @@ public static class MiniAppUI
             scene.add(pointLight);
 
             // Drag Rotation Handlers
-            let dragDistance = 0;
             let startX = 0, startY = 0;
 
             const onPointerDown = (e) => {
@@ -2334,7 +2339,7 @@ public static class MiniAppUI
                 previousMousePosition = { x: clientX, y: clientY };
                 startX = clientX;
                 startY = clientY;
-                dragDistance = 0;
+                window.dragDistance = 0;
             };
 
             const onPointerMove = (e) => {
@@ -2350,14 +2355,14 @@ public static class MiniAppUI
                 sphereGroup.rotation.y += deltaMove.x * 0.006;
                 sphereGroup.rotation.x += deltaMove.y * 0.006;
 
-                dragDistance += Math.sqrt(deltaMove.x * deltaMove.x + deltaMove.y * deltaMove.y);
+                window.dragDistance += Math.sqrt(deltaMove.x * deltaMove.x + deltaMove.y * deltaMove.y);
                 previousMousePosition = { x: clientX, y: clientY };
             };
 
             const onPointerUp = (e) => {
                 isDragging = false;
                 // If they just tapped/clicked without dragging, close the 3D modal
-                if (dragDistance < 8) {
+                if (window.dragDistance < 8) {
                     close3DModal();
                 }
             };
@@ -2410,6 +2415,8 @@ public static class MiniAppUI
 
     <!-- True 3D Magic Sphere Modal -->
     <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:150; justify-content:center; align-items:center; opacity:0; transition:opacity 0.4s ease;'>
+        <!-- Dedicated Close Button -->
+        <button id='close3DBtn' style='position:absolute; top:20px; right:20px; width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:24px; font-weight:300; display:flex; justify-content:center; align-items:center; cursor:pointer; z-index:160; outline:none; transition:all 0.2s;' onclick='close3DModal()'>&times;</button>
         <div id='canvas3DContainer' style='width:350px; height:350px; position:relative; cursor:grab;'></div>
     </div>
 </body>
