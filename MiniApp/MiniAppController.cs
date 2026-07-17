@@ -767,6 +767,193 @@ public static class MiniAppController
         return volStrength * 2; // scale to -2..+2 influence range
     }
 
+    private static (double wt1, double wt2) ComputeWaveTrend(MiniAppController.OhlcCandle[] candles, int channelLength = 10, int averageLength = 21)
+    {
+        if (candles == null || candles.Length < Math.Max(channelLength, averageLength) + 5)
+            return (0.0, 0.0);
+
+        int n = candles.Length;
+        double[] typicalPrices = new double[n];
+        for (int i = 0; i < n; i++)
+        {
+            typicalPrices[i] = (candles[i].High + candles[i].Low + candles[i].Close) / 3.0;
+        }
+
+        // 1. EMA of typical price
+        double[] esa = ComputeEmaArray(typicalPrices, channelLength);
+
+        // 2. Absolute deviation
+        double[] absDev = new double[n];
+        for (int i = 0; i < n; i++)
+        {
+            absDev[i] = Math.Abs(typicalPrices[i] - esa[i]);
+        }
+
+        // 3. EMA of absolute deviation
+        double[] de = ComputeEmaArray(absDev, channelLength);
+
+        // 4. Channel Index
+        double[] ci = new double[n];
+        for (int i = 0; i < n; i++)
+        {
+            ci[i] = (typicalPrices[i] - esa[i]) / (0.015 * de[i] + 1e-10);
+        }
+
+        // 5. WaveTrend 1 (WT1) = EMA of Channel Index
+        double[] wt1 = ComputeEmaArray(ci, averageLength);
+
+        // 6. WaveTrend 2 (WT2) = 4-period SMA of WT1
+        double[] wt2 = new double[n];
+        for (int i = 0; i < n; i++)
+        {
+            int start = Math.Max(0, i - 3);
+            double sum = 0;
+            int count = 0;
+            for (int j = start; j <= i; j++)
+            {
+                sum += wt1[j];
+                count++;
+            }
+            wt2[i] = sum / count;
+        }
+
+        return (wt1[^1], wt2[^1]);
+    }
+
+    private static (string trend, double superTrendValue) ComputeSuperTrend(MiniAppController.OhlcCandle[] candles, int period = 10, double multiplier = 3.0)
+    {
+        if (candles == null || candles.Length < period + 5)
+            return ("NEUTRAL", 0.0);
+
+        int n = candles.Length;
+        
+        // Compute ATR
+        double[] tr = new double[n];
+        tr[0] = candles[0].High - candles[0].Low;
+        for (int i = 1; i < n; i++)
+        {
+            double hMinusL = candles[i].High - candles[i].Low;
+            double hMinusPc = Math.Abs(candles[i].High - candles[i - 1].Close);
+            double lMinusPc = Math.Abs(candles[i].Low - candles[i - 1].Close);
+            tr[i] = Math.Max(hMinusL, Math.Max(hMinusPc, lMinusPc));
+        }
+
+        // EMA of True Range to get ATR
+        double[] atr = ComputeEmaArray(tr, period);
+
+        double[] finalUpperBand = new double[n];
+        double[] finalLowerBand = new double[n];
+        bool[] isBullish = new bool[n];
+        double[] superTrend = new double[n];
+
+        // Init first values
+        double basicUpper = (candles[0].High + candles[0].Low) / 2.0 + multiplier * atr[0];
+        double basicLower = (candles[0].High + candles[0].Low) / 2.0 - multiplier * atr[0];
+        finalUpperBand[0] = basicUpper;
+        finalLowerBand[0] = basicLower;
+        isBullish[0] = candles[0].Close > basicUpper;
+        superTrend[0] = isBullish[0] ? basicLower : basicUpper;
+
+        for (int i = 1; i < n; i++)
+        {
+            double median = (candles[i].High + candles[i].Low) / 2.0;
+            basicUpper = median + multiplier * atr[i];
+            basicLower = median - multiplier * atr[i];
+
+            finalUpperBand[i] = (basicUpper < finalUpperBand[i - 1] || candles[i - 1].Close > finalUpperBand[i - 1]) ? basicUpper : finalUpperBand[i - 1];
+            finalLowerBand[i] = (basicLower > finalLowerBand[i - 1] || candles[i - 1].Close < finalLowerBand[i - 1]) ? basicLower : finalLowerBand[i - 1];
+
+            isBullish[i] = isBullish[i - 1];
+            if (candles[i].Close > finalUpperBand[i])
+                isBullish[i] = true;
+            else if (candles[i].Close < finalLowerBand[i])
+                isBullish[i] = false;
+
+            superTrend[i] = isBullish[i] ? finalLowerBand[i] : finalUpperBand[i];
+        }
+
+        return (isBullish[^1] ? "BULLISH" : "BEARISH", superTrend[^1]);
+    }
+
+    private static double AnalyzeVolumeSpread(MiniAppController.OhlcCandle[] candles)
+    {
+        if (candles == null || candles.Length < 10) return 0.0;
+
+        int last = candles.Length - 1;
+        double spread = candles[last].High - candles[last].Low;
+        double volume = candles[last].Volume;
+
+        // Compute average spread and volume for context
+        double[] spreads = candles.Skip(candles.Length - 10).Take(10).Select(c => c.High - c.Low).ToArray();
+        double[] volumes = candles.Skip(candles.Length - 10).Take(10).Select(c => c.Volume).ToArray();
+        
+        double avgSpread = spreads.Average();
+        double avgVolume = volumes.Average();
+
+        if (avgSpread < 1e-10 || avgVolume < 1e-10) return 0.0;
+
+        double spreadRatio = spread / avgSpread;
+        double volumeRatio = volume / avgVolume;
+
+        // Volume Spread Analysis (VSA)
+        if (candles[last].Close > candles[last].Open)
+        {
+            // High Volume + High Spread -> Strong Bullish Continuation
+            if (volumeRatio > 1.3 && spreadRatio > 1.3) return 0.4;
+            // High Volume + Tiny Spread -> Absorption / Exhaustion (Bearish Reversal Risk)
+            if (volumeRatio > 1.4 && spreadRatio < 0.7) return -0.4;
+            // Low Volume + High Spread -> Fake Bullish Breakout
+            if (volumeRatio < 0.7 && spreadRatio > 1.3) return -0.3;
+        }
+        else
+        {
+            // High Volume + High Spread -> Strong Bearish Continuation
+            if (volumeRatio > 1.3 && spreadRatio > 1.3) return -0.4;
+            // High Volume + Tiny Spread -> Absorption / Exhaustion (Bullish Reversal Risk)
+            if (volumeRatio > 1.4 && spreadRatio < 0.7) return 0.4;
+            // Low Volume + High Spread -> Fake Bearish Breakout
+            if (volumeRatio < 0.7 && spreadRatio > 1.3) return 0.3;
+        }
+
+        return 0.0;
+    }
+
+    private static double GetFibonacciBounce(double[] prices)
+    {
+        if (prices == null || prices.Length < 30) return 0.0;
+
+        double swingHigh = prices.Max();
+        double swingLow = prices.Min();
+        double range = swingHigh - swingLow;
+
+        if (range < 1e-10) return 0.0;
+
+        double currentPrice = prices[^1];
+        bool generalTrendUp = prices[^1] > prices[0];
+
+        // Fibonacci Retracement Levels
+        double fib618 = generalTrendUp ? swingHigh - 0.618 * range : swingLow + 0.618 * range;
+        double fib50 = generalTrendUp ? swingHigh - 0.5 * range : swingLow + 0.5 * range;
+        double fib382 = generalTrendUp ? swingHigh - 0.382 * range : swingLow + 0.382 * range;
+
+        double tolerance = 0.02 * range;
+
+        if (generalTrendUp)
+        {
+            if (Math.Abs(currentPrice - fib618) < tolerance) return 0.35;
+            if (Math.Abs(currentPrice - fib50) < tolerance) return 0.25;
+            if (Math.Abs(currentPrice - fib382) < tolerance) return 0.15;
+        }
+        else
+        {
+            if (Math.Abs(currentPrice - fib618) < tolerance) return -0.35;
+            if (Math.Abs(currentPrice - fib50) < tolerance) return -0.25;
+            if (Math.Abs(currentPrice - fib382) < tolerance) return -0.15;
+        }
+
+        return 0.0;
+    }
+
     /* ─── True ADX (Wilders) & ATR ─── */
 
     private static (double adx, double plusDi, double minusDi) ComputeTrueAdx(MiniAppController.OhlcCandle[] candles, int period = 14)
@@ -930,7 +1117,7 @@ public static class MiniAppController
     /* ─── Scoring Engine ─── */
 
     private static (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal)
-        ScoreTimeframe(double[] prices, double[] volumes, double? adxOverride = null, double? atrOverride = null)
+        ScoreTimeframe(double[] prices, double[] volumes, OhlcCandle[]? candles = null, double? adxOverride = null, double? atrOverride = null)
     {
         int n = prices.Length;
         if (n < EmaLong + 5) return (0, 50, 50, 0, 0, 0);
@@ -990,10 +1177,43 @@ public static class MiniAppController
             rsiScore = Math.Clamp((50 - rsi) / 25.0, 0.0, 1.2);
         score += rsiScore * rangeWeight;
 
+        // 5. WaveTrend Oscillator (Advanced Range / Cycle oscillator)
+        if (candles != null)
+        {
+            var (wt1, wt2) = ComputeWaveTrend(candles);
+            double wtDiff = wt1 - wt2;
+            double waveTrendScore = 0;
+
+            // Exhaustion zones WT1 > 50 or < -50
+            if (wt1 > 50.0) waveTrendScore -= Math.Clamp((wt1 - 30.0) / 30.0, 0.0, 1.3);
+            else if (wt1 < -50.0) waveTrendScore += Math.Clamp((-30.0 - wt1) / 30.0, 0.0, 1.3);
+
+            // Cross over/under momentum
+            waveTrendScore += Math.Clamp(wtDiff / 10.0, -0.8, 0.8);
+            score += waveTrendScore * rangeWeight;
+        }
+
+        // 6. SuperTrend Trailing Stop
+        if (candles != null)
+        {
+            var (stTrend, _) = ComputeSuperTrend(candles);
+            if (stTrend == "BULLISH") score += 0.5 * trendWeight;
+            else if (stTrend == "BEARISH") score -= 0.5 * trendWeight;
+        }
+
+        // 7. Volume Spread Analysis (VSA)
+        if (candles != null)
+        {
+            score += AnalyzeVolumeSpread(candles);
+        }
+
+        // 8. Fibonacci golden ratio bounce
+        score += GetFibonacciBounce(prices);
+
         double confidence = 50;
         double absScore = Math.Abs(score);
-        if (absScore >= 2.5) confidence = 90;
-        else if (absScore >= 1.5) confidence = 75;
+        if (absScore >= 3.0) confidence = 92;
+        else if (absScore >= 1.8) confidence = 78;
         else confidence = 50;
 
         return (score, confidence, rsi, emaS, 0.0, atr);
@@ -1287,14 +1507,14 @@ public static class MiniAppController
             double mainAtr = mainOhlc != null ? ComputeAtr(mainOhlc) : 0;
 
             // Store results for conflict detection
-            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, mainAdx, mainAtr);
+            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, candles: mainOhlc, adxOverride: mainAdx, atrOverride: mainAtr);
             double conflictPenalty = 1.0;
 
             if (higherResultData != null)
             {
                 var (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
                 double hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
-                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, hAdx, hAtr);
+                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr);
                 conflictPenalty = MfConflictPenalty(mainResult, higherResult);
 
                 totalScore += higherResult.score;
@@ -1311,7 +1531,7 @@ public static class MiniAppController
             {
                 var (lAdx, lPdi, lMdi) = lowerOhlc != null ? ComputeTrueAdx(lowerOhlc) : (20.0, 0.0, 0.0);
                 double lAtr = lowerOhlc != null ? ComputeAtr(lowerOhlc) : 0;
-                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes, lAdx, lAtr);
+                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes, candles: lowerOhlc, adxOverride: lAdx, atrOverride: lAtr);
 
                 totalScore += lowerResult.score;
                 totalConfidence += lowerResult.confidence * 0.5;
@@ -1360,7 +1580,7 @@ public static class MiniAppController
                 var hVolumes = higherResultData.Value.volumes;
                 var (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
                 double hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
-                var hResult = ScoreTimeframe(hPrices, hVolumes, hAdx, hAtr);
+                var hResult = ScoreTimeframe(hPrices, hVolumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr);
                 var (hMacd, hMacdSig) = ComputeMacd(hPrices, hPrices.Length - 1);
                 double hBbZ = ComputeBollingerZscore(hPrices, 20);
                 
