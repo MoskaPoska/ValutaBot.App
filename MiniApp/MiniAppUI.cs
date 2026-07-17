@@ -2158,7 +2158,7 @@ public static class MiniAppUI
 // @match        *://po.market/*
 // @match        *://*.po.market/*
 // @allFrames    true
-// @grant        none
+// @grant        GM_xmlhttpRequest
 // @run-at       document-start
 // ==/UserScript==
 
@@ -2234,10 +2234,16 @@ public static class MiniAppUI
         lastSent[normalized] = now;
 
         const endpoint = BACKEND_URL + '/api/update-otc-price?asset=' + encodeURIComponent(normalized) + '&price=' + price;
-        fetch(endpoint, { method: 'POST', mode: 'no-cors' })
-            .catch(err => {
-                // Background failures are ignored
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: endpoint,
+                onload: function() {},
+                onerror: function() {}
             });
+        } else {
+            fetch(endpoint, { method: 'POST', mode: 'no-cors' }).catch(err => {});
+        }
     }
 
     function normalize(name) {
