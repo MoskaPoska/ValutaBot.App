@@ -1205,7 +1205,7 @@ public static class MiniAppController
 
             // ─── News Analysis (нормализован к −1..+1) ───
             var newsResult = NewsAnalysisService.Analyze(asset);
-            if (Math.Abs(newsResult.score) > 0.1)
+            if (Math.Abs(newsResult.score) > 0.1 && !asset.Contains("OTC"))
             {
                 double newsScoreNormalized = Math.Clamp(newsResult.score / 2.0, -1, 1);
                 totalScore += newsScoreNormalized;
@@ -1249,7 +1249,7 @@ public static class MiniAppController
             var higherOhlc = higherOhlcKey != null ? GetOhlcCandles(higherOhlcKey) : null;
             var lowerOhlc = lowerOhlcKey != null ? GetOhlcCandles(lowerOhlcKey) : null;
 
-            if (symbol == null)
+            if (symbol == null && !asset.Contains("OTC"))
             {
                 string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
                 double lastWsPrice = TwelveDataWebSocketManager.GetLastPrice(tdSymbol);
