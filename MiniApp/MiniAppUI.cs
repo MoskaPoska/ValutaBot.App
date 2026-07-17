@@ -12,6 +12,7 @@ public static class MiniAppUI
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>
     <title>TradeBE бот — анализ рынка</title>
     <script src='https://telegram.org/js/telegram-web-app.js'></script>
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Inter:wght@400;600;700;800&display=swap');
         :root {
@@ -2069,7 +2070,259 @@ public static class MiniAppUI
             toggle.innerText = open ? '\u25BD Заголовки' : '\u25B8 Заголовки';
         }
 
+        /* ─── 3D Sphere Logic ─── */
+        let activeScene = false;
+        let renderer = null, scene = null, camera = null, sphereGroup = null;
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+
+        document.getElementById('mainSphere').onclick = () => {
+            open3DModal();
+        };
+
+        document.getElementById('magic3DModal').onclick = (e) => {
+            if (e.target.id === 'magic3DModal') {
+                close3DModal();
+            }
+        };
+
+        function open3DModal() {
+            const modal = document.getElementById('magic3DModal');
+            if (!modal) return;
+            
+            modal.style.display = 'flex';
+            modal.offsetHeight; // trigger reflow
+            modal.style.opacity = '1';
+            activeScene = true;
+
+            init3DScene();
+        }
+
+        function close3DModal() {
+            const modal = document.getElementById('magic3DModal');
+            if (!modal) return;
+            modal.style.opacity = '0';
+            activeScene = false;
+            setTimeout(() => {
+                modal.style.display = 'none';
+                destroy3DScene();
+            }, 400);
+        }
+
+        function init3DScene() {
+            const container = document.getElementById('canvas3DContainer');
+            if (!container) return;
+            container.innerHTML = '';
+
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.z = 7.5;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            sphereGroup = new THREE.Group();
+            scene.add(sphereGroup);
+
+            // 1. Outer Glassy Sphere with refracting physical material
+            const outerGeo = new THREE.SphereGeometry(2.0, 64, 64);
+            const outerMat = new THREE.MeshPhysicalMaterial({
+                color: 0x7c4dff,
+                transparent: true,
+                opacity: 0.38,
+                roughness: 0.05,
+                metalness: 0.1,
+                transmission: 0.9,
+                ior: 1.45,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            const outerSphere = new THREE.Mesh(outerGeo, outerMat);
+            sphereGroup.add(outerSphere);
+
+            // 2. Inner Glowing Energy Core
+            const coreGeo = new THREE.SphereGeometry(0.8, 32, 32);
+            const coreMat = new THREE.MeshBasicMaterial({
+                color: 0x00e5ff,
+                transparent: true,
+                opacity: 0.95
+            });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            sphereGroup.add(core);
+
+            // 3. Astrolabe Rings
+            const ringGroup = new THREE.Group();
+            sphereGroup.add(ringGroup);
+
+            const torusGeo1 = new THREE.TorusGeometry(2.35, 0.03, 16, 100);
+            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.7 });
+            const ring1 = new THREE.Mesh(torusGeo1, ringMat1);
+            ringGroup.add(ring1);
+
+            const torusGeo2 = new THREE.TorusGeometry(2.45, 0.02, 16, 100);
+            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0.65 });
+            const ring2 = new THREE.Mesh(torusGeo2, ringMat2);
+            ring2.rotation.x = Math.PI / 2;
+            ringGroup.add(ring2);
+
+            const torusGeo3 = new THREE.TorusGeometry(2.55, 0.015, 16, 100);
+            const ringMat3 = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.55 });
+            const ring3 = new THREE.Mesh(torusGeo3, ringMat3);
+            ring3.rotation.y = Math.PI / 4;
+            ringGroup.add(ring3);
+
+            // 4. Magic Particles (Swirling inside/around outer sphere)
+            const particleCount = 200;
+            const particleGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+
+            const colorPurple = new THREE.Color(0xb388ff);
+            const colorCyan = new THREE.Color(0x00e5ff);
+
+            for (let i = 0; i < particleCount; i++) {
+                const u = Math.random();
+                const v = Math.random();
+                const theta = u * 2.0 * Math.PI;
+                const phi = Math.acos(2.0 * v - 1.0);
+                const r = Math.cbrt(Math.random()) * 1.95;
+
+                positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = r * Math.cos(phi);
+
+                const col = Math.random() > 0.5 ? colorPurple : colorCyan;
+                colors[i * 3] = col.r;
+                colors[i * 3 + 1] = col.g;
+                colors[i * 3 + 2] = col.b;
+            }
+
+            particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const pCanvas = document.createElement('canvas');
+            pCanvas.width = 16;
+            pCanvas.height = 16;
+            const pCtx = pCanvas.getContext('2d');
+            const grad = pCtx.createRadialGradient(8, 8, 0, 8, 8, 8);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            pCtx.fillStyle = grad;
+            pCtx.fillRect(0, 0, 16, 16);
+            const pTexture = new THREE.CanvasTexture(pCanvas);
+
+            const particleMat = new THREE.PointsMaterial({
+                size: 0.16,
+                map: pTexture,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.85,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            const particles = new THREE.Points(particleGeo, particleMat);
+            sphereGroup.add(particles);
+
+            // 5. Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const dirLight1 = new THREE.DirectionalLight(0x00e5ff, 1.5);
+            dirLight1.position.set(5, 5, 5);
+            scene.add(dirLight1);
+
+            const dirLight2 = new THREE.DirectionalLight(0x7c4dff, 1.5);
+            dirLight2.position.set(-5, -5, 3);
+            scene.add(dirLight2);
+
+            const pointLight = new THREE.PointLight(0xb388ff, 2.0, 10);
+            pointLight.position.set(0, 0, 0);
+            scene.add(pointLight);
+
+            // Mouse / Touch Drag Rotations
+            const onPointerDown = (e) => {
+                isDragging = true;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                previousMousePosition = { x: clientX, y: clientY };
+            };
+
+            const onPointerMove = (e) => {
+                if (!isDragging || !sphereGroup) return;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                const deltaMove = {
+                    x: clientX - previousMousePosition.x,
+                    y: clientY - previousMousePosition.y
+                };
+
+                sphereGroup.rotation.y += deltaMove.x * 0.006;
+                sphereGroup.rotation.x += deltaMove.y * 0.006;
+
+                previousMousePosition = { x: clientX, y: clientY };
+            };
+
+            const onPointerUp = () => {
+                isDragging = false;
+            };
+
+            container.addEventListener('mousedown', onPointerDown);
+            container.addEventListener('mousemove', onPointerMove);
+            window.addEventListener('mouseup', onPointerUp);
+
+            container.addEventListener('touchstart', onPointerDown, { passive: true });
+            container.addEventListener('touchmove', onPointerMove, { passive: true });
+            window.addEventListener('touchend', onPointerUp);
+
+            // Render loop
+            function animate() {
+                if (!activeScene) return;
+                requestAnimationFrame(animate);
+
+                if (!isDragging) {
+                    sphereGroup.rotation.y += 0.003;
+                }
+
+                ring1.rotation.z += 0.005;
+                ring2.rotation.y += 0.007;
+                ring3.rotation.x -= 0.004;
+
+                const time = Date.now() * 0.002;
+                particleMat.size = 0.16 + Math.sin(time) * 0.03;
+                const coreScale = 1.0 + Math.sin(time * 2.0) * 0.06;
+                core.scale.set(coreScale, coreScale, coreScale);
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        }
+
+        function destroy3DScene() {
+            if (renderer) {
+                try {
+                    renderer.dispose();
+                } catch(e) {}
+                renderer = null;
+            }
+            scene = null;
+            camera = null;
+            sphereGroup = null;
+        }
+
     </script>
+
+    <!-- True 3D Magic Sphere Modal -->
+    <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:150; justify-content:center; align-items:center; opacity:0; transition:opacity 0.4s ease;'>
+        <div id='canvas3DContainer' style='width:350px; height:350px; position:relative; cursor:grab;'></div>
+    </div>
 </body>
 </html>";
     }
