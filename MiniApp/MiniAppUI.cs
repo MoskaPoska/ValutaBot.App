@@ -2158,6 +2158,7 @@ public static class MiniAppUI
 // @match        *://po.market/*
 // @match        *://*.po.market/*
 // @allFrames    true
+// @connect      *
 // @grant        GM_xmlhttpRequest
 // @run-at       document-start
 // ==/UserScript==
@@ -2238,11 +2239,21 @@ public static class MiniAppUI
             GM_xmlhttpRequest({
                 method: 'POST',
                 url: endpoint,
-                onload: function() {},
-                onerror: function() {}
+                onload: function(response) {
+                    console.log('[ValutaBot Sync] Price sent successfully for ' + normalized + ': ' + price);
+                },
+                onerror: function(err) {
+                    console.error('[ValutaBot Sync] Failed to send price for ' + normalized + ':', err);
+                }
             });
         } else {
-            fetch(endpoint, { method: 'POST', mode: 'no-cors' }).catch(err => {});
+            fetch(endpoint, { method: 'POST', mode: 'no-cors' })
+                .then(() => {
+                    console.log('[ValutaBot Sync] Price sent via fetch for ' + normalized + ': ' + price);
+                })
+                .catch(err => {
+                    console.error('[ValutaBot Sync] Fetch failed for ' + normalized + ':', err);
+                });
         }
     }
 
