@@ -2262,6 +2262,8 @@ public static class MiniAppUI
         }
     } catch (e) {
         console.error('[ValutaBot Sync] Failed to hook HTMLIFrameElement.contentWindow:', e);
+    }
+
     function processUpdateStream(payload) {
         if (Array.isArray(payload)) {
             for (const item of payload) {
