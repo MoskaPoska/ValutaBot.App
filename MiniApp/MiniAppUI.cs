@@ -1562,7 +1562,6 @@ public static class MiniAppUI
             const sphere = document.getElementById('mainSphere');
             if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
             initPriceWebSocket();
-            pollSyncStatus();
         }
 
         function setTf(el) {
