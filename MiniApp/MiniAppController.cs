@@ -943,16 +943,34 @@ public static class MiniAppController
         double emaS = emaShortArr[^1];
         double emaL = emaLongArr[^1];
         double atr = atrOverride ?? 0;
+        double adx = adxOverride ?? 20.0;
 
         double score = 0;
 
+        // Trend vs Range scaling factors based on ADX (Average Directional Index)
+        double trendWeight = 1.0;
+        double rangeWeight = 1.0;
+
+        if (adx > 25.0)
+        {
+            // Strong trend: emphasize trend-following, suppress mean-reversion
+            trendWeight = adx > 40.0 ? 1.5 : 1.2;
+            rangeWeight = adx > 40.0 ? 0.3 : 0.5;
+        }
+        else if (adx < 20.0)
+        {
+            // Weak trend / Range bound: suppress trend indicators, emphasize mean-reversion
+            trendWeight = adx < 15.0 ? 0.4 : 0.6;
+            rangeWeight = adx < 15.0 ? 1.4 : 1.25;
+        }
+
         // 1. Trend Direction (EMA 9 vs 21) — proportional (no dead zone needed)
         double emaSpread = (emaS - emaL) / (lastPrice + 1e-10) * 10000; // basis points
-        score += Math.Clamp(emaSpread / 5.0, -1.0, 1.0);
+        score += Math.Clamp(emaSpread / 5.0, -1.0, 1.0) * trendWeight;
 
         // 2. Momentum (MACD vs Signal) — proportional (no dead zone needed)
         double macdDiff = (macd - signal) / (lastPrice + 1e-10) * 10000; // basis points
-        score += Math.Clamp(macdDiff / 3.0, -1.0, 1.0);
+        score += Math.Clamp(macdDiff / 3.0, -1.0, 1.0) * trendWeight;
 
         // 3. Acceleration (ROC 3 and 5) — raised threshold to filter 1-min noise
         double mom3 = prices.Length >= 4 ? (prices[^1] - prices[^4]) / prices[^4] * 100 : 0;
@@ -960,15 +978,17 @@ public static class MiniAppController
         double roccScore = 0;
         if (mom3 > 0.02) roccScore += 0.5; else if (mom3 < -0.02) roccScore -= 0.5;
         if (mom5 > 0.02) roccScore += 0.5; else if (mom5 < -0.02) roccScore -= 0.5;
-        score += roccScore;
+        score += roccScore * trendWeight;
 
         // 4. RSI — active mean-reversion signal (replaces old veto)
         // Overbought (>65): bearish pressure, strongest above 80
         // Oversold  (<35): bullish pressure, strongest below 20
+        double rsiScore = 0;
         if (rsi > 65)
-            score -= Math.Clamp((rsi - 50) / 25.0, 0.0, 1.2);
+            rsiScore = -Math.Clamp((rsi - 50) / 25.0, 0.0, 1.2);
         else if (rsi < 35)
-            score += Math.Clamp((50 - rsi) / 25.0, 0.0, 1.2);
+            rsiScore = Math.Clamp((50 - rsi) / 25.0, 0.0, 1.2);
+        score += rsiScore * rangeWeight;
 
         double confidence = 50;
         double absScore = Math.Abs(score);
