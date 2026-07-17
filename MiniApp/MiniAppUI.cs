@@ -2185,7 +2185,54 @@ public static class MiniAppUI
         };
 
         document.getElementById('magic3DModal').onclick = (e) => {
-                        // 1a. Outer Glassy Sphere
+            close3DModal();
+        };
+
+        function open3DModal() {
+            const modal = document.getElementById('magic3DModal');
+            if (!modal) return;
+            
+            modal.style.display = 'flex';
+            modal.offsetHeight; 
+            modal.style.opacity = '1';
+            activeScene = true;
+            openTime = Date.now();
+
+            init3DScene();
+        }
+
+        function close3DModal() {
+            if (Date.now() - openTime < 300) return;
+            const modal = document.getElementById('magic3DModal');
+            if (!modal) return;
+            modal.style.opacity = '0';
+            activeScene = false;
+            setTimeout(() => {
+                modal.style.display = 'none';
+                destroy3DScene();
+            }, 400);
+        }
+
+        function init3DScene() {
+            const container = document.getElementById('canvas3DContainer');
+            if (!container) return;
+            container.innerHTML = '';
+
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.z = 7.5;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            sphereGroup = new THREE.Group();
+            scene.add(sphereGroup);
+
             const outerGeo = new THREE.SphereGeometry(2.0, 64, 64);
             const outerMat = new THREE.MeshPhysicalMaterial({
                 color: 0x7c4dff,
