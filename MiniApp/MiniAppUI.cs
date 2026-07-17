@@ -2180,6 +2180,7 @@ public static class MiniAppUI
                 const ws = new RealWebSocket(url, protocols);
                 
                 let msgCount = 0;
+                let lastBinaryEvent = null;
                 ws.addEventListener('message', function(event) {
                     try {
                         const data = event.data;
@@ -2188,7 +2189,17 @@ public static class MiniAppUI
                                 msgCount++;
                                 console.log('[ValutaBot Sync] Msg #' + msgCount + ' (String):', data.substring(0, 150));
                             }
-                            if (data.startsWith('42')) {
+                            if (data.startsWith('45')) {
+                                try {
+                                    const firstBrace = data.indexOf('[');
+                                    if (firstBrace !== -1) {
+                                        const parsed = JSON.parse(data.substring(firstBrace));
+                                        if (Array.isArray(parsed) && parsed.length >= 1) {
+                                            lastBinaryEvent = parsed[0];
+                                        }
+                                    }
+                                } catch (e) {}
+                            } else if (data.startsWith('42')) {
                                 const parsed = JSON.parse(data.substring(2));
                                 if (Array.isArray(parsed) && parsed.length >= 2) {
                                     const eventName = parsed[0];
@@ -2200,9 +2211,35 @@ public static class MiniAppUI
                                 }
                             }
                         } else {
-                            if (msgCount < 15) {
-                                msgCount++;
-                                console.log('[ValutaBot Sync] Msg #' + msgCount + ' (Binary type):', data.constructor.name);
+                            // Binary message (ArrayBuffer)
+                            let arrayBuffer = null;
+                            if (data instanceof ArrayBuffer) {
+                                arrayBuffer = data;
+                            } else if (data && data.constructor && data.constructor.name === 'ArrayBuffer') {
+                                arrayBuffer = data;
+                            }
+                            
+                            if (arrayBuffer) {
+                                try {
+                                    const decoder = new TextDecoder('utf-8');
+                                    const text = decoder.decode(arrayBuffer);
+                                    if (msgCount < 15) {
+                                        msgCount++;
+                                        console.log('[ValutaBot Sync] Msg #' + msgCount + ' (Decoded binary for ' + lastBinaryEvent + '):', text.substring(0, 200));
+                                    }
+                                    
+                                    try {
+                                        const parsed = JSON.parse(text);
+                                        if (lastBinaryEvent === 'updateCharts' || lastBinaryEvent === 'updateStream') {
+                                            processUpdateStream(parsed);
+                                        }
+                                    } catch (jsonErr) {}
+                                } catch (decErr) {}
+                            } else {
+                                if (msgCount < 15) {
+                                    msgCount++;
+                                    console.log('[ValutaBot Sync] Msg #' + msgCount + ' (Binary type):', data.constructor ? data.constructor.name : typeof data);
+                                }
                             }
                         }
                     } catch (e) {
