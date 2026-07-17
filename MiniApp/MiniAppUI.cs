@@ -2167,76 +2167,86 @@ public static class MiniAppUI
     'use strict';
     console.log('[ValutaBot Sync] Userscript active. Intercepting WebSockets...');
 
+    const targetWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
     const BACKEND_URL = '${host}';
 
     function hookWebSocket(win) {
         if (!win || win.WebSocket._hooked) return;
         
-        const RealWebSocket = win.WebSocket;
-        win.WebSocket = function(url, protocols) {
-            console.log('[ValutaBot Sync] Intercepted WebSocket connection:', url);
-            const ws = new RealWebSocket(url, protocols);
-            
-            ws.addEventListener('message', function(event) {
-                try {
-                    const data = event.data;
-                    if (typeof data === 'string') {
-                        if (data.startsWith('42')) {
-                            const parsed = JSON.parse(data.substring(2));
-                            if (Array.isArray(parsed) && parsed.length >= 2) {
-                                const eventName = parsed[0];
-                                const payload = parsed[1];
-                                
-                                if (eventName === 'updateStream') {
-                                    processUpdateStream(payload);
+        try {
+            const RealWebSocket = win.WebSocket;
+            win.WebSocket = function(url, protocols) {
+                console.log('[ValutaBot Sync] Intercepted WebSocket connection:', url);
+                const ws = new RealWebSocket(url, protocols);
+                
+                ws.addEventListener('message', function(event) {
+                    try {
+                        const data = event.data;
+                        if (typeof data === 'string') {
+                            if (data.startsWith('42')) {
+                                const parsed = JSON.parse(data.substring(2));
+                                if (Array.isArray(parsed) && parsed.length >= 2) {
+                                    const eventName = parsed[0];
+                                    const payload = parsed[1];
+                                    
+                                    if (eventName === 'updateStream') {
+                                        processUpdateStream(payload);
+                                    }
                                 }
                             }
                         }
+                    } catch (e) {
+                        // Ignore parse/format errors
                     }
-                } catch (e) {
-                    // Ignore parse/format errors
-                }
-            });
-            
-            return ws;
-        };
-        win.WebSocket.prototype = RealWebSocket.prototype;
-        win.WebSocket._hooked = true;
+                });
+                
+                return ws;
+            };
+            win.WebSocket.prototype = RealWebSocket.prototype;
+            win.WebSocket._hooked = true;
+        } catch (e) {
+            console.error('[ValutaBot Sync] Failed to hook WebSocket in window:', e);
+        }
     }
 
     // Hook main window
-    hookWebSocket(window);
+    hookWebSocket(targetWindow);
 
     // Hook dynamically created iframes
-    const originalCreateElement = document.createElement;
-    document.createElement = function(tagName, options) {
-        const el = originalCreateElement.call(document, tagName, options);
-        if (el && tagName.toLowerCase() === 'iframe') {
-            try {
-                el.addEventListener('load', function() {
-                    try {
-                        if (el.contentWindow) {
-                            hookWebSocket(el.contentWindow);
-                        }
-                    } catch (e) {}
-                });
-                setTimeout(() => {
-                    try {
-                        if (el.contentWindow) {
-                            hookWebSocket(el.contentWindow);
-                        }
-                    } catch (e) {}
-                }, 0);
-            } catch (e) {}
-        }
-        return el;
-    };
+    try {
+        const originalCreateElement = targetWindow.document.createElement;
+        targetWindow.document.createElement = function(tagName, options) {
+            const el = originalCreateElement.call(targetWindow.document, tagName, options);
+            if (el && tagName.toLowerCase() === 'iframe') {
+                try {
+                    el.addEventListener('load', function() {
+                        try {
+                            if (el.contentWindow) {
+                                hookWebSocket(el.contentWindow);
+                            }
+                        } catch (e) {}
+                    });
+                    setTimeout(() => {
+                        try {
+                            if (el.contentWindow) {
+                                hookWebSocket(el.contentWindow);
+                            }
+                        } catch (e) {}
+                    }, 0);
+                } catch (e) {}
+            }
+            return el;
+        };
+    } catch (e) {
+        console.error('[ValutaBot Sync] Failed to hook document.createElement:', e);
+    }
 
     // Hook contentWindow getter on HTMLIFrameElement prototype
     try {
-        const desc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+        const proto = targetWindow.HTMLIFrameElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, 'contentWindow');
         if (desc && desc.get) {
-            Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+            Object.defineProperty(proto, 'contentWindow', {
                 get: function() {
                     const win = desc.get.call(this);
                     if (win) {
@@ -2250,8 +2260,8 @@ public static class MiniAppUI
                 enumerable: true
             });
         }
-    } catch (e) {}
-
+    } catch (e) {
+        console.error('[ValutaBot Sync] Failed to hook HTMLIFrameElement.contentWindow:', e);
     function processUpdateStream(payload) {
         if (Array.isArray(payload)) {
             for (const item of payload) {
