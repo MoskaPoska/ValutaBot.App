@@ -2081,9 +2081,7 @@ public static class MiniAppUI
         };
 
         document.getElementById('magic3DModal').onclick = (e) => {
-            if (e.target.id === 'magic3DModal') {
-                close3DModal();
-            }
+            close3DModal();
         };
 
         function open3DModal() {
@@ -2114,6 +2112,11 @@ public static class MiniAppUI
             if (!container) return;
             container.innerHTML = '';
 
+            // Prevent closing the modal when clicking/interacting inside the canvas area itself
+            container.onclick = (e) => {
+                e.stopPropagation();
+            };
+
             const width = container.clientWidth;
             const height = container.clientHeight;
 
@@ -2129,12 +2132,12 @@ public static class MiniAppUI
             sphereGroup = new THREE.Group();
             scene.add(sphereGroup);
 
-            // 1. Outer Glassy Sphere with refracting physical material
+            // 1a. Outer Glassy Sphere
             const outerGeo = new THREE.SphereGeometry(2.0, 64, 64);
             const outerMat = new THREE.MeshPhysicalMaterial({
                 color: 0x7c4dff,
                 transparent: true,
-                opacity: 0.38,
+                opacity: 0.35,
                 roughness: 0.05,
                 metalness: 0.1,
                 transmission: 0.9,
@@ -2145,12 +2148,87 @@ public static class MiniAppUI
             const outerSphere = new THREE.Mesh(outerGeo, outerMat);
             sphereGroup.add(outerSphere);
 
-            // 2. Inner Glowing Energy Core
-            const coreGeo = new THREE.SphereGeometry(0.8, 32, 32);
+            // 1b. Latitude / Longitude Wireframe Grid Overlay (Magical style)
+            const gridGeo = new THREE.SphereGeometry(1.98, 18, 18);
+            const gridMat = new THREE.MeshBasicMaterial({
+                color: 0xb388ff,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.28
+            });
+            const gridSphere = new THREE.Mesh(gridGeo, gridMat);
+            sphereGroup.add(gridSphere);
+
+            // 1c. Dark Purple Pedestal Stand at the bottom of the globe
+            const pedestalGroup = new THREE.Group();
+            pedestalGroup.position.y = -2.15;
+
+            const baseGeo = new THREE.CylinderGeometry(1.0, 1.2, 0.25, 32);
+            const baseMat = new THREE.MeshStandardMaterial({ 
+                color: 0x1b0a2d, 
+                roughness: 0.6, 
+                metalness: 0.8 
+            });
+            const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+            pedestalGroup.add(baseMesh);
+
+            const ringGeo = new THREE.TorusGeometry(0.9, 0.12, 16, 100);
+            const ringMat = new THREE.MeshStandardMaterial({ 
+                color: 0x4a126c, 
+                roughness: 0.4, 
+                metalness: 0.9 
+            });
+            const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+            ringMesh.rotation.x = Math.PI / 2;
+            ringMesh.position.y = 0.12;
+            pedestalGroup.add(ringMesh);
+
+            sphereGroup.add(pedestalGroup);
+
+            // 2. Glowing Neon Purple Trend Arrow Inside (Extruded 3D Shape)
+            const arrowShape = new THREE.Shape();
+            arrowShape.moveTo(-0.6, -0.3);
+            arrowShape.lineTo(-0.25, 0.05);
+            arrowShape.lineTo(0.1, -0.25);
+            arrowShape.lineTo(0.5, 0.15);
+            
+            arrowShape.lineTo(0.4, 0.35);
+            arrowShape.lineTo(0.8, 0.35);
+            arrowShape.lineTo(0.8, -0.05);
+            arrowShape.lineTo(0.7, 0.15);
+            
+            arrowShape.lineTo(0.1, -0.45);
+            arrowShape.lineTo(-0.25, -0.15);
+            arrowShape.lineTo(-0.5, -0.45);
+            arrowShape.closePath();
+
+            const extrudeSettings = { 
+                depth: 0.15, 
+                bevelEnabled: true, 
+                bevelSegments: 2, 
+                steps: 1, 
+                bevelSize: 0.02, 
+                bevelThickness: 0.02 
+            };
+            const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, extrudeSettings);
+            arrowGeo.center();
+            
+            const arrowMat = new THREE.MeshBasicMaterial({
+                color: 0xcc66ff,
+                transparent: true,
+                opacity: 0.95,
+                side: THREE.DoubleSide
+            });
+            const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+            arrowMesh.position.set(0, 0.1, 0);
+            sphereGroup.add(arrowMesh);
+
+            // Backlight Core inside
+            const coreGeo = new THREE.SphereGeometry(0.35, 16, 16);
             const coreMat = new THREE.MeshBasicMaterial({
                 color: 0x00e5ff,
                 transparent: true,
-                opacity: 0.95
+                opacity: 0.6
             });
             const core = new THREE.Mesh(coreGeo, coreMat);
             sphereGroup.add(core);
@@ -2159,19 +2237,19 @@ public static class MiniAppUI
             const ringGroup = new THREE.Group();
             sphereGroup.add(ringGroup);
 
-            const torusGeo1 = new THREE.TorusGeometry(2.35, 0.03, 16, 100);
-            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.7 });
+            const torusGeo1 = new THREE.TorusGeometry(2.35, 0.02, 16, 100);
+            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.65 });
             const ring1 = new THREE.Mesh(torusGeo1, ringMat1);
             ringGroup.add(ring1);
 
-            const torusGeo2 = new THREE.TorusGeometry(2.45, 0.02, 16, 100);
-            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0.65 });
+            const torusGeo2 = new THREE.TorusGeometry(2.45, 0.015, 16, 100);
+            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0.6 });
             const ring2 = new THREE.Mesh(torusGeo2, ringMat2);
             ring2.rotation.x = Math.PI / 2;
             ringGroup.add(ring2);
 
-            const torusGeo3 = new THREE.TorusGeometry(2.55, 0.015, 16, 100);
-            const ringMat3 = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.55 });
+            const torusGeo3 = new THREE.TorusGeometry(2.55, 0.01, 16, 100);
+            const ringMat3 = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.5 });
             const ring3 = new THREE.Mesh(torusGeo3, ringMat3);
             ring3.rotation.y = Math.PI / 4;
             ringGroup.add(ring3);
@@ -2230,7 +2308,7 @@ public static class MiniAppUI
             sphereGroup.add(particles);
 
             // 5. Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
             scene.add(ambientLight);
 
             const dirLight1 = new THREE.DirectionalLight(0x00e5ff, 1.5);
@@ -2245,12 +2323,18 @@ public static class MiniAppUI
             pointLight.position.set(0, 0, 0);
             scene.add(pointLight);
 
-            // Mouse / Touch Drag Rotations
+            // Drag Rotation Handlers
+            let dragDistance = 0;
+            let startX = 0, startY = 0;
+
             const onPointerDown = (e) => {
                 isDragging = true;
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 const clientY = e.touches ? e.touches[0].clientY : e.clientY;
                 previousMousePosition = { x: clientX, y: clientY };
+                startX = clientX;
+                startY = clientY;
+                dragDistance = 0;
             };
 
             const onPointerMove = (e) => {
@@ -2266,11 +2350,16 @@ public static class MiniAppUI
                 sphereGroup.rotation.y += deltaMove.x * 0.006;
                 sphereGroup.rotation.x += deltaMove.y * 0.006;
 
+                dragDistance += Math.sqrt(deltaMove.x * deltaMove.x + deltaMove.y * deltaMove.y);
                 previousMousePosition = { x: clientX, y: clientY };
             };
 
-            const onPointerUp = () => {
+            const onPointerUp = (e) => {
                 isDragging = false;
+                // If they just tapped/clicked without dragging, close the 3D modal
+                if (dragDistance < 8) {
+                    close3DModal();
+                }
             };
 
             container.addEventListener('mousedown', onPointerDown);
