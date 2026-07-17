@@ -2075,11 +2075,40 @@ public static class MiniAppUI
 
         /* ─── 3D Sphere Logic ─── */
         let activeScene = false;
-        let renderer = null, scene = null, camera = null, sphereGroup = null;
+        let renderer = null, scene = null, camera = null, sphereGroup = null, outerSphere = null;
         let isDragging = false;
         let previousMousePosition = { x: 0, y: 0 };
         let openTime = 0;
         window.dragDistance = 0;
+
+        // Magic spark system variables
+        let sparkGeo = null, sparkParticles = null;
+        let sparkPositions = null, sparkVelocities = [], sparkOpacity = null;
+        let nextSparkIndex = 0;
+        const maxSparks = 60;
+
+        function emitSpark(x, y, z) {
+            if (!sparkGeo) return;
+            const index = nextSparkIndex;
+            const arr = sparkGeo.attributes.position.array;
+            
+            // Emit 2 particles per move event for denser magic trail
+            for (let k = 0; k < 2; k++) {
+                const subIdx = (index + k) % maxSparks;
+                arr[subIdx * 3] = x + (Math.random() - 0.5) * 0.15;
+                arr[subIdx * 3 + 1] = y + (Math.random() - 0.5) * 0.15;
+                arr[subIdx * 3 + 2] = z + (Math.random() - 0.5) * 0.15;
+
+                sparkVelocities[subIdx] = {
+                    x: (Math.random() - 0.5) * 0.05,
+                    y: (Math.random() - 0.5) * 0.05,
+                    z: (Math.random() - 0.5) * 0.05
+                };
+                sparkOpacity[subIdx] = 1.0;
+            }
+            sparkGeo.attributes.position.needsUpdate = true;
+            nextSparkIndex = (nextSparkIndex + 2) % maxSparks;
+        }
 
         const onPointerDown = (e) => {
             if (!activeScene) return;
@@ -2105,6 +2134,27 @@ public static class MiniAppUI
 
             window.dragDistance += Math.sqrt(deltaMove.x * deltaMove.x + deltaMove.y * deltaMove.y);
             previousMousePosition = { x: clientX, y: clientY };
+
+            // Raycast drag traces on the outer sphere surface
+            if (outerSphere && camera) {
+                const container = document.getElementById('canvas3DContainer');
+                if (container) {
+                    const rect = container.getBoundingClientRect();
+                    const width = container.clientWidth;
+                    const height = container.clientHeight;
+                    const normX = ((clientX - rect.left) / width) * 2 - 1;
+                    const normY = -((clientY - rect.top) / height) * 2 + 1;
+
+                    const raycaster = new THREE.Raycaster();
+                    const mouseVec = new THREE.Vector2(normX, normY);
+                    raycaster.setFromCamera(mouseVec, camera);
+                    const intersects = raycaster.intersectObject(outerSphere);
+                    if (intersects.length > 0) {
+                        const p = intersects[0].point;
+                        emitSpark(p.x, p.y, p.z);
+                    }
+                }
+            }
         };
 
         const onPointerUp = (e) => {
@@ -2135,205 +2185,77 @@ public static class MiniAppUI
         };
 
         document.getElementById('magic3DModal').onclick = (e) => {
-            close3DModal();
-        };
-
-        function open3DModal() {
-            const modal = document.getElementById('magic3DModal');
-            if (!modal) return;
-            
-            modal.style.display = 'flex';
-            modal.offsetHeight; // trigger reflow
-            modal.style.opacity = '1';
-            activeScene = true;
-            openTime = Date.now();
-
-            init3DScene();
-        }
-
-        function close3DModal() {
-            if (Date.now() - openTime < 300) return;
-            const modal = document.getElementById('magic3DModal');
-            if (!modal) return;
-            modal.style.opacity = '0';
-            activeScene = false;
-            setTimeout(() => {
-                modal.style.display = 'none';
-                destroy3DScene();
-            }, 400);
-        }
-
-        function init3DScene() {
-            const container = document.getElementById('canvas3DContainer');
-            if (!container) return;
-            container.innerHTML = '';
-
-            const width = container.clientWidth;
-            const height = container.clientHeight;
-
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-            camera.position.z = 7.5;
-
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(width, height);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            container.appendChild(renderer.domElement);
-
-            sphereGroup = new THREE.Group();
-            scene.add(sphereGroup);
-
-            // 1a. Outer Glassy Sphere
+                        // 1a. Outer Glassy Sphere
             const outerGeo = new THREE.SphereGeometry(2.0, 64, 64);
             const outerMat = new THREE.MeshPhysicalMaterial({
                 color: 0x7c4dff,
                 transparent: true,
-                opacity: 0.35,
+                opacity: 0.28,
                 roughness: 0.05,
                 metalness: 0.1,
                 transmission: 0.9,
-                ior: 1.45,
+                ior: 1.6,
                 side: THREE.DoubleSide,
                 depthWrite: false
             });
-            const outerSphere = new THREE.Mesh(outerGeo, outerMat);
+            outerSphere = new THREE.Mesh(outerGeo, outerMat);
             sphereGroup.add(outerSphere);
 
-            // 1b. Latitude / Longitude Wireframe Grid Overlay (Magical style)
-            const gridGeo = new THREE.SphereGeometry(1.98, 18, 18);
-            const gridMat = new THREE.MeshBasicMaterial({
-                color: 0xb388ff,
+            // 1b. Fresnel Rim Glow Material for the sphere edges
+            const rimVertexShader = `
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+                void main() {
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    vNormal = normalize(normalMatrix * normal);
+                    vViewPosition = -mvPosition.xyz;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `;
+            const rimFragmentShader = `
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+                void main() {
+                    vec3 normal = normalize(vNormal);
+                    vec3 viewDir = normalize(vViewPosition);
+                    float intensity = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
+                    gl_FragColor = vec4(0.78, 0.35, 1.0, 1.0) * intensity * 0.75;
+                }
+            `;
+            const rimMat = new THREE.ShaderMaterial({
+                vertexShader: rimVertexShader,
+                fragmentShader: rimFragmentShader,
+                blending: THREE.AdditiveBlending,
+                side: THREE.BackSide,
+                transparent: true,
+                depthWrite: false
+            });
+            const rimMesh = new THREE.Mesh(outerGeo, rimMat);
+            sphereGroup.add(rimMesh);
+
+            // 1c. Inner Opposite-Rotating Wireframe Sphere
+            const innerWireGeo = new THREE.SphereGeometry(1.8, 12, 12);
+            const innerWireMat = new THREE.MeshBasicMaterial({
+                color: 0x00e5ff,
                 wireframe: true,
                 transparent: true,
-                opacity: 0.28
+                opacity: 0.16
+            });
+            const innerWireSphere = new THREE.Mesh(innerWireGeo, innerWireMat);
+            sphereGroup.add(innerWireSphere);
+
+            // 1d. Constellation Astrolabe Grid (Golden outer mesh)
+            const gridGeo = new THREE.SphereGeometry(1.98, 16, 16);
+            const gridMat = new THREE.MeshBasicMaterial({
+                color: 0xffd700,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.22
             });
             const gridSphere = new THREE.Mesh(gridGeo, gridMat);
             sphereGroup.add(gridSphere);
 
-            // 1c. Dark Purple Pedestal Stand at the bottom of the globe
-            const pedestalGroup = new THREE.Group();
-            pedestalGroup.position.y = -2.15;
-
-            const baseGeo = new THREE.CylinderGeometry(1.0, 1.2, 0.25, 32);
-            const baseMat = new THREE.MeshStandardMaterial({ 
-                color: 0x1b0a2d, 
-                roughness: 0.6, 
-                metalness: 0.8 
-            });
-            const baseMesh = new THREE.Mesh(baseGeo, baseMat);
-            pedestalGroup.add(baseMesh);
-
-            const ringGeo = new THREE.TorusGeometry(0.9, 0.12, 16, 100);
-            const ringMat = new THREE.MeshStandardMaterial({ 
-                color: 0x4a126c, 
-                roughness: 0.4, 
-                metalness: 0.9 
-            });
-            const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-            ringMesh.rotation.x = Math.PI / 2;
-            ringMesh.position.y = 0.12;
-            pedestalGroup.add(ringMesh);
-
-            sphereGroup.add(pedestalGroup);
-
-            // 2. Glowing Neon Purple Trend Arrow Inside (Extruded 3D Shape)
-            const arrowShape = new THREE.Shape();
-            arrowShape.moveTo(-0.6, -0.3);
-            arrowShape.lineTo(-0.25, 0.05);
-            arrowShape.lineTo(0.1, -0.25);
-            arrowShape.lineTo(0.5, 0.15);
-            
-            arrowShape.lineTo(0.4, 0.35);
-            arrowShape.lineTo(0.8, 0.35);
-            arrowShape.lineTo(0.8, -0.05);
-            arrowShape.lineTo(0.7, 0.15);
-            
-            arrowShape.lineTo(0.1, -0.45);
-            arrowShape.lineTo(-0.25, -0.15);
-            arrowShape.lineTo(-0.5, -0.45);
-            arrowShape.closePath();
-
-            const extrudeSettings = { 
-                depth: 0.15, 
-                bevelEnabled: true, 
-                bevelSegments: 2, 
-                steps: 1, 
-                bevelSize: 0.02, 
-                bevelThickness: 0.02 
-            };
-            const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, extrudeSettings);
-            arrowGeo.center();
-            
-            const arrowMat = new THREE.MeshBasicMaterial({
-                color: 0xcc66ff,
-                transparent: true,
-                opacity: 0.95,
-                side: THREE.DoubleSide
-            });
-            const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
-            arrowMesh.position.set(0, 0.1, 0);
-            sphereGroup.add(arrowMesh);
-
-            // Backlight Core inside
-            const coreGeo = new THREE.SphereGeometry(0.35, 16, 16);
-            const coreMat = new THREE.MeshBasicMaterial({
-                color: 0x00e5ff,
-                transparent: true,
-                opacity: 0.6
-            });
-            const core = new THREE.Mesh(coreGeo, coreMat);
-            sphereGroup.add(core);
-
-            // 3. Astrolabe Rings
-            const ringGroup = new THREE.Group();
-            sphereGroup.add(ringGroup);
-
-            const torusGeo1 = new THREE.TorusGeometry(2.35, 0.02, 16, 100);
-            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.65 });
-            const ring1 = new THREE.Mesh(torusGeo1, ringMat1);
-            ringGroup.add(ring1);
-
-            const torusGeo2 = new THREE.TorusGeometry(2.45, 0.015, 16, 100);
-            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0.6 });
-            const ring2 = new THREE.Mesh(torusGeo2, ringMat2);
-            ring2.rotation.x = Math.PI / 2;
-            ringGroup.add(ring2);
-
-            const torusGeo3 = new THREE.TorusGeometry(2.55, 0.01, 16, 100);
-            const ringMat3 = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.5 });
-            const ring3 = new THREE.Mesh(torusGeo3, ringMat3);
-            ring3.rotation.y = Math.PI / 4;
-            ringGroup.add(ring3);
-
-            // 4. Magic Particles (Swirling inside/around outer sphere)
-            const particleCount = 200;
-            const particleGeo = new THREE.BufferGeometry();
-            const positions = new Float32Array(particleCount * 3);
-            const colors = new Float32Array(particleCount * 3);
-
-            const colorPurple = new THREE.Color(0xb388ff);
-            const colorCyan = new THREE.Color(0x00e5ff);
-
-            for (let i = 0; i < particleCount; i++) {
-                const u = Math.random();
-                const v = Math.random();
-                const theta = u * 2.0 * Math.PI;
-                const phi = Math.acos(2.0 * v - 1.0);
-                const r = Math.cbrt(Math.random()) * 1.95;
-
-                positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-                positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-                positions[i * 3 + 2] = r * Math.cos(phi);
-
-                const col = Math.random() > 0.5 ? colorPurple : colorCyan;
-                colors[i * 3] = col.r;
-                colors[i * 3 + 1] = col.g;
-                colors[i * 3 + 2] = col.b;
-            }
-
-            particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
+            // Particle helper textures
             const pCanvas = document.createElement('canvas');
             pCanvas.width = 16;
             pCanvas.height = 16;
@@ -2345,12 +2267,177 @@ public static class MiniAppUI
             pCtx.fillRect(0, 0, 16, 16);
             const pTexture = new THREE.CanvasTexture(pCanvas);
 
+            // Glowing Constellation Stars at grid vertices
+            const gridPositions = gridGeo.attributes.position.array;
+            const starGeo = new THREE.BufferGeometry();
+            const starPositions = new Float32Array(gridPositions.length);
+            for (let i = 0; i < gridPositions.length; i++) {
+                starPositions[i] = gridPositions[i];
+            }
+            starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+            const starMat = new THREE.PointsMaterial({
+                size: 0.1,
+                map: pTexture,
+                color: 0xffd700,
+                transparent: true,
+                opacity: 0.7,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            const constellationStars = new THREE.Points(starGeo, starMat);
+            sphereGroup.add(constellationStars);
+
+            // 1e. Obsidian and Gold Pedestal Base
+            const pedestalGroup = new THREE.Group();
+            pedestalGroup.position.y = -2.18;
+
+            const tier1Geo = new THREE.CylinderGeometry(1.1, 1.3, 0.2, 32);
+            const tier1Mat = new THREE.MeshStandardMaterial({ color: 0x070310, roughness: 0.85, metalness: 0.9 });
+            const tier1 = new THREE.Mesh(tier1Geo, tier1Mat);
+            pedestalGroup.add(tier1);
+
+            const goldCollarGeo = new THREE.CylinderGeometry(0.98, 1.05, 0.08, 32);
+            const goldCollarMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.18, metalness: 0.95 });
+            const goldCollar = new THREE.Mesh(goldCollarGeo, goldCollarMat);
+            goldCollar.position.y = 0.14;
+            pedestalGroup.add(goldCollar);
+
+            const tier2Geo = new THREE.CylinderGeometry(0.85, 0.95, 0.12, 32);
+            const tier2Mat = new THREE.MeshStandardMaterial({ color: 0x10071e, roughness: 0.75, metalness: 0.8 });
+            const tier2 = new THREE.Mesh(tier2Geo, tier2Mat);
+            tier2.position.y = 0.24;
+            pedestalGroup.add(tier2);
+
+            // Four gold corner supports
+            for (let i = 0; i < 4; i++) {
+                const angle = (i * Math.PI) / 2;
+                const bracketGeo = new THREE.BoxGeometry(0.08, 0.35, 0.16);
+                const bracket = new THREE.Mesh(bracketGeo, goldCollarMat);
+                bracket.position.set(Math.cos(angle) * 1.02, 0.12, Math.sin(angle) * 1.02);
+                bracket.rotation.y = -angle;
+                pedestalGroup.add(bracket);
+            }
+            sphereGroup.add(pedestalGroup);
+
+            // 2. Levitating Neon Crystal Trend Arrow Inside (Extruded 3D Shape)
+            const arrowShape = new THREE.Shape();
+            arrowShape.moveTo(-0.65, -0.35);
+            arrowShape.lineTo(-0.25, 0.05);
+            arrowShape.lineTo(0.1, -0.3);
+            arrowShape.lineTo(0.55, 0.15);
+            arrowShape.lineTo(0.42, 0.38);
+            arrowShape.lineTo(0.85, 0.38);
+            arrowShape.lineTo(0.85, -0.05);
+            arrowShape.lineTo(0.72, 0.18);
+            arrowShape.lineTo(0.1, -0.5);
+            arrowShape.lineTo(-0.25, -0.15);
+            arrowShape.lineTo(-0.52, -0.48);
+            arrowShape.closePath();
+
+            const extrudeSettings = { 
+                depth: 0.18, 
+                bevelEnabled: true, 
+                bevelSegments: 3, 
+                steps: 1, 
+                bevelSize: 0.02, 
+                bevelThickness: 0.02 
+            };
+            const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, extrudeSettings);
+            arrowGeo.center();
+            
+            const arrowMat = new THREE.MeshPhysicalMaterial({
+                color: 0xb388ff,
+                transparent: true,
+                opacity: 0.88,
+                roughness: 0.1,
+                metalness: 0.2,
+                transmission: 0.7,
+                ior: 1.5,
+                depthWrite: false
+            });
+            const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+            arrowMesh.position.set(0, 0.15, 0);
+            sphereGroup.add(arrowMesh);
+
+            // Backlight Core behind the arrow
+            const coreGeo = new THREE.SphereGeometry(0.32, 16, 16);
+            const coreMat = new THREE.MeshBasicMaterial({
+                color: 0x00e5ff,
+                transparent: true,
+                opacity: 0.5
+            });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            core.position.set(0, 0.15, 0);
+            sphereGroup.add(core);
+
+            // 3. Concentration Astrolabe Rings
+            const ringGroup = new THREE.Group();
+            sphereGroup.add(ringGroup);
+
+            const torusGeo1 = new THREE.TorusGeometry(2.35, 0.015, 16, 100);
+            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.6 });
+            const ring1 = new THREE.Mesh(torusGeo1, ringMat1);
+            ringGroup.add(ring1);
+
+            const torusGeo2 = new THREE.TorusGeometry(2.45, 0.012, 16, 100);
+            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0.55 });
+            const ring2 = new THREE.Mesh(torusGeo2, ringMat2);
+            ring2.rotation.x = Math.PI / 2;
+            ringGroup.add(ring2);
+
+            const torusGeo3 = new THREE.TorusGeometry(2.55, 0.008, 16, 100);
+            const ringMat3 = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.45 });
+            const ring3 = new THREE.Mesh(torusGeo3, ringMat3);
+            ring3.rotation.y = Math.PI / 4;
+            ringGroup.add(ring3);
+
+            // 4. Cosmic Nebula Galaxy Particle Storm (Swirling inside/around outer sphere)
+            const particleCount = 650;
+            const particleGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            const particleSpeeds = new Float32Array(particleCount);
+            const particleRadii = new Float32Array(particleCount);
+            const particleAngles = new Float32Array(particleCount);
+            const particleYOffs = new Float32Array(particleCount);
+
+            const colorPurple = new THREE.Color(0xb388ff);
+            const colorCyan = new THREE.Color(0x00e5ff);
+            const colorGold = new THREE.Color(0xffd700);
+
+            for (let i = 0; i < particleCount; i++) {
+                const r = Math.random() * 1.85;
+                const theta = (r * 3.2) + (Math.random() * 0.4) + (i % 2 === 0 ? 0.0 : Math.PI); // logarithmic galaxy spiral arms
+                const y = (Math.random() - 0.5) * 1.1 * (1.85 - r) / 1.85;
+
+                positions[i * 3] = r * Math.cos(theta);
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = r * Math.sin(theta);
+
+                particleRadii[i] = r;
+                particleAngles[i] = theta;
+                particleYOffs[i] = y;
+                particleSpeeds[i] = 0.008 + Math.random() * 0.012;
+
+                let col = colorPurple;
+                const rand = Math.random();
+                if (rand < 0.48) col = colorCyan;
+                else if (rand < 0.68) col = colorGold;
+
+                colors[i * 3] = col.r;
+                colors[i * 3 + 1] = col.g;
+                colors[i * 3 + 2] = col.b;
+            }
+
+            particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
             const particleMat = new THREE.PointsMaterial({
                 size: 0.16,
                 map: pTexture,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.85,
+                opacity: 0.9,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -2358,38 +2445,121 @@ public static class MiniAppUI
             const particles = new THREE.Points(particleGeo, particleMat);
             sphereGroup.add(particles);
 
-            // 5. Lighting
+            // 5. Active Magic Spark Particle System (Drag trace trail)
+            sparkGeo = new THREE.BufferGeometry();
+            const sparkPositionsArr = new Float32Array(maxSparks * 3);
+            const sparkColorsArr = new Float32Array(maxSparks * 3);
+            sparkOpacity = new Float32Array(maxSparks);
+            sparkVelocities = [];
+
+            for (let i = 0; i < maxSparks; i++) {
+                sparkPositionsArr[i * 3] = 999;
+                sparkPositionsArr[i * 3 + 1] = 999;
+                sparkPositionsArr[i * 3 + 2] = 999;
+
+                const col = Math.random() > 0.5 ? colorCyan : colorGold;
+                sparkColorsArr[i * 3] = col.r;
+                sparkColorsArr[i * 3 + 1] = col.g;
+                sparkColorsArr[i * 3 + 2] = col.b;
+
+                sparkOpacity[i] = 0;
+                sparkVelocities.push({ x: 0, y: 0, z: 0 });
+            }
+
+            sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPositionsArr, 3));
+            sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkColorsArr, 3));
+
+            const sparkMat = new THREE.PointsMaterial({
+                size: 0.18,
+                map: pTexture,
+                vertexColors: true,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            sparkParticles = new THREE.Points(sparkGeo, sparkMat);
+            scene.add(sparkParticles);
+
+            // 6. Lighting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
             scene.add(ambientLight);
 
-            const dirLight1 = new THREE.DirectionalLight(0x00e5ff, 1.5);
+            const dirLight1 = new THREE.DirectionalLight(0x00e5ff, 1.8);
             dirLight1.position.set(5, 5, 5);
             scene.add(dirLight1);
 
-            const dirLight2 = new THREE.DirectionalLight(0x7c4dff, 1.5);
+            const dirLight2 = new THREE.DirectionalLight(0x7c4dff, 1.8);
             dirLight2.position.set(-5, -5, 3);
             scene.add(dirLight2);
 
-            const pointLight = new THREE.PointLight(0xb388ff, 2.0, 10);
-            pointLight.position.set(0, 0, 0);
+            const pointLight = new THREE.PointLight(0xb388ff, 2.5, 12);
+            pointLight.position.set(0, 0.15, 0);
             scene.add(pointLight);
+
+            // Upwards pedestal glow light source
+            const baseLight = new THREE.PointLight(0xcc66ff, 3.0, 5);
+            baseLight.position.set(0, -2.1, 0);
+            scene.add(baseLight);
 
             // Render loop
             function animate() {
                 if (!activeScene) return;
                 requestAnimationFrame(animate);
 
+                // Auto rotate group slowly when not dragging
                 if (!isDragging) {
-                    sphereGroup.rotation.y += 0.003;
+                    sphereGroup.rotation.y += 0.002;
                 }
 
-                ring1.rotation.z += 0.005;
-                ring2.rotation.y += 0.007;
-                ring3.rotation.x -= 0.004;
+                // Parallax opposite-rotating inner wireframe sphere
+                innerWireSphere.rotation.y -= 0.005;
+                innerWireSphere.rotation.x += 0.002;
 
-                const time = Date.now() * 0.002;
-                particleMat.size = 0.16 + Math.sin(time) * 0.03;
-                const coreScale = 1.0 + Math.sin(time * 2.0) * 0.06;
+                // Orbiting rings rotation
+                ring1.rotation.z += 0.004;
+                ring2.rotation.y += 0.006;
+                ring3.rotation.x -= 0.003;
+
+                // Animate swirling cosmic galaxy storm
+                const posArr = particleGeo.attributes.position.array;
+                for (let i = 0; i < particleCount; i++) {
+                    particleAngles[i] += particleSpeeds[i];
+                    const r = particleRadii[i];
+                    const theta = particleAngles[i];
+                    posArr[i * 3] = r * Math.cos(theta);
+                    posArr[i * 3 + 2] = r * Math.sin(theta);
+                }
+                particleGeo.attributes.position.needsUpdate = true;
+
+                // Update magic trace drag sparks
+                if (sparkGeo && sparkParticles) {
+                    const sArr = sparkGeo.attributes.position.array;
+                    for (let i = 0; i < maxSparks; i++) {
+                        if (sparkOpacity[i] > 0) {
+                            sArr[i * 3] += sparkVelocities[i].x;
+                            sArr[i * 3 + 1] += sparkVelocities[i].y;
+                            sArr[i * 3 + 2] += sparkVelocities[i].z;
+                            
+                            sparkOpacity[i] -= 0.045; // fade out speed
+                            if (sparkOpacity[i] <= 0) {
+                                sparkOpacity[i] = 0;
+                                sArr[i * 3] = 999;
+                                sArr[i * 3 + 1] = 999;
+                                sArr[i * 3 + 2] = 999;
+                            }
+                        }
+                    }
+                    sparkGeo.attributes.position.needsUpdate = true;
+                }
+
+                // Breathing/hovering animation of the inner trend arrow
+                const time = Date.now() * 0.0025;
+                arrowMesh.position.y = 0.12 + Math.sin(time * 1.5) * 0.08;
+                arrowMesh.rotation.y += 0.01; // gentle arrow twist
+
+                // Breathing particle size
+                particleMat.size = 0.16 + Math.sin(time) * 0.02;
+                const coreScale = 1.0 + Math.sin(time * 1.8) * 0.08;
                 core.scale.set(coreScale, coreScale, coreScale);
 
                 renderer.render(scene, camera);
