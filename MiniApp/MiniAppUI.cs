@@ -2256,21 +2256,7 @@ public static class MiniAppUI
             outerSphere = new THREE.Mesh(outerGeo, outerMat);
             sphereGroup.add(outerSphere);
 
-            // 1b. Glowing Inner Core Sphere ( Vibe of the bot's regular magic ball - self-glowing, doesn't darken when rotated)
-            const innerGeo = new THREE.SphereGeometry(0.9, 64, 64);
-            const innerMat = new THREE.MeshStandardMaterial({
-                color: 0x7c4dff, // magical violet/purple
-                emissive: 0x3d1c66, // self-glowing amethyst core
-                emissiveIntensity: 1.25,
-                transparent: true,
-                opacity: 0.45,
-                roughness: 0.15,
-                metalness: 0.1,
-                side: THREE.DoubleSide,
-                depthWrite: false
-            });
-            const innerSphere = new THREE.Mesh(innerGeo, innerMat);
-            sphereGroup.add(innerSphere);
+
 
             // 1c. Fresnel Rim Glow Material for the sphere edges (chromatic dispersion / rainbow split)
             const rimVertexShader = `
