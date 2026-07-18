@@ -2233,16 +2233,16 @@ public static class MiniAppUI
             sphereGroup = new THREE.Group();
             scene.add(sphereGroup);
 
-            // 1. Outer Glass Sphere
+            // 1. Heavy Lead-Crystal Glass Sphere (Smoky Dark Quartz)
             const outerGeo = new THREE.SphereGeometry(2.0, 64, 64);
             const outerMat = new THREE.MeshPhysicalMaterial({
-                color: 0xda70d6, // Orchid/Purple glass tint
+                color: 0x221a30, // Deep smoky purple/charcoal tint
                 transparent: true,
-                opacity: 0.22,
-                roughness: 0.01,
-                metalness: 0.05,
-                transmission: 0.96,
-                ior: 1.5,
+                opacity: 0.16,
+                roughness: 0.005,
+                metalness: 0.08,
+                transmission: 0.98,
+                ior: 1.62,
                 clearcoat: 1.0,
                 clearcoatRoughness: 0.0,
                 side: THREE.DoubleSide,
@@ -2251,7 +2251,7 @@ public static class MiniAppUI
             outerSphere = new THREE.Mesh(outerGeo, outerMat);
             sphereGroup.add(outerSphere);
 
-            // 1b. Fresnel Rim Glow for glass edge highlight
+            // 1b. Fresnel Rim Glow for glass edge highlight (majestic purple-indigo aura)
             const rimVertexShader = `
                 varying vec3 vNormal;
                 varying vec3 vViewPosition;
@@ -2268,8 +2268,8 @@ public static class MiniAppUI
                 void main() {
                     vec3 normal = normalize(vNormal);
                     vec3 viewDir = normalize(vViewPosition);
-                    float intensity = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.5);
-                    gl_FragColor = vec4(0.95, 0.45, 1.0, 1.0) * intensity * 0.9;
+                    float intensity = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.8);
+                    gl_FragColor = vec4(0.72, 0.45, 1.0, 1.0) * intensity * 0.85;
                 }
             `;
             const rimMat = new THREE.ShaderMaterial({
@@ -2283,119 +2283,108 @@ public static class MiniAppUI
             const rimMesh = new THREE.Mesh(outerGeo, rimMat);
             sphereGroup.add(rimMesh);
 
-            // 2. Multi-layered Central Glowing Core (magical light source)
+            // 2. Concentric Gyroscopic Rings (The Celestial Engine - mechanical & precise)
+            const gyroGroup = new THREE.Group();
+            sphereGroup.add(gyroGroup);
+
+            const goldAccentCol = new THREE.Color(0xd4af37); // Metallic gold
+            const darkBrassCol = new THREE.Color(0x4a3c28);  // Burnished brass
+            
+            const goldMat = new THREE.MeshStandardMaterial({
+                color: goldAccentCol,
+                roughness: 0.16,
+                metalness: 0.98
+            });
+            const brassMat = new THREE.MeshStandardMaterial({
+                color: darkBrassCol,
+                roughness: 0.28,
+                metalness: 0.95
+            });
+
+            // Inner Gyro Ring (Thick Gold)
+            const gyroGeo1 = new THREE.TorusGeometry(0.92, 0.052, 16, 64);
+            const gyro1 = new THREE.Mesh(gyroGeo1, goldMat);
+            gyroGroup.add(gyro1);
+
+            // Outer Gyro Ring (Dark Brass, larger, tilted)
+            const gyroGeo2 = new THREE.TorusGeometry(1.24, 0.042, 16, 64);
+            const gyro2 = new THREE.Mesh(gyroGeo2, brassMat);
+            gyro2.rotation.x = Math.PI / 2;
+            gyroGroup.add(gyro2);
+
+            // Secondary diagonal ring
+            const gyroGeo3 = new THREE.TorusGeometry(1.42, 0.024, 8, 64);
+            const gyro3 = new THREE.Mesh(gyroGeo3, goldMat);
+            gyro3.rotation.y = Math.PI / 4;
+            gyroGroup.add(gyro3);
+
+            // 3. Multi-layered Glowing Amber Core (The central star power)
             const coreGroup = new THREE.Group();
             coreGroup.position.set(0, 0.15, 0);
             sphereGroup.add(coreGroup);
 
-            const innerCoreGeo = new THREE.SphereGeometry(0.35, 32, 32);
+            const innerCoreGeo = new THREE.SphereGeometry(0.28, 32, 32);
             const innerCoreMat = new THREE.MeshBasicMaterial({
                 color: 0xffffff,
                 transparent: true,
-                opacity: 0.95,
+                opacity: 0.98,
                 blending: THREE.AdditiveBlending
             });
             const innerCore = new THREE.Mesh(innerCoreGeo, innerCoreMat);
             coreGroup.add(innerCore);
 
-            const outerCoreGeo = new THREE.SphereGeometry(0.75, 32, 32);
+            const outerCoreGeo = new THREE.SphereGeometry(0.68, 32, 32);
             const outerCoreMat = new THREE.MeshBasicMaterial({
-                color: 0xff7cd6, // Pinkish glow
+                color: 0xff8c00, // Warm amber/orange glow
                 transparent: true,
-                opacity: 0.32,
+                opacity: 0.38,
                 blending: THREE.AdditiveBlending
             });
             const outerCore = new THREE.Mesh(outerCoreGeo, outerCoreMat);
             coreGroup.add(outerCore);
 
-            // 3. Swirling Plasma Ribbons (gaseous energy waves inside)
-            const ribbonGroup = new THREE.Group();
-            sphereGroup.add(ribbonGroup);
-
-            // Ribbon 1: Pink Torus Knot
-            const knotGeo1 = new THREE.TorusKnotGeometry(0.85, 0.07, 120, 16, 2, 3);
-            const knotMat1 = new THREE.MeshBasicMaterial({
-                color: 0xff33bb,
-                transparent: true,
-                opacity: 0.72,
-                blending: THREE.AdditiveBlending,
-                wireframe: false
-            });
-            const ribbon1 = new THREE.Mesh(knotGeo1, knotMat1);
-            ribbonGroup.add(ribbon1);
-
-            // Ribbon 2: Cyan Torus Knot (slightly larger, different winding)
-            const knotGeo2 = new THREE.TorusKnotGeometry(0.95, 0.05, 120, 16, 3, 5);
-            const knotMat2 = new THREE.MeshBasicMaterial({
-                color: 0x00ffff,
-                transparent: true,
-                opacity: 0.65,
-                blending: THREE.AdditiveBlending,
-                wireframe: false
-            });
-            const ribbon2 = new THREE.Mesh(knotGeo2, knotMat2);
-            ribbonGroup.add(ribbon2);
-
-            // 4. Carved Bronze / Brass Pedestal Base with cradling crown claws
+            // 4. Massive Geometric Obsidian & Gold Pedestal Base
             const pedestalGroup = new THREE.Group();
             pedestalGroup.position.y = -2.18;
 
-            const bronzeCol = new THREE.Color(0x8a5a36); // bronze
-            const goldAccentCol = new THREE.Color(0xd4af37); // metallic gold
-            
-            const bronzeMat = new THREE.MeshStandardMaterial({
-                color: bronzeCol,
-                roughness: 0.28,
-                metalness: 0.95
-            });
-            const goldMat = new THREE.MeshStandardMaterial({
-                color: goldAccentCol,
-                roughness: 0.18,
-                metalness: 0.98
+            const obsidianCol = new THREE.Color(0x100d16); // Dark Obsidian/Basalt
+            const obsidianMat = new THREE.MeshStandardMaterial({
+                color: obsidianCol,
+                roughness: 0.55,
+                metalness: 0.82
             });
 
-            // Flared Base Tier 1
-            const baseDiskGeo = new THREE.CylinderGeometry(1.4, 1.6, 0.22, 32);
-            const baseDisk = new THREE.Mesh(baseDiskGeo, bronzeMat);
+            // Flared Base Tier 1 (Octagonal for a heavy, ancient look)
+            const baseDiskGeo = new THREE.CylinderGeometry(1.35, 1.6, 0.28, 8);
+            const baseDisk = new THREE.Mesh(baseDiskGeo, obsidianMat);
             pedestalGroup.add(baseDisk);
 
-            // Curved stem
-            const stemGeo = new THREE.CylinderGeometry(0.72, 1.25, 0.55, 32);
-            const stem = new THREE.Mesh(stemGeo, bronzeMat);
-            stem.position.y = 0.35;
+            // Heavy Octagonal Stem
+            const stemGeo = new THREE.CylinderGeometry(0.8, 1.2, 0.58, 8);
+            const stem = new THREE.Mesh(stemGeo, obsidianMat);
+            stem.position.y = 0.36;
             pedestalGroup.add(stem);
 
-            // Gold Collar Ring
-            const collarGeo = new THREE.CylinderGeometry(0.92, 0.88, 0.12, 32);
+            // Solid Inlaid Gold Collar
+            const collarGeo = new THREE.CylinderGeometry(0.9, 0.85, 0.12, 8);
             const collar = new THREE.Mesh(collarGeo, goldMat);
-            collar.position.y = 0.68;
+            collar.position.y = 0.70;
             pedestalGroup.add(collar);
 
-            // 6 carved cradling claws (hugging the bottom of the glass sphere)
-            for (let i = 0; i < 6; i++) {
-                const angle = (i * Math.PI) / 3;
-                const clawGeo = new THREE.ConeGeometry(0.22, 1.2, 16);
-                clawGeo.translate(0, 0.5, 0); // shift pivot to base
-                const claw = new THREE.Mesh(clawGeo, bronzeMat);
+            // 4 Heavy Golden corner bracket supports
+            for (let i = 0; i < 4; i++) {
+                const angle = (i * Math.PI) / 2;
+                const bracketGeo = new THREE.BoxGeometry(0.18, 0.52, 0.24);
+                const bracket = new THREE.Mesh(bracketGeo, goldMat);
                 
-                const radius = 1.35;
-                claw.position.set(Math.cos(angle) * radius, 0.1, Math.sin(angle) * radius);
-                // Tilt inward towards the sphere
-                claw.rotation.z = -Math.cos(angle) * 0.42;
-                claw.rotation.x = Math.sin(angle) * 0.42;
-                claw.rotation.y = -angle + Math.PI / 2;
-                
-                // Add a small gold highlight sphere on the tip of each claw
-                const tipGeo = new THREE.SphereGeometry(0.08, 8, 8);
-                const tip = new THREE.Mesh(tipGeo, goldMat);
-                tip.position.set(0, 1.05, 0);
-                claw.add(tip);
-
-                pedestalGroup.add(claw);
+                const radius = 1.05;
+                bracket.position.set(Math.cos(angle) * radius, 0.26, Math.sin(angle) * radius);
+                bracket.rotation.y = -angle;
+                pedestalGroup.add(bracket);
             }
             sphereGroup.add(pedestalGroup);
 
-            // 5. Cosmic Stars & Magical Particles (Twinkling inside)
+            // 5. Warm Golden Star Dust Particles (Twinkling inside)
             const pCanvas = document.createElement('canvas');
             pCanvas.width = 16;
             pCanvas.height = 16;
@@ -2407,7 +2396,7 @@ public static class MiniAppUI
             pCtx.fillRect(0, 0, 16, 16);
             const pTexture = new THREE.CanvasTexture(pCanvas);
 
-            const particleCount = 420;
+            const particleCount = 380;
             const particleGeo = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const colors = new Float32Array(particleCount * 3);
@@ -2416,16 +2405,14 @@ public static class MiniAppUI
             const particleAngles = new Float32Array(particleCount);
             const particleYOffs = new Float32Array(particleCount);
 
-            const colPink = new THREE.Color(0xff80df);
-            const colCyan = new THREE.Color(0x00e5ff);
-            const colWhite = new THREE.Color(0xffffff);
-            const colPurple = new THREE.Color(0x9c27b0);
+            const colAmber = new THREE.Color(0xffa500);
+            const colGold = new THREE.Color(0xd4af37);
+            const colWhite = new THREE.Color(0xfff8e7); // Cosmic latte/starlight
 
             for (let i = 0; i < particleCount; i++) {
-                // Keep particles inside the 2.0 sphere radius (use max 1.85)
                 const r = Math.random() * 1.82;
                 const theta = Math.random() * Math.PI * 2;
-                const y = (Math.random() - 0.5) * 1.3 * Math.sqrt(1.82 * 1.82 - r * r);
+                const y = (Math.random() - 0.5) * 1.25 * Math.sqrt(1.82 * 1.82 - r * r);
 
                 positions[i * 3] = r * Math.cos(theta);
                 positions[i * 3 + 1] = y;
@@ -2434,13 +2421,12 @@ public static class MiniAppUI
                 particleRadii[i] = r;
                 particleAngles[i] = theta;
                 particleYOffs[i] = y;
-                particleSpeeds[i] = 0.003 + Math.random() * 0.007;
+                particleSpeeds[i] = 0.002 + Math.random() * 0.005; // Slow, heavy rotation
 
-                let c = colPink;
+                let c = colGold;
                 const rand = Math.random();
-                if (rand < 0.35) c = colCyan;
-                else if (rand < 0.65) c = colWhite;
-                else if (rand < 0.85) c = colPurple;
+                if (rand < 0.4) c = colAmber;
+                else if (rand < 0.75) c = colWhite;
 
                 colors[i * 3] = c.r;
                 colors[i * 3 + 1] = c.g;
@@ -2451,11 +2437,11 @@ public static class MiniAppUI
             particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
             const particleMat = new THREE.PointsMaterial({
-                size: 0.15,
+                size: 0.14,
                 map: pTexture,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.95,
+                opacity: 0.90,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -2475,7 +2461,7 @@ public static class MiniAppUI
                 sparkPositionsArr[i * 3 + 1] = 999;
                 sparkPositionsArr[i * 3 + 2] = 999;
 
-                const c = Math.random() > 0.5 ? colCyan : colPink;
+                const c = Math.random() > 0.5 ? colGold : colAmber;
                 sparkColorsArr[i * 3] = c.r;
                 sparkColorsArr[i * 3 + 1] = c.g;
                 sparkColorsArr[i * 3 + 2] = c.b;
@@ -2488,7 +2474,7 @@ public static class MiniAppUI
             sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkColorsArr, 3));
 
             const sparkMat = new THREE.PointsMaterial({
-                size: 0.16,
+                size: 0.15,
                 map: pTexture,
                 vertexColors: true,
                 transparent: true,
@@ -2498,27 +2484,27 @@ public static class MiniAppUI
             sparkParticles = new THREE.Points(sparkGeo, sparkMat);
             scene.add(sparkParticles);
 
-            // 7. Lighting - Highly detailed directional and point lights
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+            // 7. Lighting - Dynamic museum lights for obsidian and gold
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.42);
             scene.add(ambientLight);
 
-            // Main key light from top-right to create the specular reflection highlight
-            const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
-            keyLight.position.set(4, 5, 4);
+            // Strong specular highlight key light (white)
+            const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
+            keyLight.position.set(4, 6, 4);
             scene.add(keyLight);
 
-            // Fill light from bottom-left
-            const fillLight = new THREE.DirectionalLight(0x7c4dff, 1.5);
-            fillLight.position.set(-4, -4, 3);
-            scene.add(fillLight);
+            // Deep golden back fill light
+            const goldFillLight = new THREE.DirectionalLight(0xffb833, 1.8);
+            goldFillLight.position.set(-4, -4, 2);
+            scene.add(goldFillLight);
 
-            // Magic core light
-            const coreLight = new THREE.PointLight(0xff66cc, 3.5, 8);
+            // Pulsing core light source
+            const coreLight = new THREE.PointLight(0xff9900, 3.5, 8);
             coreLight.position.set(0, 0.15, 0);
             scene.add(coreLight);
 
-            // Pedestal highlight light
-            const baseLight = new THREE.PointLight(0xcd7f32, 2.2, 4);
+            // Pedestal upward highlight
+            const baseLight = new THREE.PointLight(0xd4af37, 2.5, 4);
             baseLight.position.set(0, -1.8, 0);
             scene.add(baseLight);
 
@@ -2527,18 +2513,19 @@ public static class MiniAppUI
                 if (!activeScene) return;
                 requestAnimationFrame(animate);
 
-                // Auto rotate group slowly when not dragging
+                // Auto rotate group slowly when not dragging (heavy, majestic speed)
                 if (!isDragging) {
-                    sphereGroup.rotation.y += 0.0025;
+                    sphereGroup.rotation.y += 0.0012;
                 }
 
-                // Swirling magical plasma ribbons rotation
-                ribbon1.rotation.y += 0.008;
-                ribbon1.rotation.x -= 0.003;
-                ribbon2.rotation.z -= 0.007;
-                ribbon2.rotation.y += 0.004;
+                // Concetric Gyroscopic Rings heavy rotation
+                gyro1.rotation.y += 0.004;
+                gyro1.rotation.x -= 0.002;
+                gyro2.rotation.z -= 0.003;
+                gyro2.rotation.y += 0.002;
+                gyro3.rotation.x += 0.005;
 
-                // Animate swirling cosmic star field
+                // Animate swirling stardust
                 const posArr = particleGeo.attributes.position.array;
                 for (let i = 0; i < particleCount; i++) {
                     particleAngles[i] += particleSpeeds[i];
@@ -2573,17 +2560,17 @@ public static class MiniAppUI
                 const time = Date.now() * 0.0025;
 
                 // Pulsate inner core scale and intensity
-                const coreScale = 1.0 + Math.sin(time * 1.6) * 0.07;
+                const coreScale = 1.0 + Math.sin(time * 1.4) * 0.06;
                 innerCore.scale.set(coreScale, coreScale, coreScale);
                 outerCore.scale.set(coreScale, coreScale, coreScale);
-                outerCoreMat.opacity = 0.28 + Math.sin(time * 1.2) * 0.08;
+                outerCoreMat.opacity = 0.32 + Math.sin(time * 1.0) * 0.06;
 
-                // Twinkle stars (breathing points material size)
-                particleMat.size = 0.14 + Math.sin(time) * 0.02;
+                // Twinkle golden stars (breathing points material size)
+                particleMat.size = 0.13 + Math.sin(time) * 0.015;
 
-                // Slow undulating scale of the plasma ribbons (makes them feel alive/organic)
-                const ribbonScale = 1.0 + Math.sin(time * 0.8) * 0.05;
-                ribbonGroup.scale.set(ribbonScale, ribbonScale, ribbonScale);
+                // Slow undulating breathing of the entire gyroscopic system
+                const gyroScale = 1.0 + Math.sin(time * 0.6) * 0.03;
+                gyroGroup.scale.set(gyroScale, gyroScale, gyroScale);
 
                 renderer.render(scene, camera);
             }
