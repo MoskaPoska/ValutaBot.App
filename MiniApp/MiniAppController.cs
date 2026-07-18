@@ -922,14 +922,16 @@ public static class MiniAppController
     {
         if (prices == null || prices.Length < 30) return 0.0;
 
-        double swingHigh = prices.Max();
-        double swingLow = prices.Min();
+        int len = Math.Min(45, prices.Length);
+        var recentPrices = prices[^len..];
+        double swingHigh = recentPrices.Max();
+        double swingLow = recentPrices.Min();
         double range = swingHigh - swingLow;
 
         if (range < 1e-10) return 0.0;
 
         double currentPrice = prices[^1];
-        bool generalTrendUp = prices[^1] > prices[0];
+        bool generalTrendUp = prices[^1] > recentPrices[0];
 
         // Fibonacci Retracement Levels
         double fib618 = generalTrendUp ? swingHigh - 0.618 * range : swingLow + 0.618 * range;

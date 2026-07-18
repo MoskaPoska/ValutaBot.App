@@ -61,7 +61,7 @@ public static class MLForecastService
             double threshold = Math.Max(volatility * 0.15, minThreshold * 0.5);
             string direction = change > threshold ? "BUY" : change < -threshold ? "PUT" : "NEUTRAL";
 
-            double confidence = 100 - Math.Abs(change) * 1000 / (volatility * 100 + 0.01);
+            double confidence = 55 + Math.Min((Math.Abs(change) / (threshold + 1e-10)) * 15.0, 40.0);
             if (double.IsNaN(confidence) || double.IsInfinity(confidence))
                 confidence = 50;
 
@@ -116,7 +116,8 @@ public static class MLForecastService
         double confidence = 50;
         if (std > 1e-9)
         {
-            confidence = 100 - (Math.Abs(predictedEnd - lastPrice) / std) * 12;
+            double signalToNoise = Math.Abs(predictedEnd - lastPrice) / std;
+            confidence = 55 + Math.Min(signalToNoise * 12.0, 35.0);
         }
         confidence = Math.Clamp(confidence, 55, 90);
         confidence = Math.Round(confidence);
