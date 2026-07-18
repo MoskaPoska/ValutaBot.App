@@ -2075,11 +2075,14 @@ public static class MiniAppUI
 
         /* ─── 3D Sphere Logic ─── */
         let activeScene = false;
-        let renderer = null, scene = null, camera = null, sphereGroup = null, outerSphere = null;
+        let renderer = null, scene = null, camera = null, sphereGroup = null, outerSphere = null, crystalGroup = null, coreMat = null, coreLight = null;
         let isDragging = false;
         let previousMousePosition = { x: 0, y: 0 };
         let openTime = 0;
         window.dragDistance = 0;
+
+        let corePulseTarget = 1.0;
+        let currentCorePulse = 1.0;
 
         // Magic spark system variables
         let sparkGeo = null, sparkParticles = null;
@@ -2113,6 +2116,7 @@ public static class MiniAppUI
         const onPointerDown = (e) => {
             if (!activeScene) return;
             isDragging = true;
+            corePulseTarget = 2.4;
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             previousMousePosition = { x: clientX, y: clientY };
@@ -2159,6 +2163,7 @@ public static class MiniAppUI
 
         const onPointerUp = (e) => {
             isDragging = false;
+            corePulseTarget = 1.0;
         };
 
         // Static event binding once on load
@@ -2267,7 +2272,7 @@ public static class MiniAppUI
             const innerSphere = new THREE.Mesh(innerGeo, innerMat);
             sphereGroup.add(innerSphere);
 
-            // 1c. Fresnel Rim Glow Material for the sphere edges (mystical deep violet rim glow)
+            // 1c. Fresnel Rim Glow Material for the sphere edges (chromatic dispersion / rainbow split)
             const rimVertexShader = `
                 varying vec3 vNormal;
                 varying vec3 vViewPosition;
@@ -2284,8 +2289,24 @@ public static class MiniAppUI
                 void main() {
                     vec3 normal = normalize(vNormal);
                     vec3 viewDir = normalize(vViewPosition);
-                    float intensity = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.5);
-                    gl_FragColor = vec4(0.72, 0.45, 1.0, 1.0) * intensity * 0.82;
+                    float dotProd = max(dot(normal, viewDir), 0.0);
+                    
+                    // Slightly offset exponents for RGB channels to create chromatic split
+                    float rIntensity = pow(1.0 - dotProd, 3.8);
+                    float gIntensity = pow(1.0 - dotProd, 3.4);
+                    float bIntensity = pow(1.0 - dotProd, 3.0);
+                    
+                    vec3 color = vec3(
+                        rIntensity * 0.85, 
+                        gIntensity * 0.70 + rIntensity * 0.15, 
+                        bIntensity * 0.95 + gIntensity * 0.20
+                    );
+                    
+                    // Amethyst violet base tint mixed with dispersion spectrum
+                    vec3 amethystBase = vec3(0.58, 0.35, 0.95);
+                    vec3 finalColor = mix(amethystBase * bIntensity, color, 0.72);
+                    
+                    gl_FragColor = vec4(finalColor, 1.0) * bIntensity * 0.88;
                 }
             `;
             const rimMat = new THREE.ShaderMaterial({
@@ -2407,9 +2428,61 @@ public static class MiniAppUI
 
             // (Trend Arrow removed per user preference)
 
+            // 1g. Soft realistic ground shadow under the pedestal
+            const shadowCanvas = document.createElement('canvas');
+            shadowCanvas.width = 64;
+            shadowCanvas.height = 64;
+            const shadowCtx = shadowCanvas.getContext('2d');
+            const shadowGrad = shadowCtx.createRadialGradient(32, 32, 0, 32, 32, 30);
+            shadowGrad.addColorStop(0, 'rgba(0, 0, 0, 0.85)');
+            shadowGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.4)');
+            shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            shadowCtx.fillStyle = shadowGrad;
+            shadowCtx.fillRect(0, 0, 64, 64);
+            const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+
+            const shadowGeo = new THREE.PlaneGeometry(3.5, 3.5);
+            const shadowMat = new THREE.MeshBasicMaterial({
+                map: shadowTexture,
+                transparent: true,
+                depthWrite: false
+            });
+            const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+            shadowMesh.rotation.x = -Math.PI / 2;
+            shadowMesh.position.y = -2.25; // slightly below the bottom of basalt base
+            scene.add(shadowMesh);
+
+            // 2. Glowing 3D Sacred Geometry Crystal (Octahedron of thin silver lines and translucent violet faces)
+            const crystalGeo = new THREE.OctahedronGeometry(0.35, 0);
+            const crystalWireMat = new THREE.MeshBasicMaterial({
+                color: 0x8899aa, // silver
+                wireframe: true,
+                transparent: true,
+                opacity: 0.65
+            });
+            const crystalWire = new THREE.Mesh(crystalGeo, crystalWireMat);
+            
+            const crystalFaceMat = new THREE.MeshPhysicalMaterial({
+                color: 0x5c4dff, // indigo glow
+                transparent: true,
+                opacity: 0.35,
+                roughness: 0.05,
+                metalness: 0.9,
+                transmission: 0.8,
+                ior: 1.8,
+                depthWrite: false
+            });
+            const crystalFaces = new THREE.Mesh(crystalGeo, crystalFaceMat);
+
+            crystalGroup = new THREE.Group();
+            crystalGroup.position.set(0, 0.15, 0);
+            crystalGroup.add(crystalWire);
+            crystalGroup.add(crystalFaces);
+            sphereGroup.add(crystalGroup);
+
             // Cool Violet Backlight Core behind the gemstone
             const coreGeo = new THREE.SphereGeometry(0.32, 16, 16);
-            const coreMat = new THREE.MeshBasicMaterial({
+            coreMat = new THREE.MeshBasicMaterial({
                 color: 0x7c4dff, // cool violet glow
                 transparent: true,
                 opacity: 0.6,
@@ -2523,7 +2596,7 @@ public static class MiniAppUI
             scene.add(goldFillLight);
 
             // Cool core glow light source
-            const coreLight = new THREE.PointLight(0x9933ff, 3.2, 10);
+            coreLight = new THREE.PointLight(0x9933ff, 3.2, 10);
             coreLight.position.set(0, 0.15, 0);
             scene.add(coreLight);
 
@@ -2537,6 +2610,8 @@ public static class MiniAppUI
                 if (!activeScene) return;
                 requestAnimationFrame(animate);
 
+                const time = Date.now() * 0.0025;
+
                 // Auto rotate group slowly when not dragging (slow, majestic)
                 if (!isDragging) {
                     sphereGroup.rotation.y += 0.0015;
@@ -2546,14 +2621,29 @@ public static class MiniAppUI
                 innerWireSphere.rotation.y -= 0.003;
                 innerWireSphere.rotation.x += 0.001;
 
-                // Animate swirling cosmic galaxy storm
+                // Rotate the central sacred geometry crystal
+                if (crystalGroup) {
+                    crystalGroup.rotation.y += 0.008;
+                    crystalGroup.rotation.x += 0.004;
+                    crystalGroup.position.y = 0.15 + Math.sin(time * 1.5) * 0.05; // hover breathing
+                }
+
+                // Animate swirling fluid cosmic galaxy storm (wavy turbulence)
                 const posArr = particleGeo.attributes.position.array;
                 for (let i = 0; i < particleCount; i++) {
                     particleAngles[i] += particleSpeeds[i];
                     const r = particleRadii[i];
                     const theta = particleAngles[i];
-                    posArr[i * 3] = r * Math.cos(theta);
-                    posArr[i * 3 + 2] = r * Math.sin(theta);
+                    const yOff = particleYOffs[i];
+
+                    // Per-particle undulating turbulence waves
+                    const waveX = Math.sin(time + r * 4.0 + yOff * 2.0) * 0.08;
+                    const waveY = Math.cos(time * 1.5 + r * 3.0) * 0.08 * (1.85 - r);
+                    const waveZ = Math.cos(time + r * 4.0 - yOff * 2.0) * 0.08;
+
+                    posArr[i * 3] = r * Math.cos(theta) + waveX;
+                    posArr[i * 3 + 1] = yOff + waveY;
+                    posArr[i * 3 + 2] = r * Math.sin(theta) + waveZ;
                 }
                 particleGeo.attributes.position.needsUpdate = true;
 
@@ -2578,12 +2668,23 @@ public static class MiniAppUI
                     sparkGeo.attributes.position.needsUpdate = true;
                 }
 
-                const time = Date.now() * 0.0025;
+                // Smoothly interpolate core pulse state driven by dragging
+                currentCorePulse += (corePulseTarget - currentCorePulse) * 0.1;
 
                 // Breathing particle size
-                particleMat.size = 0.14 + Math.sin(time) * 0.015;
-                const coreScale = 1.0 + Math.sin(time * 1.8) * 0.06;
+                particleMat.size = (0.14 + Math.sin(time) * 0.015) * (0.8 + currentCorePulse * 0.2);
+                
+                // Breath and scale core
+                const coreScale = (1.0 + Math.sin(time * 1.8) * 0.06) * currentCorePulse;
                 core.scale.set(coreScale, coreScale, coreScale);
+
+                // Boost core visual glow opacity and light intensity
+                if (coreMat) {
+                    coreMat.opacity = 0.6 * (0.4 + currentCorePulse * 0.6);
+                }
+                if (coreLight) {
+                    coreLight.intensity = 3.2 * currentCorePulse;
+                }
 
                 renderer.render(scene, camera);
             }
