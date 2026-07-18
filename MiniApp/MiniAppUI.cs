@@ -2256,16 +2256,16 @@ public static class MiniAppUI
             outerSphere = new THREE.Mesh(outerGeo, outerMat);
             sphereGroup.add(outerSphere);
 
-            // 1b. Inner Glass Sphere (Creates realistic glass thickness / double-walled refraction)
-            const innerGeo = new THREE.SphereGeometry(1.94, 128, 128);
-            const innerMat = new THREE.MeshPhysicalMaterial({
-                color: 0x1d1233, // slightly darker violet core glass
+            // 1b. Glowing Inner Core Sphere ( Vibe of the bot's regular magic ball - self-glowing, doesn't darken when rotated)
+            const innerGeo = new THREE.SphereGeometry(0.9, 64, 64);
+            const innerMat = new THREE.MeshStandardMaterial({
+                color: 0x7c4dff, // magical violet/purple
+                emissive: 0x3d1c66, // self-glowing amethyst core
+                emissiveIntensity: 1.25,
                 transparent: true,
-                opacity: 0.14,
-                roughness: 0.01,
-                metalness: 0.05,
-                transmission: 0.96,
-                ior: 1.45,
+                opacity: 0.45,
+                roughness: 0.15,
+                metalness: 0.1,
                 side: THREE.DoubleSide,
                 depthWrite: false
             });
@@ -2492,7 +2492,7 @@ public static class MiniAppUI
             core.position.set(0, 0.15, 0);
             sphereGroup.add(core);
 
-            // 3. Indigo & Silver Nebula Star Storm (Twinkling star field - 750 stars)
+            // 3. Cyan & Magenta Nebula Star Storm (Twinkling star field - 750 stars in bot's native palette)
             const particleCount = 750;
             const particleGeo = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
@@ -2502,8 +2502,8 @@ public static class MiniAppUI
             const particleAngles = new Float32Array(particleCount);
             const particleYOffs = new Float32Array(particleCount);
 
-            const colSilver = new THREE.Color(0x8899aa);
-            const colIndigo = new THREE.Color(0x5c4dff);
+            const colCyan = new THREE.Color(0x00e5ff);
+            const colMagenta = new THREE.Color(0xb388ff);
             const colStarlight = new THREE.Color(0xffffff);
 
             for (let i = 0; i < particleCount; i++) {
@@ -2520,9 +2520,9 @@ public static class MiniAppUI
                 particleYOffs[i] = y;
                 particleSpeeds[i] = 0.004 + Math.random() * 0.006;
 
-                let col = colSilver;
+                let col = colCyan;
                 const rand = Math.random();
-                if (rand < 0.45) col = colIndigo;
+                if (rand < 0.45) col = colMagenta;
                 else if (rand < 0.8) col = colStarlight;
 
                 colors[i * 3] = col.r;
@@ -2546,7 +2546,7 @@ public static class MiniAppUI
             const particles = new THREE.Points(particleGeo, particleMat);
             sphereGroup.add(particles);
 
-            // 4. Active Magic Spark Particle System (Drag trace trail - silver/indigo sparks)
+            // 4. Active Magic Spark Particle System (Drag trace trail - cyan/magenta sparks)
             sparkGeo = new THREE.BufferGeometry();
             const sparkPositionsArr = new Float32Array(maxSparks * 3);
             const sparkColorsArr = new Float32Array(maxSparks * 3);
@@ -2558,7 +2558,7 @@ public static class MiniAppUI
                 sparkPositionsArr[i * 3 + 1] = 999;
                 sparkPositionsArr[i * 3 + 2] = 999;
 
-                const col = Math.random() > 0.5 ? colSilver : colIndigo;
+                const col = Math.random() > 0.5 ? colCyan : colMagenta;
                 sparkColorsArr[i * 3] = col.r;
                 sparkColorsArr[i * 3 + 1] = col.g;
                 sparkColorsArr[i * 3 + 2] = col.b;
