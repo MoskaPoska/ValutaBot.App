@@ -2238,15 +2238,15 @@ public static class MiniAppUI
             sphereGroup = new THREE.Group();
             scene.add(sphereGroup);
 
-            // 1a. Outer Crystal Glass Sphere (Smoky Purple/Amethyst Tint)
+            // 1a. Outer Crystal Glass Sphere (Dark Obsidian Purple/Amethyst Tint)
             const outerGeo = new THREE.SphereGeometry(2.0, 128, 128);
             const outerMat = new THREE.MeshPhysicalMaterial({
-                color: 0x3d2d5c, // deep amethyst purple tint
+                color: 0x110825, // deep space obsidian purple tint
                 transparent: true,
-                opacity: 0.18,
+                opacity: 0.38, // richer glass body color
                 roughness: 0.005,
-                metalness: 0.05,
-                transmission: 0.98,
+                metalness: 0.15,
+                transmission: 0.78, // less transparent for darker glass feel
                 ior: 1.62, // crystal glass refraction
                 clearcoat: 1.0,
                 clearcoatRoughness: 0.0,
@@ -2318,7 +2318,7 @@ public static class MiniAppUI
             );
             sphereGroup.add(innerWireSphere);
 
-            // 1e. Constellation Astrolabe Grid (Silver outer delicate mesh)
+            // 1e. Constellation Astrolabe Grid (Subtle Dark Silver outer delicate mesh)
             const gridGeo = new THREE.SphereGeometry(1.98, 16, 16);
             const gridSphere = new THREE.Mesh(
                 gridGeo,
@@ -2326,7 +2326,7 @@ public static class MiniAppUI
                     color: 0x8899aa, // silver/platinum
                     wireframe: true,
                     transparent: true,
-                    opacity: 0.18
+                    opacity: 0.06 // extremely subtle phantom grid
                 })
             );
             sphereGroup.add(gridSphere);
@@ -2343,7 +2343,7 @@ public static class MiniAppUI
             pCtx.fillRect(0, 0, 16, 16);
             const pTexture = new THREE.CanvasTexture(pCanvas);
 
-            // Glowing Constellation Stars at grid vertices (soft cyan/white stars)
+            // Glowing Constellation Stars at grid vertices (soft deep violet stars)
             const gridPositions = gridGeo.attributes.position.array;
             const starGeo = new THREE.BufferGeometry();
             const starPositions = new Float32Array(gridPositions.length);
@@ -2354,9 +2354,9 @@ public static class MiniAppUI
             const starMat = new THREE.PointsMaterial({
                 size: 0.1,
                 map: pTexture,
-                color: 0x00e5ff, // cyan starlight
+                color: 0x7c4dff, // magical deep violet star tint
                 transparent: true,
-                opacity: 0.65,
+                opacity: 0.45, // subtler glow
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -2438,10 +2438,10 @@ public static class MiniAppUI
             shadowMesh.position.y = -2.25; // slightly below the bottom of basalt base
             scene.add(shadowMesh);
 
-            // 2. Glowing 3D Sacred Geometry Crystal (Octahedron of thin silver lines and translucent violet faces)
+            // 2. Glowing 3D Sacred Geometry Crystal (Octahedron of dark amethyst steel and deep space indigo faces)
             const crystalGeo = new THREE.OctahedronGeometry(0.35, 0);
             const crystalWireMat = new THREE.MeshBasicMaterial({
-                color: 0x8899aa, // silver
+                color: 0x33284d, // dark amethyst steel
                 wireframe: true,
                 transparent: true,
                 opacity: 0.65
@@ -2449,12 +2449,12 @@ public static class MiniAppUI
             const crystalWire = new THREE.Mesh(crystalGeo, crystalWireMat);
             
             const crystalFaceMat = new THREE.MeshPhysicalMaterial({
-                color: 0x5c4dff, // indigo glow
+                color: 0x180a30, // deep space indigo
                 transparent: true,
-                opacity: 0.35,
+                opacity: 0.45,
                 roughness: 0.05,
-                metalness: 0.9,
-                transmission: 0.8,
+                metalness: 0.95,
+                transmission: 0.7,
                 ior: 1.8,
                 depthWrite: false
             });
@@ -2557,22 +2557,22 @@ public static class MiniAppUI
             sparkParticles = new THREE.Points(sparkGeo, sparkMat);
             scene.add(sparkParticles);
 
-            // 5. Lighting - Dynamic museum lighting for glass and crystals
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.42);
+            // 5. Lighting - Dynamic museum lighting for glass and crystals (darkened for high contrast)
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.15); // reduced from 0.42 for rich dark shadows
             scene.add(ambientLight);
 
             // High specular highlight directional light (white)
-            const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
+            const keyLight = new THREE.DirectionalLight(0xffffff, 2.2); // reduced from 3.2
             keyLight.position.set(4, 5, 4);
             scene.add(keyLight);
 
-            // Cool sapphire back fill light
-            const goldFillLight = new THREE.DirectionalLight(0x4d5aff, 1.8);
+            // Cool sapphire back fill light (darker magical cyan)
+            const goldFillLight = new THREE.DirectionalLight(0x00a8d6, 1.2); // reduced from 1.8
             goldFillLight.position.set(-4, -4, 2);
             scene.add(goldFillLight);
 
-            // Cool core glow light source
-            coreLight = new THREE.PointLight(0x9933ff, 3.2, 10);
+            // Cool core glow light source (darker purple glow)
+            coreLight = new THREE.PointLight(0x7c00ff, 2.0, 10);
             coreLight.position.set(0, 0.15, 0);
             scene.add(coreLight);
 
@@ -2652,7 +2652,7 @@ public static class MiniAppUI
                 
                     // (Core animations removed per user preference)
                 if (coreLight) {
-                    coreLight.intensity = 3.2 * currentCorePulse;
+                    coreLight.intensity = 2.0 * currentCorePulse;
                 }
 
                 renderer.render(scene, camera);
