@@ -2233,22 +2233,25 @@ public static class MiniAppUI
             sphereGroup = new THREE.Group();
             scene.add(sphereGroup);
 
+            // 1. Outer Glass Sphere
             const outerGeo = new THREE.SphereGeometry(2.0, 64, 64);
             const outerMat = new THREE.MeshPhysicalMaterial({
-                color: 0x7c4dff,
+                color: 0xda70d6, // Orchid/Purple glass tint
                 transparent: true,
-                opacity: 0.28,
-                roughness: 0.05,
-                metalness: 0.1,
-                transmission: 0.9,
-                ior: 1.6,
+                opacity: 0.22,
+                roughness: 0.01,
+                metalness: 0.05,
+                transmission: 0.96,
+                ior: 1.5,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.0,
                 side: THREE.DoubleSide,
                 depthWrite: false
             });
             outerSphere = new THREE.Mesh(outerGeo, outerMat);
             sphereGroup.add(outerSphere);
 
-            // 1b. Fresnel Rim Glow Material for the sphere edges
+            // 1b. Fresnel Rim Glow for glass edge highlight
             const rimVertexShader = `
                 varying vec3 vNormal;
                 varying vec3 vViewPosition;
@@ -2265,8 +2268,8 @@ public static class MiniAppUI
                 void main() {
                     vec3 normal = normalize(vNormal);
                     vec3 viewDir = normalize(vViewPosition);
-                    float intensity = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
-                    gl_FragColor = vec4(0.78, 0.35, 1.0, 1.0) * intensity * 0.75;
+                    float intensity = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.5);
+                    gl_FragColor = vec4(0.95, 0.45, 1.0, 1.0) * intensity * 0.9;
                 }
             `;
             const rimMat = new THREE.ShaderMaterial({
@@ -2280,29 +2283,119 @@ public static class MiniAppUI
             const rimMesh = new THREE.Mesh(outerGeo, rimMat);
             sphereGroup.add(rimMesh);
 
-            // 1c. Inner Opposite-Rotating Wireframe Sphere
-            const innerWireGeo = new THREE.SphereGeometry(1.8, 12, 12);
-            const innerWireMat = new THREE.MeshBasicMaterial({
-                color: 0x00e5ff,
-                wireframe: true,
-                transparent: true,
-                opacity: 0.16
-            });
-            const innerWireSphere = new THREE.Mesh(innerWireGeo, innerWireMat);
-            sphereGroup.add(innerWireSphere);
+            // 2. Multi-layered Central Glowing Core (magical light source)
+            const coreGroup = new THREE.Group();
+            coreGroup.position.set(0, 0.15, 0);
+            sphereGroup.add(coreGroup);
 
-            // 1d. Constellation Astrolabe Grid (Golden outer mesh)
-            const gridGeo = new THREE.SphereGeometry(1.98, 16, 16);
-            const gridMat = new THREE.MeshBasicMaterial({
-                color: 0xffd700,
-                wireframe: true,
+            const innerCoreGeo = new THREE.SphereGeometry(0.35, 32, 32);
+            const innerCoreMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
                 transparent: true,
-                opacity: 0.22
+                opacity: 0.95,
+                blending: THREE.AdditiveBlending
             });
-            const gridSphere = new THREE.Mesh(gridGeo, gridMat);
-            sphereGroup.add(gridSphere);
+            const innerCore = new THREE.Mesh(innerCoreGeo, innerCoreMat);
+            coreGroup.add(innerCore);
 
-            // Particle helper textures
+            const outerCoreGeo = new THREE.SphereGeometry(0.75, 32, 32);
+            const outerCoreMat = new THREE.MeshBasicMaterial({
+                color: 0xff7cd6, // Pinkish glow
+                transparent: true,
+                opacity: 0.32,
+                blending: THREE.AdditiveBlending
+            });
+            const outerCore = new THREE.Mesh(outerCoreGeo, outerCoreMat);
+            coreGroup.add(outerCore);
+
+            // 3. Swirling Plasma Ribbons (gaseous energy waves inside)
+            const ribbonGroup = new THREE.Group();
+            sphereGroup.add(ribbonGroup);
+
+            // Ribbon 1: Pink Torus Knot
+            const knotGeo1 = new THREE.TorusKnotGeometry(0.85, 0.07, 120, 16, 2, 3);
+            const knotMat1 = new THREE.MeshBasicMaterial({
+                color: 0xff33bb,
+                transparent: true,
+                opacity: 0.72,
+                blending: THREE.AdditiveBlending,
+                wireframe: false
+            });
+            const ribbon1 = new THREE.Mesh(knotGeo1, knotMat1);
+            ribbonGroup.add(ribbon1);
+
+            // Ribbon 2: Cyan Torus Knot (slightly larger, different winding)
+            const knotGeo2 = new THREE.TorusKnotGeometry(0.95, 0.05, 120, 16, 3, 5);
+            const knotMat2 = new THREE.MeshBasicMaterial({
+                color: 0x00ffff,
+                transparent: true,
+                opacity: 0.65,
+                blending: THREE.AdditiveBlending,
+                wireframe: false
+            });
+            const ribbon2 = new THREE.Mesh(knotGeo2, knotMat2);
+            ribbonGroup.add(ribbon2);
+
+            // 4. Carved Bronze / Brass Pedestal Base with cradling crown claws
+            const pedestalGroup = new THREE.Group();
+            pedestalGroup.position.y = -2.18;
+
+            const bronzeCol = new THREE.Color(0x8a5a36); // bronze
+            const goldAccentCol = new THREE.Color(0xd4af37); // metallic gold
+            
+            const bronzeMat = new THREE.MeshStandardMaterial({
+                color: bronzeCol,
+                roughness: 0.28,
+                metalness: 0.95
+            });
+            const goldMat = new THREE.MeshStandardMaterial({
+                color: goldAccentCol,
+                roughness: 0.18,
+                metalness: 0.98
+            });
+
+            // Flared Base Tier 1
+            const baseDiskGeo = new THREE.CylinderGeometry(1.4, 1.6, 0.22, 32);
+            const baseDisk = new THREE.Mesh(baseDiskGeo, bronzeMat);
+            pedestalGroup.add(baseDisk);
+
+            // Curved stem
+            const stemGeo = new THREE.CylinderGeometry(0.72, 1.25, 0.55, 32);
+            const stem = new THREE.Mesh(stemGeo, bronzeMat);
+            stem.position.y = 0.35;
+            pedestalGroup.add(stem);
+
+            // Gold Collar Ring
+            const collarGeo = new THREE.CylinderGeometry(0.92, 0.88, 0.12, 32);
+            const collar = new THREE.Mesh(collarGeo, goldMat);
+            collar.position.y = 0.68;
+            pedestalGroup.add(collar);
+
+            // 6 carved cradling claws (hugging the bottom of the glass sphere)
+            for (let i = 0; i < 6; i++) {
+                const angle = (i * Math.PI) / 3;
+                const clawGeo = new THREE.ConeGeometry(0.22, 1.2, 16);
+                clawGeo.translate(0, 0.5, 0); // shift pivot to base
+                const claw = new THREE.Mesh(clawGeo, bronzeMat);
+                
+                const radius = 1.35;
+                claw.position.set(Math.cos(angle) * radius, 0.1, Math.sin(angle) * radius);
+                // Tilt inward towards the sphere
+                claw.rotation.z = -Math.cos(angle) * 0.42;
+                claw.rotation.x = Math.sin(angle) * 0.42;
+                claw.rotation.y = -angle + Math.PI / 2;
+                
+                // Add a small gold highlight sphere on the tip of each claw
+                const tipGeo = new THREE.SphereGeometry(0.08, 8, 8);
+                const tip = new THREE.Mesh(tipGeo, goldMat);
+                tip.position.set(0, 1.05, 0);
+                claw.add(tip);
+
+                pedestalGroup.add(claw);
+            }
+            sphereGroup.add(pedestalGroup);
+
+            // 5. Cosmic Stars & Magical Particles (Twinkling inside)
             const pCanvas = document.createElement('canvas');
             pCanvas.width = 16;
             pCanvas.height = 16;
@@ -2314,132 +2407,7 @@ public static class MiniAppUI
             pCtx.fillRect(0, 0, 16, 16);
             const pTexture = new THREE.CanvasTexture(pCanvas);
 
-            // Glowing Constellation Stars at grid vertices
-            const gridPositions = gridGeo.attributes.position.array;
-            const starGeo = new THREE.BufferGeometry();
-            const starPositions = new Float32Array(gridPositions.length);
-            for (let i = 0; i < gridPositions.length; i++) {
-                starPositions[i] = gridPositions[i];
-            }
-            starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-            const starMat = new THREE.PointsMaterial({
-                size: 0.1,
-                map: pTexture,
-                color: 0xffd700,
-                transparent: true,
-                opacity: 0.7,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
-            });
-            const constellationStars = new THREE.Points(starGeo, starMat);
-            sphereGroup.add(constellationStars);
-
-            // 1e. Obsidian and Gold Pedestal Base
-            const pedestalGroup = new THREE.Group();
-            pedestalGroup.position.y = -2.18;
-
-            const tier1Geo = new THREE.CylinderGeometry(1.1, 1.3, 0.2, 32);
-            const tier1Mat = new THREE.MeshStandardMaterial({ color: 0x070310, roughness: 0.85, metalness: 0.9 });
-            const tier1 = new THREE.Mesh(tier1Geo, tier1Mat);
-            pedestalGroup.add(tier1);
-
-            const goldCollarGeo = new THREE.CylinderGeometry(0.98, 1.05, 0.08, 32);
-            const goldCollarMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.18, metalness: 0.95 });
-            const goldCollar = new THREE.Mesh(goldCollarGeo, goldCollarMat);
-            goldCollar.position.y = 0.14;
-            pedestalGroup.add(goldCollar);
-
-            const tier2Geo = new THREE.CylinderGeometry(0.85, 0.95, 0.12, 32);
-            const tier2Mat = new THREE.MeshStandardMaterial({ color: 0x10071e, roughness: 0.75, metalness: 0.8 });
-            const tier2 = new THREE.Mesh(tier2Geo, tier2Mat);
-            tier2.position.y = 0.24;
-            pedestalGroup.add(tier2);
-
-            // Four gold corner supports
-            for (let i = 0; i < 4; i++) {
-                const angle = (i * Math.PI) / 2;
-                const bracketGeo = new THREE.BoxGeometry(0.08, 0.35, 0.16);
-                const bracket = new THREE.Mesh(bracketGeo, goldCollarMat);
-                bracket.position.set(Math.cos(angle) * 1.02, 0.12, Math.sin(angle) * 1.02);
-                bracket.rotation.y = -angle;
-                pedestalGroup.add(bracket);
-            }
-            sphereGroup.add(pedestalGroup);
-
-            // 2. Levitating Neon Crystal Trend Arrow Inside (Extruded 3D Shape)
-            const arrowShape = new THREE.Shape();
-            arrowShape.moveTo(-0.65, -0.35);
-            arrowShape.lineTo(-0.25, 0.05);
-            arrowShape.lineTo(0.1, -0.3);
-            arrowShape.lineTo(0.55, 0.15);
-            arrowShape.lineTo(0.42, 0.38);
-            arrowShape.lineTo(0.85, 0.38);
-            arrowShape.lineTo(0.85, -0.05);
-            arrowShape.lineTo(0.72, 0.18);
-            arrowShape.lineTo(0.1, -0.5);
-            arrowShape.lineTo(-0.25, -0.15);
-            arrowShape.lineTo(-0.52, -0.48);
-            arrowShape.closePath();
-
-            const extrudeSettings = { 
-                depth: 0.18, 
-                bevelEnabled: true, 
-                bevelSegments: 3, 
-                steps: 1, 
-                bevelSize: 0.02, 
-                bevelThickness: 0.02 
-            };
-            const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, extrudeSettings);
-            arrowGeo.center();
-            
-            const arrowMat = new THREE.MeshPhysicalMaterial({
-                color: 0xb388ff,
-                transparent: true,
-                opacity: 0.88,
-                roughness: 0.1,
-                metalness: 0.2,
-                transmission: 0.7,
-                ior: 1.5,
-                depthWrite: false
-            });
-            const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
-            arrowMesh.position.set(0, 0.15, 0);
-            sphereGroup.add(arrowMesh);
-
-            // Backlight Core behind the arrow
-            const coreGeo = new THREE.SphereGeometry(0.32, 16, 16);
-            const coreMat = new THREE.MeshBasicMaterial({
-                color: 0x00e5ff,
-                transparent: true,
-                opacity: 0.5
-            });
-            const core = new THREE.Mesh(coreGeo, coreMat);
-            core.position.set(0, 0.15, 0);
-            sphereGroup.add(core);
-
-            // 3. Concentration Astrolabe Rings
-            const ringGroup = new THREE.Group();
-            sphereGroup.add(ringGroup);
-
-            const torusGeo1 = new THREE.TorusGeometry(2.35, 0.015, 16, 100);
-            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.6 });
-            const ring1 = new THREE.Mesh(torusGeo1, ringMat1);
-            ringGroup.add(ring1);
-
-            const torusGeo2 = new THREE.TorusGeometry(2.45, 0.012, 16, 100);
-            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0.55 });
-            const ring2 = new THREE.Mesh(torusGeo2, ringMat2);
-            ring2.rotation.x = Math.PI / 2;
-            ringGroup.add(ring2);
-
-            const torusGeo3 = new THREE.TorusGeometry(2.55, 0.008, 16, 100);
-            const ringMat3 = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.45 });
-            const ring3 = new THREE.Mesh(torusGeo3, ringMat3);
-            ring3.rotation.y = Math.PI / 4;
-            ringGroup.add(ring3);
-
-            // 4. Cosmic Nebula Galaxy Particle Storm (Swirling inside/around outer sphere)
-            const particleCount = 650;
+            const particleCount = 420;
             const particleGeo = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const colors = new Float32Array(particleCount * 3);
@@ -2448,14 +2416,16 @@ public static class MiniAppUI
             const particleAngles = new Float32Array(particleCount);
             const particleYOffs = new Float32Array(particleCount);
 
-            const colorPurple = new THREE.Color(0xb388ff);
-            const colorCyan = new THREE.Color(0x00e5ff);
-            const colorGold = new THREE.Color(0xffd700);
+            const colPink = new THREE.Color(0xff80df);
+            const colCyan = new THREE.Color(0x00e5ff);
+            const colWhite = new THREE.Color(0xffffff);
+            const colPurple = new THREE.Color(0x9c27b0);
 
             for (let i = 0; i < particleCount; i++) {
-                const r = Math.random() * 1.85;
-                const theta = (r * 3.2) + (Math.random() * 0.4) + (i % 2 === 0 ? 0.0 : Math.PI); // logarithmic galaxy spiral arms
-                const y = (Math.random() - 0.5) * 1.1 * (1.85 - r) / 1.85;
+                // Keep particles inside the 2.0 sphere radius (use max 1.85)
+                const r = Math.random() * 1.82;
+                const theta = Math.random() * Math.PI * 2;
+                const y = (Math.random() - 0.5) * 1.3 * Math.sqrt(1.82 * 1.82 - r * r);
 
                 positions[i * 3] = r * Math.cos(theta);
                 positions[i * 3 + 1] = y;
@@ -2464,27 +2434,28 @@ public static class MiniAppUI
                 particleRadii[i] = r;
                 particleAngles[i] = theta;
                 particleYOffs[i] = y;
-                particleSpeeds[i] = 0.008 + Math.random() * 0.012;
+                particleSpeeds[i] = 0.003 + Math.random() * 0.007;
 
-                let col = colorPurple;
+                let c = colPink;
                 const rand = Math.random();
-                if (rand < 0.48) col = colorCyan;
-                else if (rand < 0.68) col = colorGold;
+                if (rand < 0.35) c = colCyan;
+                else if (rand < 0.65) c = colWhite;
+                else if (rand < 0.85) c = colPurple;
 
-                colors[i * 3] = col.r;
-                colors[i * 3 + 1] = col.g;
-                colors[i * 3 + 2] = col.b;
+                colors[i * 3] = c.r;
+                colors[i * 3 + 1] = c.g;
+                colors[i * 3 + 2] = c.b;
             }
 
             particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
             const particleMat = new THREE.PointsMaterial({
-                size: 0.16,
+                size: 0.15,
                 map: pTexture,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.9,
+                opacity: 0.95,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -2492,7 +2463,7 @@ public static class MiniAppUI
             const particles = new THREE.Points(particleGeo, particleMat);
             sphereGroup.add(particles);
 
-            // 5. Active Magic Spark Particle System (Drag trace trail)
+            // 6. Active Magic Spark Particle System (Drag trace trail)
             sparkGeo = new THREE.BufferGeometry();
             const sparkPositionsArr = new Float32Array(maxSparks * 3);
             const sparkColorsArr = new Float32Array(maxSparks * 3);
@@ -2504,10 +2475,10 @@ public static class MiniAppUI
                 sparkPositionsArr[i * 3 + 1] = 999;
                 sparkPositionsArr[i * 3 + 2] = 999;
 
-                const col = Math.random() > 0.5 ? colorCyan : colorGold;
-                sparkColorsArr[i * 3] = col.r;
-                sparkColorsArr[i * 3 + 1] = col.g;
-                sparkColorsArr[i * 3 + 2] = col.b;
+                const c = Math.random() > 0.5 ? colCyan : colPink;
+                sparkColorsArr[i * 3] = c.r;
+                sparkColorsArr[i * 3 + 1] = c.g;
+                sparkColorsArr[i * 3 + 2] = c.b;
 
                 sparkOpacity[i] = 0;
                 sparkVelocities.push({ x: 0, y: 0, z: 0 });
@@ -2517,7 +2488,7 @@ public static class MiniAppUI
             sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkColorsArr, 3));
 
             const sparkMat = new THREE.PointsMaterial({
-                size: 0.18,
+                size: 0.16,
                 map: pTexture,
                 vertexColors: true,
                 transparent: true,
@@ -2527,25 +2498,28 @@ public static class MiniAppUI
             sparkParticles = new THREE.Points(sparkGeo, sparkMat);
             scene.add(sparkParticles);
 
-            // 6. Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
+            // 7. Lighting - Highly detailed directional and point lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
             scene.add(ambientLight);
 
-            const dirLight1 = new THREE.DirectionalLight(0x00e5ff, 1.8);
-            dirLight1.position.set(5, 5, 5);
-            scene.add(dirLight1);
+            // Main key light from top-right to create the specular reflection highlight
+            const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
+            keyLight.position.set(4, 5, 4);
+            scene.add(keyLight);
 
-            const dirLight2 = new THREE.DirectionalLight(0x7c4dff, 1.8);
-            dirLight2.position.set(-5, -5, 3);
-            scene.add(dirLight2);
+            // Fill light from bottom-left
+            const fillLight = new THREE.DirectionalLight(0x7c4dff, 1.5);
+            fillLight.position.set(-4, -4, 3);
+            scene.add(fillLight);
 
-            const pointLight = new THREE.PointLight(0xb388ff, 2.5, 12);
-            pointLight.position.set(0, 0.15, 0);
-            scene.add(pointLight);
+            // Magic core light
+            const coreLight = new THREE.PointLight(0xff66cc, 3.5, 8);
+            coreLight.position.set(0, 0.15, 0);
+            scene.add(coreLight);
 
-            // Upwards pedestal glow light source
-            const baseLight = new THREE.PointLight(0xcc66ff, 3.0, 5);
-            baseLight.position.set(0, -2.1, 0);
+            // Pedestal highlight light
+            const baseLight = new THREE.PointLight(0xcd7f32, 2.2, 4);
+            baseLight.position.set(0, -1.8, 0);
             scene.add(baseLight);
 
             // Render loop
@@ -2555,19 +2529,16 @@ public static class MiniAppUI
 
                 // Auto rotate group slowly when not dragging
                 if (!isDragging) {
-                    sphereGroup.rotation.y += 0.002;
+                    sphereGroup.rotation.y += 0.0025;
                 }
 
-                // Parallax opposite-rotating inner wireframe sphere
-                innerWireSphere.rotation.y -= 0.005;
-                innerWireSphere.rotation.x += 0.002;
+                // Swirling magical plasma ribbons rotation
+                ribbon1.rotation.y += 0.008;
+                ribbon1.rotation.x -= 0.003;
+                ribbon2.rotation.z -= 0.007;
+                ribbon2.rotation.y += 0.004;
 
-                // Orbiting rings rotation
-                ring1.rotation.z += 0.004;
-                ring2.rotation.y += 0.006;
-                ring3.rotation.x -= 0.003;
-
-                // Animate swirling cosmic galaxy storm
+                // Animate swirling cosmic star field
                 const posArr = particleGeo.attributes.position.array;
                 for (let i = 0; i < particleCount; i++) {
                     particleAngles[i] += particleSpeeds[i];
@@ -2599,15 +2570,20 @@ public static class MiniAppUI
                     sparkGeo.attributes.position.needsUpdate = true;
                 }
 
-                // Breathing/hovering animation of the inner trend arrow
                 const time = Date.now() * 0.0025;
-                arrowMesh.position.y = 0.12 + Math.sin(time * 1.5) * 0.08;
-                arrowMesh.rotation.y += 0.01; // gentle arrow twist
 
-                // Breathing particle size
-                particleMat.size = 0.16 + Math.sin(time) * 0.02;
-                const coreScale = 1.0 + Math.sin(time * 1.8) * 0.08;
-                core.scale.set(coreScale, coreScale, coreScale);
+                // Pulsate inner core scale and intensity
+                const coreScale = 1.0 + Math.sin(time * 1.6) * 0.07;
+                innerCore.scale.set(coreScale, coreScale, coreScale);
+                outerCore.scale.set(coreScale, coreScale, coreScale);
+                outerCoreMat.opacity = 0.28 + Math.sin(time * 1.2) * 0.08;
+
+                // Twinkle stars (breathing points material size)
+                particleMat.size = 0.14 + Math.sin(time) * 0.02;
+
+                // Slow undulating scale of the plasma ribbons (makes them feel alive/organic)
+                const ribbonScale = 1.0 + Math.sin(time * 0.8) * 0.05;
+                ribbonGroup.scale.set(ribbonScale, ribbonScale, ribbonScale);
 
                 renderer.render(scene, camera);
             }
