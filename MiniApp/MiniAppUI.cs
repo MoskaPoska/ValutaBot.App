@@ -2234,7 +2234,7 @@ public static class MiniAppUI
             scene.add(sphereGroup);
 
             // 1a. Outer Crystal Glass Sphere (Smoky Purple/Amethyst Tint)
-            const outerGeo = new THREE.SphereGeometry(2.0, 64, 64);
+            const outerGeo = new THREE.SphereGeometry(2.0, 128, 128);
             const outerMat = new THREE.MeshPhysicalMaterial({
                 color: 0x3d2d5c, // deep amethyst purple tint
                 transparent: true,
@@ -2252,7 +2252,7 @@ public static class MiniAppUI
             sphereGroup.add(outerSphere);
 
             // 1b. Inner Glass Sphere (Creates realistic glass thickness / double-walled refraction)
-            const innerGeo = new THREE.SphereGeometry(1.94, 64, 64);
+            const innerGeo = new THREE.SphereGeometry(1.94, 128, 128);
             const innerMat = new THREE.MeshPhysicalMaterial({
                 color: 0x1d1233, // slightly darker violet core glass
                 transparent: true,
@@ -2371,30 +2371,36 @@ public static class MiniAppUI
                 metalness: 0.98
             });
 
-            // Heavy octagonal stone base tier 1
-            const tier1Geo = new THREE.CylinderGeometry(1.2, 1.4, 0.22, 8);
+            // Heavy round stone base tier 1
+            const tier1Geo = new THREE.CylinderGeometry(1.2, 1.4, 0.22, 64);
             const tier1 = new THREE.Mesh(tier1Geo, basaltMat);
             pedestalGroup.add(tier1);
 
             // Inlaid Silver Ring collar
-            const silverCollarGeo = new THREE.CylinderGeometry(1.0, 1.05, 0.08, 8);
+            const silverCollarGeo = new THREE.CylinderGeometry(1.0, 1.05, 0.08, 64);
             const silverCollar = new THREE.Mesh(silverCollarGeo, silverMat);
             silverCollar.position.y = 0.15;
             pedestalGroup.add(silverCollar);
 
             // Heavy stone base tier 2
-            const tier2Geo = new THREE.CylinderGeometry(0.85, 0.95, 0.15, 8);
+            const tier2Geo = new THREE.CylinderGeometry(0.85, 0.95, 0.15, 64);
             const tier2 = new THREE.Mesh(tier2Geo, basaltMat);
             tier2.position.y = 0.26;
             pedestalGroup.add(tier2);
 
-            // Four heavy silver supports hugging the sphere base
+            // Four elegant round silver pillar supports with sphere caps
             for (let i = 0; i < 4; i++) {
                 const angle = (i * Math.PI) / 2;
-                const bracketGeo = new THREE.BoxGeometry(0.12, 0.42, 0.18);
+                const bracketGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.42, 16);
                 const bracket = new THREE.Mesh(bracketGeo, silverMat);
                 bracket.position.set(Math.cos(angle) * 1.02, 0.15, Math.sin(angle) * 1.02);
-                bracket.rotation.y = -angle;
+                
+                // Add a small smooth sphere cap on top of each support pillar
+                const capGeo = new THREE.SphereGeometry(0.07, 16, 16);
+                const cap = new THREE.Mesh(capGeo, silverMat);
+                cap.position.y = 0.21;
+                bracket.add(cap);
+                
                 pedestalGroup.add(bracket);
             }
             sphereGroup.add(pedestalGroup);
