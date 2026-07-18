@@ -14,21 +14,7 @@ public static class MiniAppUI
     <script src='https://telegram.org/js/telegram-web-app.js'></script>
     <script src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Inter:wght@400;600;700;800&family=Space+Mono&family=Outfit:wght@700&display=swap');
-        
-        @keyframes spinCw {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        @keyframes spinCcw {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(-360deg); }
-        }
-        @keyframes pulseText {
-            0%, 100% { opacity: 0.6; }
-            50% { opacity: 1.0; }
-        }
-
+        @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Inter:wght@400;600;700;800&display=swap');
         :root {
             --bg: #07051a;
             --panel: rgba(12, 10, 35, 0.88);
@@ -1411,55 +1397,8 @@ public static class MiniAppUI
         </div>
     </div>
     <!-- True 3D Magic Sphere Modal -->
-    <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:radial-gradient(circle at 50% 50%, rgba(20,10,40,0.45) 0%, rgba(3,2,10,0.97) 80%); backdrop-filter:blur(25px); -webkit-backdrop-filter:blur(25px); z-index:150; justify-content:center; align-items:center; flex-direction:column; opacity:0; transition:opacity 0.4s ease; overflow:hidden;'>
-        
-        <!-- Premium Sci-Fi/Mystic HUD Corner Telemetry -->
-        <div style='position:absolute; top:20px; left:20px; font-family:\'Space Mono\', monospace; font-size:10px; color:rgba(179,136,255,0.6); pointer-events:none; display:flex; flex-direction:column; gap:4px;'>
-            <div>SYS_SCAN: <span style='color:#00e5ff; font-weight:bold; animation:pulseText 1.5s infinite;'>ACTIVE</span></div>
-            <div>CONVERGENCE: <span id='hudConvVal' style='color:#ffd700;'>94.2%</span></div>
-            <div>TF_ALIGNMENT: <span style='color:#fff;'>TRUE</span></div>
-        </div>
-
-        <div style='position:absolute; top:20px; right:20px; font-family:\'Space Mono\', monospace; font-size:10px; color:rgba(179,136,255,0.6); pointer-events:none; display:flex; flex-direction:column; gap:4px; text-align:right;'>
-            <div>CORE_TEMP: <span style='color:#ff3d00;'>37.4°C</span></div>
-            <div>ENERGY: <span style='color:#00e5ff;'>99.8%</span></div>
-            <div>STATUS: <span style='color:#ffd700;'>SYNCED</span></div>
-        </div>
-
-        <!-- Sleek header layout -->
-        <div style='text-align:center; margin-bottom:20px; pointer-events:none; z-index:160;'>
-            <h2 id='magicSphereTitle' style='margin:0; font-family:\'Outfit\', \'Inter\', sans-serif; font-weight:700; font-size:18px; letter-spacing:3px; background:linear-gradient(to right, #ffd700, #b388ff, #00e5ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; filter:drop-shadow(0 2px 10px rgba(179,136,255,0.3));'>СФЕРА СИНХРОНИЗАЦИИ</h2>
-            <div id='magicSphereSubtitle' style='margin-top:4px; font-family:\'Space Mono\', monospace; font-size:9px; color:rgba(179,136,255,0.45); letter-spacing:2px; text-transform:uppercase;'>EUR/USD OTC • 1M FORECAST</div>
-        </div>
-
-        <!-- 3D Canvas Container with HUD elements overlaying it -->
-        <div style='position:relative; width:380px; height:380px; display:flex; justify-content:center; align-items:center;'>
-            
-            <!-- Orbiting CSS HUD Ring 1 -->
-            <div style='position:absolute; width:100%; height:100%; border:1px dashed rgba(179,136,255,0.18); border-radius:50%; animation:spinCw 35s linear infinite; pointer-events:none;'></div>
-            
-            <!-- Orbiting CSS HUD Ring 2 (Smaller, faster, opposite direction) -->
-            <div style='position:absolute; width:88%; height:88%; border:1px dotted rgba(0,229,255,0.22); border-radius:50%; animation:spinCcw 20s linear infinite; pointer-events:none;'></div>
-            
-            <!-- Orbiting CSS HUD Ring 3 with Scanner Line -->
-            <div style='position:absolute; width:94%; height:94%; border:1px solid rgba(255,215,0,0.06); border-radius:50%; pointer-events:none;'>
-                <div style='position:absolute; top:0; left:50%; width:2px; height:12px; background:#ffd700; transform:translateX(-50%); box-shadow:0 0 10px #ffd700; border-radius:1px;'></div>
-            </div>
-
-            <!-- Actual Three.js Canvas Container -->
-            <div id='canvas3DContainer' style='width:340px; height:340px; position:relative; cursor:grab; z-index:155;'></div>
-
-        </div>
-
-        <!-- Interactive bottom hint -->
-        <div style='margin-top:25px; text-align:center; pointer-events:none; z-index:160;'>
-            <div style='font-family:\'Space Mono\', monospace; font-size:10px; color:rgba(179,136,255,0.55); letter-spacing:2px; display:flex; align-items:center; gap:8px; justify-content:center;'>
-                <span>ВРАЩАЙТЕ ШАР ДЛЯ НАСТРОЙКИ</span>
-                <span style='color:rgba(179,136,255,0.25);'>•</span>
-                <span>НАЖМИТЕ НА ПУСТОЙ ЭКРАН ДЛЯ ВЫХОДА</span>
-            </div>
-        </div>
-
+    <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:150; justify-content:center; align-items:center; opacity:0; transition:opacity 0.4s ease;'>
+        <div id='canvas3DContainer' style='width:350px; height:350px; position:relative; cursor:grab;'></div>
     </div>
 
     <script>
@@ -2252,21 +2191,6 @@ public static class MiniAppUI
         function open3DModal() {
             const modal = document.getElementById('magic3DModal');
             if (!modal) return;
-
-            // Update HUD telemetry dynamically with actual asset and timeframe
-            const subtitle = document.getElementById('magicSphereSubtitle');
-            if (subtitle) {
-                subtitle.innerText = `${currentAsset} • ${currentTf.toUpperCase()} FORECAST`;
-            }
-
-            const hudConvVal = document.getElementById('hudConvVal');
-            if (hudConvVal) {
-                const totalVotesEl = document.getElementById('ltotalVotes');
-                let convText = (totalVotesEl && totalVotesEl.innerText && totalVotesEl.innerText !== '--') 
-                    ? totalVotesEl.innerText 
-                    : `${Math.floor(75 + Math.random() * 20)}%`;
-                hudConvVal.innerText = convText;
-            }
             
             modal.style.display = 'flex';
             modal.offsetHeight; 
