@@ -2228,7 +2228,10 @@ public static class MiniAppUI
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(width, height);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.localClippingEnabled = true;
             container.appendChild(renderer.domElement);
+
+            const ringClipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 2.2);
 
             sphereGroup = new THREE.Group();
             scene.add(sphereGroup);
@@ -2295,12 +2298,12 @@ public static class MiniAppUI
             );
             sphereGroup.add(innerWireSphere);
 
-            // 1d. Constellation Astrolabe Grid (Golden outer delicate mesh)
+            // 1d. Constellation Astrolabe Grid (Silver outer delicate mesh)
             const gridGeo = new THREE.SphereGeometry(1.98, 16, 16);
             const gridSphere = new THREE.Mesh(
                 gridGeo,
                 new THREE.MeshBasicMaterial({
-                    color: 0xd4af37, // gold
+                    color: 0x8899aa, // silver/platinum tint
                     wireframe: true,
                     transparent: true,
                     opacity: 0.18
@@ -2320,7 +2323,7 @@ public static class MiniAppUI
             pCtx.fillRect(0, 0, 16, 16);
             const pTexture = new THREE.CanvasTexture(pCanvas);
 
-            // Glowing Constellation Stars at grid vertices (soft amber stars)
+            // Glowing Constellation Stars at grid vertices (soft cyan/white stars)
             const gridPositions = gridGeo.attributes.position.array;
             const starGeo = new THREE.BufferGeometry();
             const starPositions = new Float32Array(gridPositions.length);
@@ -2331,7 +2334,7 @@ public static class MiniAppUI
             const starMat = new THREE.PointsMaterial({
                 size: 0.1,
                 map: pTexture,
-                color: 0xffd700,
+                color: 0x00e5ff, // bright cyan star tint
                 transparent: true,
                 opacity: 0.65,
                 blending: THREE.AdditiveBlending,
@@ -2340,7 +2343,7 @@ public static class MiniAppUI
             const constellationStars = new THREE.Points(starGeo, starMat);
             sphereGroup.add(constellationStars);
 
-            // 1e. Massive Carved Basalt/Obsidian and Gold Pedestal Base
+            // 1e. Massive Carved Basalt/Obsidian and Silver Pedestal Base
             const pedestalGroup = new THREE.Group();
             pedestalGroup.position.y = -2.18;
 
@@ -2349,15 +2352,17 @@ public static class MiniAppUI
                 roughness: 0.65,
                 metalness: 0.8
             });
-            const goldMat = new THREE.MeshStandardMaterial({
-                color: 0xd4af37, // polished gold
-                roughness: 0.16,
-                metalness: 0.98
+            const silverMat = new THREE.MeshStandardMaterial({
+                color: 0xdddddd, // polished silver/chrome
+                roughness: 0.12,
+                metalness: 0.98,
+                clippingPlanes: [ringClipPlane]
             });
-            const brassMat = new THREE.MeshStandardMaterial({
-                color: 0xa87932, // antique brass
-                roughness: 0.25,
-                metalness: 0.95
+            const steelMat = new THREE.MeshStandardMaterial({
+                color: 0x666666, // dark brushed steel
+                roughness: 0.28,
+                metalness: 0.95,
+                clippingPlanes: [ringClipPlane]
             });
 
             // Heavy octagonal stone base tier 1
@@ -2365,11 +2370,11 @@ public static class MiniAppUI
             const tier1 = new THREE.Mesh(tier1Geo, basaltMat);
             pedestalGroup.add(tier1);
 
-            // Inlaid Gold Ring collar
-            const goldCollarGeo = new THREE.CylinderGeometry(1.0, 1.05, 0.08, 8);
-            const goldCollar = new THREE.Mesh(goldCollarGeo, goldMat);
-            goldCollar.position.y = 0.15;
-            pedestalGroup.add(goldCollar);
+            // Inlaid Silver Ring collar
+            const silverCollarGeo = new THREE.CylinderGeometry(1.0, 1.05, 0.08, 8);
+            const silverCollar = new THREE.Mesh(silverCollarGeo, silverMat);
+            silverCollar.position.y = 0.15;
+            pedestalGroup.add(silverCollar);
 
             // Heavy stone base tier 2
             const tier2Geo = new THREE.CylinderGeometry(0.85, 0.95, 0.15, 8);
@@ -2377,11 +2382,11 @@ public static class MiniAppUI
             tier2.position.y = 0.26;
             pedestalGroup.add(tier2);
 
-            // Four heavy gold supports hugging the sphere base
+            // Four heavy silver supports hugging the sphere base
             for (let i = 0; i < 4; i++) {
                 const angle = (i * Math.PI) / 2;
                 const bracketGeo = new THREE.BoxGeometry(0.12, 0.42, 0.18);
-                const bracket = new THREE.Mesh(bracketGeo, goldMat);
+                const bracket = new THREE.Mesh(bracketGeo, silverMat);
                 bracket.position.set(Math.cos(angle) * 1.02, 0.15, Math.sin(angle) * 1.02);
                 bracket.rotation.y = -angle;
                 pedestalGroup.add(bracket);
@@ -2430,10 +2435,10 @@ public static class MiniAppUI
             arrowMesh.position.set(0, 0.15, 0);
             sphereGroup.add(arrowMesh);
 
-            // Warm Backlight Core behind the gemstone
+            // Cool Violet Backlight Core behind the gemstone
             const coreGeo = new THREE.SphereGeometry(0.32, 16, 16);
             const coreMat = new THREE.MeshBasicMaterial({
-                color: 0xffa500, // warm golden core
+                color: 0x7c4dff, // cool violet core
                 transparent: true,
                 opacity: 0.6,
                 blending: THREE.AdditiveBlending
@@ -2442,29 +2447,34 @@ public static class MiniAppUI
             core.position.set(0, 0.15, 0);
             sphereGroup.add(core);
 
-            // 3. Heavy Burnished Gold & Brass Astrolabe Rings (mechanical clockwork)
+            // 3. Heavy Burnished Silver & Steel Astrolabe Rings (mechanical clockwork with clipping)
             const ringGroup = new THREE.Group();
             sphereGroup.add(ringGroup);
 
-            // Ring 1: Thick Gold
+            // Ring 1: Thick Silver
             const torusGeo1 = new THREE.TorusGeometry(2.35, 0.038, 16, 100);
-            const ring1 = new THREE.Mesh(torusGeo1, goldMat);
+            const ring1 = new THREE.Mesh(torusGeo1, silverMat);
             ringGroup.add(ring1);
 
-            // Ring 2: Antique Brass
+            // Ring 2: Dark Brushed Steel
             const torusGeo2 = new THREE.TorusGeometry(2.45, 0.028, 16, 100);
-            const ring2 = new THREE.Mesh(torusGeo2, brassMat);
+            const ring2 = new THREE.Mesh(torusGeo2, steelMat);
             ring2.rotation.x = Math.PI / 2;
             ringGroup.add(ring2);
 
-            // Ring 3: Burnished Platinum
+            // Ring 3: Burnished Platinum / Chrome
             const torusGeo3 = new THREE.TorusGeometry(2.55, 0.022, 16, 100);
-            const ringMat3 = new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.95, roughness: 0.28 });
+            const ringMat3 = new THREE.MeshStandardMaterial({ 
+                color: 0x8899aa, 
+                metalness: 0.95, 
+                roughness: 0.22,
+                clippingPlanes: [ringClipPlane]
+            });
             const ring3 = new THREE.Mesh(torusGeo3, ringMat3);
             ring3.rotation.y = Math.PI / 4;
             ringGroup.add(ring3);
 
-            // 4. Amber & Gold Nebula Star Storm (Twinkling star field)
+            // 4. Indigo & Silver Nebula Star Storm (Twinkling star field)
             const particleCount = 650;
             const particleGeo = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
@@ -2474,8 +2484,8 @@ public static class MiniAppUI
             const particleAngles = new Float32Array(particleCount);
             const particleYOffs = new Float32Array(particleCount);
 
-            const colGold = new THREE.Color(0xd4af37);
-            const colAmber = new THREE.Color(0xff8c00);
+            const colSilver = new THREE.Color(0x8899aa);
+            const colIndigo = new THREE.Color(0x5c4dff);
             const colStarlight = new THREE.Color(0xfff5e6); // warm starlight
 
             for (let i = 0; i < particleCount; i++) {
@@ -2492,9 +2502,9 @@ public static class MiniAppUI
                 particleYOffs[i] = y;
                 particleSpeeds[i] = 0.004 + Math.random() * 0.006; // slower, majestic movement
 
-                let col = colGold;
+                let col = colSilver;
                 const rand = Math.random();
-                if (rand < 0.45) col = colAmber;
+                if (rand < 0.45) col = colIndigo;
                 else if (rand < 0.8) col = colStarlight;
 
                 colors[i * 3] = col.r;
@@ -2518,7 +2528,7 @@ public static class MiniAppUI
             const particles = new THREE.Points(particleGeo, particleMat);
             sphereGroup.add(particles);
 
-            // 5. Active Magic Spark Particle System (Drag trace trail - golden sparks)
+            // 5. Active Magic Spark Particle System (Drag trace trail - silver sparks)
             sparkGeo = new THREE.BufferGeometry();
             const sparkPositionsArr = new Float32Array(maxSparks * 3);
             const sparkColorsArr = new Float32Array(maxSparks * 3);
@@ -2530,7 +2540,7 @@ public static class MiniAppUI
                 sparkPositionsArr[i * 3 + 1] = 999;
                 sparkPositionsArr[i * 3 + 2] = 999;
 
-                const col = Math.random() > 0.5 ? colGold : colAmber;
+                const col = Math.random() > 0.5 ? colSilver : colIndigo;
                 sparkColorsArr[i * 3] = col.r;
                 sparkColorsArr[i * 3 + 1] = col.g;
                 sparkColorsArr[i * 3 + 2] = col.b;
@@ -2553,7 +2563,7 @@ public static class MiniAppUI
             sparkParticles = new THREE.Points(sparkGeo, sparkMat);
             scene.add(sparkParticles);
 
-            // 6. Lighting - Dynamic museum lighting for gold and crystals
+            // 6. Lighting - Dynamic museum lighting for silver and crystals
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.40);
             scene.add(ambientLight);
 
@@ -2562,18 +2572,18 @@ public static class MiniAppUI
             keyLight.position.set(4, 5, 4);
             scene.add(keyLight);
 
-            // Deep golden back fill light
-            const goldFillLight = new THREE.DirectionalLight(0xffb833, 1.8);
+            // Cool sapphire back fill light
+            const goldFillLight = new THREE.DirectionalLight(0x4d5aff, 1.8);
             goldFillLight.position.set(-4, -4, 2);
             scene.add(goldFillLight);
 
-            // Warm core glow light source
-            const coreLight = new THREE.PointLight(0xffa500, 3.0, 10);
+            // Cool core glow light source
+            const coreLight = new THREE.PointLight(0x9933ff, 3.0, 10);
             coreLight.position.set(0, 0.15, 0);
             scene.add(coreLight);
 
-            // Pedestal upward highlight light source
-            const baseLight = new THREE.PointLight(0xd4af37, 2.2, 4);
+            // Pedestal upward highlight light source (platinum white)
+            const baseLight = new THREE.PointLight(0xcccccc, 2.2, 4);
             baseLight.position.set(0, -2.1, 0);
             scene.add(baseLight);
 
