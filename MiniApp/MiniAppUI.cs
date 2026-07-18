@@ -2466,17 +2466,7 @@ public static class MiniAppUI
             crystalGroup.add(crystalFaces);
             sphereGroup.add(crystalGroup);
 
-            // Cool Violet Backlight Core behind the gemstone
-            const coreGeo = new THREE.SphereGeometry(0.32, 16, 16);
-            coreMat = new THREE.MeshBasicMaterial({
-                color: 0x7c4dff, // cool violet glow
-                transparent: true,
-                opacity: 0.6,
-                blending: THREE.AdditiveBlending
-            });
-            const core = new THREE.Mesh(coreGeo, coreMat);
-            core.position.set(0, 0.15, 0);
-            sphereGroup.add(core);
+            // (Core mesh removed per user preference)
 
             // 3. Cyan & Magenta Nebula Star Storm (Twinkling star field - 750 stars in bot's native palette)
             const particleCount = 750;
@@ -2660,14 +2650,7 @@ public static class MiniAppUI
                 // Breathing particle size
                 particleMat.size = (0.14 + Math.sin(time) * 0.015) * (0.8 + currentCorePulse * 0.2);
                 
-                // Breath and scale core
-                const coreScale = (1.0 + Math.sin(time * 1.8) * 0.06) * currentCorePulse;
-                core.scale.set(coreScale, coreScale, coreScale);
-
-                // Boost core visual glow opacity and light intensity
-                if (coreMat) {
-                    coreMat.opacity = 0.6 * (0.4 + currentCorePulse * 0.6);
-                }
+                    // (Core animations removed per user preference)
                 if (coreLight) {
                     coreLight.intensity = 3.2 * currentCorePulse;
                 }
