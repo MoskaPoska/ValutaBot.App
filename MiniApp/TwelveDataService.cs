@@ -10,6 +10,30 @@ public static class TwelveDataService
     private static readonly ConcurrentDictionary<string, (double[] prices, double[] volumes, DateTime fetchedAt)> _cache = new();
     private static string? _apiKey;
 
+    private static readonly ConcurrentQueue<DateTime> _apiCallTimestamps = new();
+    private static readonly object _rateLimitLock = new();
+
+    private static bool CheckAndRegisterRateLimit()
+    {
+        lock (_rateLimitLock)
+        {
+            DateTime now = DateTime.UtcNow;
+            while (_apiCallTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
+            {
+                _apiCallTimestamps.TryDequeue(out _);
+            }
+
+            // TwelveData rate limit is 8 requests per minute. We limit to 7 for safety.
+            if (_apiCallTimestamps.Count >= 7)
+            {
+                return false;
+            }
+
+            _apiCallTimestamps.Enqueue(now);
+            return true;
+        }
+    }
+
     private static string GetApiKey()
     {
         _apiKey ??= Environment.GetEnvironmentVariable("TwelveDataApiKey") ?? "";
@@ -29,6 +53,19 @@ public static class TwelveDataService
 
         string apiKey = GetApiKey();
         if (string.IsNullOrEmpty(apiKey)) return null;
+
+        // 2. Check rolling rate limiter before making the HTTP API call
+        if (!CheckAndRegisterRateLimit())
+        {
+            if (_cache.TryGetValue(key, out var last))
+            {
+                Console.WriteLine($"[TwelveData] Rate limit safety triggered (7/8 reached). Serving cache for {rawAsset} ({interval}) immediately to prevent 429.");
+                return (last.prices, last.volumes);
+            }
+            Console.WriteLine($"[TwelveData] Rate limit safety triggered (7/8 reached), but no cache exists for {rawAsset} ({interval})!");
+            return null;
+        }
+
 
         try
         {
