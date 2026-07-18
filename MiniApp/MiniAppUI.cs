@@ -2405,47 +2405,7 @@ public static class MiniAppUI
             }
             sphereGroup.add(pedestalGroup);
 
-            // 2. Faceted Amethyst Gemstone Trend Arrow Inside (Translucent Crystal Wedge)
-            const arrowShape = new THREE.Shape();
-            arrowShape.moveTo(-0.65, -0.35);
-            arrowShape.lineTo(-0.25, 0.05);
-            arrowShape.lineTo(0.1, -0.3);
-            arrowShape.lineTo(0.55, 0.15);
-            arrowShape.lineTo(0.42, 0.38);
-            arrowShape.lineTo(0.85, 0.38);
-            arrowShape.lineTo(0.85, -0.05);
-            arrowShape.lineTo(0.72, 0.18);
-            arrowShape.lineTo(0.1, -0.5);
-            arrowShape.lineTo(-0.25, -0.15);
-            arrowShape.lineTo(-0.52, -0.48);
-            arrowShape.closePath();
-
-            const extrudeSettings = { 
-                depth: 0.22, // thick gemstone prism
-                bevelEnabled: true, 
-                bevelSegments: 4, 
-                steps: 1, 
-                bevelSize: 0.03, 
-                bevelThickness: 0.03 
-            };
-            const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, extrudeSettings);
-            arrowGeo.center();
-            
-            const arrowMat = new THREE.MeshPhysicalMaterial({
-                color: 0x3b1c66, // imperial purple amethyst crystal
-                transparent: true,
-                opacity: 0.88,
-                roughness: 0.05,
-                metalness: 0.85,
-                transmission: 0.82,
-                ior: 2.2, // high gemstone refraction
-                clearcoat: 1.0,
-                clearcoatRoughness: 0.0,
-                depthWrite: false
-            });
-            const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
-            arrowMesh.position.set(0, 0.15, 0);
-            sphereGroup.add(arrowMesh);
+            // (Trend Arrow removed per user preference)
 
             // Cool Violet Backlight Core behind the gemstone
             const coreGeo = new THREE.SphereGeometry(0.32, 16, 16);
@@ -2618,10 +2578,7 @@ public static class MiniAppUI
                     sparkGeo.attributes.position.needsUpdate = true;
                 }
 
-                // Breathing/hovering animation of the inner gemstone crystal trend arrow
                 const time = Date.now() * 0.0025;
-                arrowMesh.position.y = 0.12 + Math.sin(time * 1.5) * 0.06;
-                arrowMesh.rotation.y += 0.006; // gentle crystal twist
 
                 // Breathing particle size
                 particleMat.size = 0.14 + Math.sin(time) * 0.015;
