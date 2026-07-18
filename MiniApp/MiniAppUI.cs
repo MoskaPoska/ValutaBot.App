@@ -2438,38 +2438,25 @@ public static class MiniAppUI
             shadowMesh.position.y = -2.25; // slightly below the bottom of basalt base
             scene.add(shadowMesh);
 
-            // 2. Glowing 3D Sacred Geometry Crystal (Octahedron of dark amethyst steel and deep space indigo faces)
-            const crystalGeo = new THREE.OctahedronGeometry(0.35, 0);
-            const crystalWireMat = new THREE.MeshBasicMaterial({
-                color: 0x33284d, // dark amethyst steel
-                wireframe: true,
-                transparent: true,
-                opacity: 0.65
-            });
-            const crystalWire = new THREE.Mesh(crystalGeo, crystalWireMat);
-            
-            const crystalFaceMat = new THREE.MeshPhysicalMaterial({
-                color: 0x180a30, // deep space indigo
-                transparent: true,
-                opacity: 0.45,
-                roughness: 0.05,
-                metalness: 0.95,
-                transmission: 0.7,
-                ior: 1.8,
-                depthWrite: false
-            });
-            const crystalFaces = new THREE.Mesh(crystalGeo, crystalFaceMat);
+            // 2. Soft Volumetric Nebula Clouds (large overlapping glowing particles)
+            const fogCanvas = document.createElement('canvas');
+            fogCanvas.width = 64;
+            fogCanvas.height = 64;
+            const fogCtx = fogCanvas.getContext('2d');
+            const fogGrad = fogCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+            fogGrad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+            fogGrad.addColorStop(0.25, 'rgba(224, 64, 251, 0.45)');  // glowing magenta
+            fogGrad.addColorStop(0.55, 'rgba(124, 77, 255, 0.15)');  // magical violet
+            fogGrad.addColorStop(0.85, 'rgba(0, 229, 255, 0.04)');   // soft cyan rim
+            fogGrad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+            fogCtx.fillStyle = fogGrad;
+            fogCtx.fillRect(0, 0, 64, 64);
+            const fogTexture = new THREE.CanvasTexture(fogCanvas);
 
-            crystalGroup = new THREE.Group();
-            crystalGroup.position.set(0, 0.15, 0);
-            crystalGroup.add(crystalWire);
-            crystalGroup.add(crystalFaces);
-            sphereGroup.add(crystalGroup);
+            // (Trend Arrow and Crystal removed to display pure swirling nebula fog per reference)
 
-            // (Core mesh removed per user preference)
-
-            // 3. Cyan & Magenta Nebula Star Storm (Twinkling star field - 750 stars in bot's native palette)
-            const particleCount = 750;
+            // 3. Cyan & Magenta Nebula Cloud Storm (Volumetric glowing nebula particles in bot's native palette)
+            const particleCount = 180;
             const particleGeo = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const colors = new Float32Array(particleCount * 3);
@@ -2480,12 +2467,12 @@ public static class MiniAppUI
 
             const colCyan = new THREE.Color(0x00e5ff);
             const colMagenta = new THREE.Color(0xb388ff);
-            const colStarlight = new THREE.Color(0xffffff);
+            const colPurple = new THREE.Color(0x7c4dff);
 
             for (let i = 0; i < particleCount; i++) {
-                const r = Math.random() * 1.85;
-                const theta = (r * 3.2) + (Math.random() * 0.4) + (i % 2 === 0 ? 0.0 : Math.PI); // logarithmic galaxy spiral arms
-                const y = (Math.random() - 0.5) * 1.1 * (1.85 - r) / 1.85;
+                const r = Math.random() * 1.55;
+                const theta = Math.random() * Math.PI * 2;
+                const y = (Math.random() - 0.5) * 1.6 * Math.sqrt(1.55*1.55 - r*r) / 1.55;
 
                 positions[i * 3] = r * Math.cos(theta);
                 positions[i * 3 + 1] = y;
@@ -2494,12 +2481,12 @@ public static class MiniAppUI
                 particleRadii[i] = r;
                 particleAngles[i] = theta;
                 particleYOffs[i] = y;
-                particleSpeeds[i] = 0.004 + Math.random() * 0.006;
+                particleSpeeds[i] = 0.002 + Math.random() * 0.003; // slow smoke drift
 
-                let col = colCyan;
+                let col = colPurple;
                 const rand = Math.random();
-                if (rand < 0.45) col = colMagenta;
-                else if (rand < 0.8) col = colStarlight;
+                if (rand < 0.4) col = colMagenta;
+                else if (rand < 0.8) col = colCyan;
 
                 colors[i * 3] = col.r;
                 colors[i * 3 + 1] = col.g;
@@ -2510,17 +2497,43 @@ public static class MiniAppUI
             particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
             const particleMat = new THREE.PointsMaterial({
-                size: 0.14,
-                map: pTexture,
+                size: 2.2, // large overlapping cloud particles
+                map: fogTexture,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.9,
+                opacity: 0.65,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
 
             const particles = new THREE.Points(particleGeo, particleMat);
             sphereGroup.add(particles);
+
+            // 3b. Glowing Electrical Lightning Threads inside the clouds
+            const lightningGeometries = [];
+            const lightningMeshes = [];
+            const lightningCount = 3;
+            const lightningPointsCount = 18;
+
+            const lightningMat = new THREE.LineBasicMaterial({
+                color: 0xffe6ff, // glowing violet-white electric bolt
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+
+            for (let l = 0; l < lightningCount; l++) {
+                const points = [];
+                for (let p = 0; p < lightningPointsCount; p++) {
+                    points.push(new THREE.Vector3(0, 0, 0));
+                }
+                const lGeo = new THREE.BufferGeometry().setFromPoints(points);
+                const lMesh = new THREE.Line(lGeo, lightningMat);
+                sphereGroup.add(lMesh);
+
+                lightningGeometries.push(lGeo);
+                lightningMeshes.push(lMesh);
+            }
 
             // 4. Active Magic Spark Particle System (Drag trace trail - cyan/magenta sparks)
             sparkGeo = new THREE.BufferGeometry();
@@ -2597,14 +2610,7 @@ public static class MiniAppUI
                 innerWireSphere.rotation.y -= 0.003;
                 innerWireSphere.rotation.x += 0.001;
 
-                // Rotate the central sacred geometry crystal
-                if (crystalGroup) {
-                    crystalGroup.rotation.y += 0.008;
-                    crystalGroup.rotation.x += 0.004;
-                    crystalGroup.position.y = 0.15 + Math.sin(time * 1.5) * 0.05; // hover breathing
-                }
-
-                // Animate swirling fluid cosmic galaxy storm (wavy turbulence)
+                // Animate swirling volumetric nebula clouds
                 const posArr = particleGeo.attributes.position.array;
                 for (let i = 0; i < particleCount; i++) {
                     particleAngles[i] += particleSpeeds[i];
@@ -2612,16 +2618,52 @@ public static class MiniAppUI
                     const theta = particleAngles[i];
                     const yOff = particleYOffs[i];
 
-                    // Per-particle undulating turbulence waves
-                    const waveX = Math.sin(time + r * 4.0 + yOff * 2.0) * 0.08;
-                    const waveY = Math.cos(time * 1.5 + r * 3.0) * 0.08 * (1.85 - r);
-                    const waveZ = Math.cos(time + r * 4.0 - yOff * 2.0) * 0.08;
+                    // undulating waves to simulate fluid smoke currents
+                    const waveX = Math.sin(time + r * 3.0 + yOff) * 0.06;
+                    const waveY = Math.cos(time * 1.2 + r * 2.5) * 0.05 * (1.55 - r);
+                    const waveZ = Math.cos(time + r * 3.0 - yOff) * 0.06;
 
                     posArr[i * 3] = r * Math.cos(theta) + waveX;
                     posArr[i * 3 + 1] = yOff + waveY;
                     posArr[i * 3 + 2] = r * Math.sin(theta) + waveZ;
                 }
                 particleGeo.attributes.position.needsUpdate = true;
+
+                // Update and flicker lightning paths
+                if (Math.random() > 0.4) {
+                    for (let l = 0; l < lightningCount; l++) {
+                        const points = [];
+                        const drift = 0.28;
+                        let currentPoint = new THREE.Vector3(
+                            (Math.random() - 0.5) * 0.4,
+                            -1.1,
+                            (Math.random() - 0.5) * 0.4
+                        );
+                        points.push(currentPoint.clone());
+
+                        for (let p = 1; p < lightningPointsCount - 1; p++) {
+                            const progress = p / (lightningPointsCount - 1);
+                            const targetY = -1.1 + progress * 2.2;
+                            currentPoint.set(
+                                (Math.random() - 0.5) * drift + Math.sin(time * 4.0 + l + p) * 0.15,
+                                targetY,
+                                (Math.random() - 0.5) * drift + Math.cos(time * 4.0 + l - p) * 0.15
+                            );
+                            points.push(currentPoint.clone());
+                        }
+                        points.push(new THREE.Vector3(
+                            (Math.random() - 0.5) * 0.4,
+                            1.1,
+                            (Math.random() - 0.5) * 0.4
+                        ));
+                        
+                        lightningGeometries[l].setFromPoints(points);
+                        lightningGeometries[l].attributes.position.needsUpdate = true;
+                        
+                        // Flickering glow effect
+                        lightningMeshes[l].material.opacity = (0.25 + Math.random() * 0.55) * currentCorePulse;
+                    }
+                }
 
                 // Update magic trace drag sparks
                 if (sparkGeo && sparkParticles) {
@@ -2647,8 +2689,9 @@ public static class MiniAppUI
                 // Smoothly interpolate core pulse state driven by dragging
                 currentCorePulse += (corePulseTarget - currentCorePulse) * 0.1;
 
-                // Breathing particle size
-                particleMat.size = (0.14 + Math.sin(time) * 0.015) * (0.8 + currentCorePulse * 0.2);
+                // Breathing nebula cloud size and opacity
+                particleMat.size = (2.2 + Math.sin(time * 0.8) * 0.2) * (0.8 + currentCorePulse * 0.3);
+                particleMat.opacity = 0.65 * (0.6 + currentCorePulse * 0.4);
                 
                     // (Core animations removed per user preference)
                 if (coreLight) {
