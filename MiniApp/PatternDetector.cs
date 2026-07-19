@@ -51,7 +51,7 @@ public static class PatternDetector
         return patterns;
     }
 
-    public static (double[] supports, double[] resistances) CalculateLevels(double[] prices, int swingLookback = 10)
+    public static (double[] supports, double[] resistances) CalculateLevels(double[] prices, bool isForex = false, int swingLookback = 10)
     {
         var supports = new List<double>();
         var resistances = new List<double>();
@@ -78,7 +78,20 @@ public static class PatternDetector
         }
 
         // Psychological levels (round numbers)
-        double magnitude = Math.Pow(10, Math.Floor(Math.Log10(currentPrice)) - 1);
+        double magnitude;
+        double halfMagnitude;
+        if (isForex)
+        {
+            magnitude = currentPrice > 100 ? 1.0 : 0.01; // 100 pips (1.00 yen or 0.0100 usd)
+            halfMagnitude = currentPrice > 100 ? 0.5 : 0.005; // 50 pips (0.50 yen or 0.0050 usd)
+        }
+        else
+        {
+            magnitude = Math.Pow(10, Math.Floor(Math.Log10(currentPrice)) - 1);
+            halfMagnitude = magnitude * 0.5;
+        }
+
+        // Full figures
         double roundedBase = Math.Floor(currentPrice / magnitude) * magnitude;
         for (double level = roundedBase - magnitude * 2; level <= roundedBase + magnitude * 2; level += magnitude)
         {
@@ -86,11 +99,13 @@ public static class PatternDetector
             else if (level > currentPrice) resistances.Add(level);
         }
 
-        // Nearest big round (e.g. 1.1000, 64000, etc.)
-        double bigMag = Math.Pow(10, Math.Floor(Math.Log10(currentPrice)));
-        double bigLevel = Math.Round(currentPrice / bigMag) * bigMag;
-        if (bigLevel < currentPrice) supports.Add(bigLevel);
-        else if (bigLevel > currentPrice) resistances.Add(bigLevel);
+        // Half figures
+        double halfBase = Math.Floor(currentPrice / halfMagnitude) * halfMagnitude;
+        for (double level = halfBase - halfMagnitude * 2; level <= halfBase + halfMagnitude * 2; level += halfMagnitude)
+        {
+            if (level < currentPrice) supports.Add(level);
+            else if (level > currentPrice) resistances.Add(level);
+        }
 
         supports = supports.Distinct().OrderByDescending(s => s).Take(4).ToList();
         resistances = resistances.Distinct().OrderBy(r => r).Take(4).ToList();

@@ -1437,7 +1437,7 @@ public static class MiniAppController
             double totalWeight = 0;
 
             // ─── ML Ensemble (нормализован к −1..+1) ───
-            var (mlDirection, mlConfidence, mlPredicted) = MLForecastService.PredictNextCandles(mainPrices);
+            var (mlDirection, mlConfidence, mlPredicted) = MLForecastService.PredictNextCandles(mainPrices, isForex);
             double mlScoreNormalized = 0;
             double mlConfTotal = 0;
             int mlSubSignals = 0;
@@ -1623,10 +1623,11 @@ public static class MiniAppController
 
             // Detect candlestick patterns and support/resistance levels
             var detectedPatterns = ohlcCandles != null ? PatternDetector.DetectPatterns(ohlcCandles) : new List<string>();
-            var (supports, resistances) = PatternDetector.CalculateLevels(mainPrices);
-Console.WriteLine($"[Patterns] {string.Join(", ", detectedPatterns)}");
-string FmtLevels(double[] levels) => levels.Length == 0 ? "-" : string.Join(" │ ", levels.Select(l => l.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)));
-Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)}");
+            var (supports, resistances) = PatternDetector.CalculateLevels(mainPrices, isForex);
+            Console.WriteLine($"[Patterns] {string.Join(", ", detectedPatterns)}");
+            string priceFormat = isForex ? (mainPrices[^1] > 100 ? "F3" : "F5") : (mainPrices[^1] > 100 ? "F1" : "F4");
+            string FmtLevels(double[] levels) => levels.Length == 0 ? "-" : string.Join(" │ ", levels.Select(l => l.ToString(priceFormat, System.Globalization.CultureInfo.InvariantCulture)));
+            Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)}");
 
             // ─── Candle status + caching ───
             int timeframeSec = TimeframeSeconds(timeframe);
@@ -1888,12 +1889,12 @@ Console.WriteLine($"[Levels] S: {FmtLevels(supports)} R: {FmtLevels(resistances)
                 if (candidateDir == "BUY" && nearestResistance > 0 && (nearestResistance - currentPrice) < safeBuffer)
                 {
                     blockedByLevel = true;
-                    blockReason = $"сопротивление {nearestResistance:F5}";
+                    blockReason = $"сопротивление {nearestResistance.ToString(priceFormat, System.Globalization.CultureInfo.InvariantCulture)}";
                 }
                 else if (candidateDir == "PUT" && nearestSupport > 0 && (currentPrice - nearestSupport) < safeBuffer)
                 {
                     blockedByLevel = true;
-                    blockReason = $"поддержка {nearestSupport:F5}";
+                    blockReason = $"поддержка {nearestSupport.ToString(priceFormat, System.Globalization.CultureInfo.InvariantCulture)}";
                 }
 
                 // --- 1. КРАСНЫЙ СВЕТ: Полный флэт (очень низкий балл консенсуса) ---

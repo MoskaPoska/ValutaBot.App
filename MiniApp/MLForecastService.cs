@@ -7,7 +7,7 @@ public static class MLForecastService
 {
     private static readonly MLContext _ml = new MLContext();
 
-    public static (string direction, double confidence, double[] predicted) PredictNextCandles(double[] prices, int horizon = 3)
+    public static (string direction, double confidence, double[] predicted) PredictNextCandles(double[] prices, bool isForex = false, int horizon = 3)
     {
         if (prices.Length < 30)
             return ("NEUTRAL", 50, Array.Empty<double>());
@@ -57,7 +57,7 @@ public static class MLForecastService
             if (double.IsNaN(volatility) || double.IsInfinity(volatility) || volatility < 1e-9)
                 volatility = 0.001;
 
-            double minThreshold = prices[0] > 100 ? 0.0015 : 0.00015; // 0.15% for crypto, 0.015% for forex
+            double minThreshold = isForex ? 0.00012 : 0.0015; // 0.012% (1.2 pips) for forex, 0.15% for crypto/stocks
             double threshold = Math.Max(volatility * 0.15, minThreshold * 0.5);
             string direction = change > threshold ? "BUY" : change < -threshold ? "PUT" : "NEUTRAL";
 
@@ -73,11 +73,11 @@ public static class MLForecastService
         catch (Exception ex)
         {
             Console.WriteLine($"[ML] SSA failed: {ex.Message}. Falling back to Holt-Linear forecast.");
-            return PredictHoltLinear(prices, horizon);
+            return PredictHoltLinear(prices, isForex, horizon);
         }
     }
 
-    private static (string direction, double confidence, double[] predicted) PredictHoltLinear(double[] prices, int horizon)
+    private static (string direction, double confidence, double[] predicted) PredictHoltLinear(double[] prices, bool isForex, int horizon)
     {
         int n = prices.Length;
         if (n < 10) return ("NEUTRAL", 50, Array.Empty<double>());
@@ -105,7 +105,7 @@ public static class MLForecastService
         double predictedEnd = predicted[^1];
         double change = (predictedEnd - lastPrice) / lastPrice;
 
-        double threshold = prices[0] > 100 ? 0.0015 : 0.00015;
+        double threshold = isForex ? 0.00012 : 0.0015;
         string direction = change > threshold ? "BUY" : change < -threshold ? "PUT" : "NEUTRAL";
 
         // Confidence estimation
