@@ -12,6 +12,7 @@ public static class MiniAppUI
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>
     <title>TradeBE бот — анализ рынка</title>
     <script src='https://telegram.org/js/telegram-web-app.js'></script>
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Inter:wght@400;600;700;800&display=swap');
         :root {
@@ -130,6 +131,260 @@ public static class MiniAppUI
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+
+        /* ─── 3D Magic Ball + Rings + Pedestal ─── */
+        .sphere-container {
+            position: relative;
+            width: 120px;
+            height: 142px;
+            flex-shrink: 0;
+            perspective: 600px;
+            perspective-origin: 50% 45%;
+            overflow: visible;
+        }
+        .sphere-scene {
+            position: absolute;
+            top: 2px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 102px;
+            height: 102px;
+            transform-style: preserve-3d;
+            overflow: visible;
+            animation: floatBall 4s ease-in-out infinite;
+        }
+        .magic-ball {
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: 100px;
+            height: 100px;
+            z-index: 2;
+            will-change: transform;
+            border-radius: 50%;
+            background:
+                repeating-linear-gradient(85deg,
+                    transparent 0px, transparent 5px,
+                    rgba(200,180,255,0.10) 5px, rgba(200,180,255,0.10) 6px
+                ),
+                repeating-radial-gradient(circle at 50% 50%,
+                    transparent 0px, transparent 7px,
+                    rgba(200,180,255,0.08) 7px, rgba(200,180,255,0.08) 8px
+                ),
+                radial-gradient(circle at 30% 35%, rgba(240,215,255,0.45) 0%, rgba(180,120,255,0.3) 20%, rgba(100,40,200,0.5) 45%, rgba(50,10,120,0.75) 70%, rgba(10,0,40,0.95) 100%);
+            box-shadow:
+                inset -10px 25px 45px rgba(255,255,255,0.08),
+                inset 15px -25px 50px rgba(80,20,180,0.35),
+                inset 0 -40px 50px rgba(0,0,0,0.35),
+                0 0 65px rgba(138,43,226,0.35);
+            animation: ball3dSpin 18s linear infinite;
+        }
+        .sphere-container.analyzing .magic-ball {
+            animation: ball3dSpin 12s linear infinite, pulseGlow 1.2s infinite ease-in-out;
+        }
+        @keyframes pulseGlow {
+            0% { box-shadow: inset -5px 20px 30px rgba(255,255,255,0.12), inset 15px -25px 50px rgba(80,20,180,0.45), inset 0 -35px 45px rgba(0,0,0,0.35), 0 0 55px rgba(138,43,226,0.5); }
+            50% { box-shadow: inset -5px 20px 30px rgba(255,255,255,0.2), inset 15px -25px 50px rgba(179,136,255,0.5), inset 0 -35px 45px rgba(0,0,0,0.35), 0 0 85px rgba(179,136,255,0.8); }
+            100% { box-shadow: inset -5px 20px 30px rgba(255,255,255,0.12), inset 15px -25px 50px rgba(80,20,180,0.45), inset 0 -35px 45px rgba(0,0,0,0.35), 0 0 55px rgba(138,43,226,0.5); }
+        }
+        @keyframes ball3dSpin {
+            0% { transform: rotateY(0deg) rotateX(3deg); }
+            100% { transform: rotateY(360deg) rotateX(3deg); }
+        }
+        @keyframes floatBall {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            50% { transform: translateX(-50%) translateY(-6px); }
+        }
+
+        /* Glare / specular reflection overlay */
+        .ball-glare {
+            position: absolute;
+            top: 5%;
+            left: 12%;
+            width: 40px;
+            height: 22px;
+            border-radius: 50%;
+            background: radial-gradient(ellipse at center, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 70%);
+            transform: rotate(-25deg);
+            pointer-events: none;
+            z-index: 3;
+        }
+        .sphere-container.analyzing .ball-glare {
+            animation: glarePulse 1.2s infinite ease-in-out;
+        }
+        .ball-glare-2 {
+            position: absolute;
+            bottom: 18%;
+            right: 15%;
+            width: 18px;
+            height: 8px;
+            border-radius: 50%;
+            background: radial-gradient(ellipse at center, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 70%);
+            transform: rotate(20deg);
+            pointer-events: none;
+            z-index: 3;
+        }
+        @keyframes glarePulse {
+            0% { opacity: 1; }
+            50% { opacity: 1.4; }
+            100% { opacity: 1; }
+        }
+
+        /* Spherical surface arcs — create 3D depth on rotation */
+        .ball-line {
+            position: absolute;
+            border-radius: 50%;
+            border: 1px solid rgba(200,170,255,0.18);
+            pointer-events: none;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+            backface-visibility: hidden;
+        }
+        .lh1 { width: 96px; height: 20px; }
+        .lh2 { width: 98px; height: 44px; }
+        .lv1 { width: 20px; height: 96px; }
+        .lv2 { width: 44px; height: 98px; }
+        .sphere-container.analyzing .ball-line { border-color: rgba(200,170,255,0.35); }
+
+        /* Inner arrow icon */
+        .ball-arrow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 46px;
+            height: 46px;
+            color: #df9aff;
+            filter: drop-shadow(0 0 10px #c300ff) drop-shadow(0 0 25px #9d00ff);
+            z-index: 4;
+            pointer-events: none;
+            opacity: 0.9;
+        }
+
+        /* Orbital Rings — 3 orbits at different angles & speeds */
+        .orbits {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transform-style: preserve-3d;
+            width: 0;
+            height: 0;
+            z-index: 1;
+        }
+        .orbit {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 220px;
+            height: 220px;
+            margin-top: -110px;
+            margin-left: -110px;
+            border-radius: 50%;
+            border: 1.5px solid rgba(170, 80, 255, 0.4);
+            box-shadow: 0 0 15px rgba(170, 80, 255, 0.3), inset 0 0 15px rgba(170, 80, 255, 0.3);
+            box-sizing: border-box;
+            pointer-events: none;
+            backface-visibility: hidden;
+        }
+        .orbit.o1 {
+            animation: orbitSpin1 10s linear infinite;
+        }
+        .orbit.o2 {
+            width: 180px;
+            height: 180px;
+            margin-top: -90px;
+            margin-left: -90px;
+            border-color: rgba(100, 200, 255, 0.35);
+            box-shadow: 0 0 10px rgba(100, 200, 255, 0.25), inset 0 0 10px rgba(100, 200, 255, 0.25);
+            animation: orbitSpin2 14s linear infinite;
+        }
+        .orbit.o3 {
+            width: 215px;
+            height: 215px;
+            margin-top: -107.5px;
+            margin-left: -107.5px;
+            border-color: rgba(255, 100, 200, 0.25);
+            box-shadow: 0 0 8px rgba(255, 100, 200, 0.2), inset 0 0 8px rgba(255, 100, 200, 0.2);
+            animation: orbitSpin3 12s linear infinite;
+        }
+
+        @keyframes orbitSpin1 {
+            0% { transform: rotateX(65deg) rotateY(25deg) rotateZ(0deg); }
+            100% { transform: rotateX(65deg) rotateY(25deg) rotateZ(360deg); }
+        }
+        @keyframes orbitSpin2 {
+            0% { transform: rotateX(75deg) rotateY(-30deg) rotateZ(0deg); }
+            100% { transform: rotateX(75deg) rotateY(-30deg) rotateZ(-360deg); }
+        }
+        @keyframes orbitSpin3 {
+            0% { transform: rotateX(50deg) rotateY(60deg) rotateZ(0deg); }
+            100% { transform: rotateX(50deg) rotateY(60deg) rotateZ(360deg); }
+        }
+
+        /* Analyzing glow intensify */
+        .sphere-container.analyzing .orbit.o1 {
+            border-color: rgba(170, 80, 255, 0.8);
+            box-shadow: 0 0 25px rgba(170, 80, 255, 0.5), inset 0 0 25px rgba(170, 80, 255, 0.5);
+            animation-duration: 7s;
+        }
+        .sphere-container.analyzing .orbit.o2 {
+            border-color: rgba(100, 200, 255, 0.7);
+            box-shadow: 0 0 20px rgba(100, 200, 255, 0.4), inset 0 0 20px rgba(100, 200, 255, 0.4);
+            animation-duration: 10s;
+        }
+        .sphere-container.analyzing .orbit.o3 {
+            border-color: rgba(255, 100, 200, 0.6);
+            box-shadow: 0 0 16px rgba(255, 100, 200, 0.35), inset 0 0 16px rgba(255, 100, 200, 0.35);
+            animation-duration: 8s;
+        }
+            animation-duration: 3.5s;
+        }
+        .sphere-container.analyzing .orbit-ring.r5 {
+            border-color: rgba(179, 136, 255, 0.4);
+            box-shadow: 0 0 12px rgba(179, 136, 255, 0.1), inset 0 0 12px rgba(179, 136, 255, 0.05);
+            animation-duration: 10s;
+        }
+
+        /* Pedestal — 3-layer hi-tech stand */
+        .base-stand {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 1;
+        }
+        .base-top {
+            width: 70px;
+            height: 12px;
+            background: linear-gradient(to right, #2a1154, #48238c, #2a1154);
+            border-radius: 50%;
+            border: 1px solid rgba(107,59,196,0.4);
+            box-shadow: 0 0 12px rgba(138,43,226,0.2);
+        }
+        .base-mid {
+            width: 80px;
+            height: 20px;
+            background: linear-gradient(to right, #1d0940, #36176e, #1d0940);
+            border-radius: 10px;
+            margin-top: -6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            border: 1px solid rgba(74,33,150,0.3);
+        }
+        .base-bot {
+            width: 90px;
+            height: 14px;
+            background: linear-gradient(to right, #11042b, #240d4f, #11042b);
+            border-radius: 50%;
+            margin-top: -7px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+            border: 1px solid rgba(74,33,150,0.15);
         }
 
         /* ─── Ornate divider ─── */
@@ -651,7 +906,172 @@ public static class MiniAppUI
             100% { opacity: 0.3; }
         }
 
+        /* ─── Dynamic Sphere States ─── */
+        .sphere-container.buy-signal .magic-ball {
+            background:
+                repeating-linear-gradient(85deg,
+                    transparent 0px, transparent 5px,
+                    rgba(180,255,200,0.10) 5px, rgba(180,255,200,0.10) 6px
+                ),
+                repeating-radial-gradient(circle at 50% 50%,
+                    transparent 0px, transparent 7px,
+                    rgba(180,255,200,0.08) 7px, rgba(180,255,200,0.08) 8px
+                ),
+                radial-gradient(circle at 30% 35%, rgba(215,255,240,0.45) 0%, rgba(120,255,180,0.3) 20%, rgba(40,200,100,0.5) 45%, rgba(10,120,50,0.75) 70%, rgba(0,40,10,0.95) 100%);
+            box-shadow:
+                inset -10px 25px 45px rgba(255,255,255,0.08),
+                inset 15px -25px 50px rgba(20,180,80,0.35),
+                inset 0 -40px 50px rgba(0,0,0,0.35),
+                0 0 65px rgba(0,230,118,0.35);
+            animation: ball3dSpin 18s linear infinite, pulseGlowBuy 1.5s infinite ease-in-out;
+        }
+        @keyframes pulseGlowBuy {
+            0% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(20,180,80,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(0,230,118,0.35); }
+            50% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.15), inset 15px -25px 50px rgba(0,230,118,0.45), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 80px rgba(0,230,118,0.7); }
+            100% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(20,180,80,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(0,230,118,0.35); }
+        }
 
+        .sphere-container.put-signal .magic-ball {
+            background:
+                repeating-linear-gradient(85deg,
+                    transparent 0px, transparent 5px,
+                    rgba(255,180,200,0.10) 5px, rgba(255,180,200,0.10) 6px
+                ),
+                repeating-radial-gradient(circle at 50% 50%,
+                    transparent 0px, transparent 7px,
+                    rgba(255,180,200,0.08) 7px, rgba(255,180,200,0.08) 8px
+                ),
+                radial-gradient(circle at 30% 35%, rgba(255,215,220,0.45) 0%, rgba(255,120,150,0.3) 20%, rgba(200,40,70,0.5) 45%, rgba(120,10,35,0.75) 70%, rgba(40,0,10,0.95) 100%);
+            box-shadow:
+                inset -10px 25px 45px rgba(255,255,255,0.08),
+                inset 15px -25px 50px rgba(180,20,50,0.35),
+                inset 0 -40px 50px rgba(0,0,0,0.35),
+                0 0 65px rgba(255,23,68,0.35);
+            animation: ball3dSpin 18s linear infinite, pulseGlowPut 1.5s infinite ease-in-out;
+        }
+        @keyframes pulseGlowPut {
+            0% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(180,20,50,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(255,23,68,0.35); }
+            50% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.15), inset 15px -25px 50px rgba(255,23,68,0.45), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 80px rgba(255,23,68,0.7); }
+            100% { box-shadow: inset -10px 25px 45px rgba(255,255,255,0.08), inset 15px -25px 50px rgba(180,20,50,0.35), inset 0 -40px 50px rgba(0,0,0,0.35), 0 0 50px rgba(255,23,68,0.35); }
+        }
+
+        /* Orbit adjustments in active states */
+        .sphere-container.buy-signal .orbit.o1 {
+            border-color: rgba(0, 230, 118, 0.85);
+            box-shadow: 0 0 25px rgba(0, 230, 118, 0.6), inset 0 0 25px rgba(0, 230, 118, 0.4);
+        }
+        .sphere-container.buy-signal .orbit.o2 {
+            border-color: rgba(180, 255, 200, 0.7);
+            box-shadow: 0 0 20px rgba(180, 255, 200, 0.45), inset 0 0 20px rgba(180, 255, 200, 0.35);
+        }
+        .sphere-container.buy-signal .orbit.o3 {
+            border-color: rgba(0, 230, 118, 0.6);
+            box-shadow: 0 0 16px rgba(0, 230, 118, 0.35), inset 0 0 16px rgba(0, 230, 118, 0.25);
+        }
+
+        .sphere-container.put-signal .orbit.o1 {
+            border-color: rgba(255, 23, 68, 0.85);
+            box-shadow: 0 0 25px rgba(255, 23, 68, 0.6), inset 0 0 25px rgba(255, 23, 68, 0.4);
+        }
+        .sphere-container.put-signal .orbit.o2 {
+            border-color: rgba(255, 180, 200, 0.7);
+            box-shadow: 0 0 20px rgba(255, 180, 200, 0.45), inset 0 0 20px rgba(255, 180, 200, 0.35);
+        }
+        .sphere-container.put-signal .orbit.o3 {
+            border-color: rgba(255, 23, 68, 0.6);
+            box-shadow: 0 0 16px rgba(255, 23, 68, 0.35), inset 0 0 16px rgba(255, 23, 68, 0.25);
+        }
+
+        /* Floating particles inside the sphere */
+        .sphere-particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            pointer-events: none;
+            overflow: visible;
+        }
+        .sp {
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #a78bfa;
+            opacity: 0;
+            pointer-events: none;
+            transition: background 0.5s, opacity 0.5s;
+        }
+        .sphere-container.buy-signal .sp {
+            background: #00e676;
+            opacity: 0.85;
+            box-shadow: 0 0 8px #00e676;
+        }
+        .sphere-container.buy-signal .sp1 { animation: floatUp1 2.5s infinite linear; }
+        .sphere-container.buy-signal .sp2 { animation: floatUp2 2.2s infinite linear; }
+        .sphere-container.buy-signal .sp3 { animation: floatUp3 2.8s infinite linear; }
+        .sphere-container.buy-signal .sp4 { animation: floatUp4 2.4s infinite linear; }
+        .sphere-container.buy-signal .sp5 { animation: floatUp1 2.6s infinite linear 0.5s; }
+        .sphere-container.buy-signal .sp6 { animation: floatUp2 2.3s infinite linear 0.7s; }
+        .sphere-container.buy-signal .sp7 { animation: floatUp3 2.7s infinite linear 0.3s; }
+        .sphere-container.buy-signal .sp8 { animation: floatUp4 2.5s infinite linear 0.6s; }
+
+        @keyframes floatUp1 {
+            0% { transform: translate(30px, 90px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(20px, -20px) scale(1.2); opacity: 0; }
+        }
+        @keyframes floatUp2 {
+            0% { transform: translate(70px, 90px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(80px, -20px) scale(1.2); opacity: 0; }
+        }
+        @keyframes floatUp3 {
+            0% { transform: translate(50px, 100px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(40px, -30px) scale(1.2); opacity: 0; }
+        }
+        @keyframes floatUp4 {
+            0% { transform: translate(20px, 80px) scale(0.5); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(30px, -15px) scale(1.2); opacity: 0; }
+        }
+
+        .sphere-container.put-signal .sp {
+            background: #ff1744;
+            opacity: 0.85;
+            box-shadow: 0 0 8px #ff1744;
+        }
+        .sphere-container.put-signal .sp1 { animation: floatDown1 2.5s infinite linear; }
+        .sphere-container.put-signal .sp2 { animation: floatDown2 2.2s infinite linear; }
+        .sphere-container.put-signal .sp3 { animation: floatDown3 2.8s infinite linear; }
+        .sphere-container.put-signal .sp4 { animation: floatDown4 2.4s infinite linear; }
+        .sphere-container.put-signal .sp5 { animation: floatDown1 2.6s infinite linear 0.5s; }
+        .sphere-container.put-signal .sp6 { animation: floatDown2 2.3s infinite linear 0.7s; }
+        .sphere-container.put-signal .sp7 { animation: floatDown3 2.7s infinite linear 0.3s; }
+        .sphere-container.put-signal .sp8 { animation: floatDown4 2.5s infinite linear 0.6s; }
+
+        @keyframes floatDown1 {
+            0% { transform: translate(20px, -10px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(30px, 110px) scale(0.5); opacity: 0; }
+        }
+        @keyframes floatDown2 {
+            0% { transform: translate(80px, -10px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(70px, 110px) scale(0.5); opacity: 0; }
+        }
+        @keyframes floatDown3 {
+            0% { transform: translate(40px, -20px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(50px, 120px) scale(0.5); opacity: 0; }
+        }
+        @keyframes floatDown4 {
+            0% { transform: translate(30px, -5px) scale(1.2); opacity: 0; }
+            20% { opacity: 0.85; }
+            100% { transform: translate(20px, 105px) scale(0.5); opacity: 0; }
+        }
 
         /* ─── Beautiful Error Box ─── */
         .error-box {
@@ -711,6 +1131,46 @@ public static class MiniAppUI
             overflow-y: auto;
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
+
+        /* ─── Sync Status Bar ─── */
+        .sync-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--dim);
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--panel-border);
+            padding: 8px 14px;
+            border-radius: 12px;
+            margin: 10px 0 0 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .sync-container:hover {
+            background: rgba(124,77,255,0.06);
+            border-color: rgba(124,77,255,0.25);
+            color: #fff;
+        }
+        .sync-status-dot {
+            color: #ff1744;
+            font-size: 10px;
+            animation: pulse 1.5s infinite;
+        }
+        .sync-status-dot.online {
+            color: #00e676 !important;
+            filter: drop-shadow(0 0 4px #00e676);
+        }
+        .sync-status-text {
+            flex: 1;
+            text-align: left;
+        }
+        .sync-help-icon {
+            font-size: 11px;
+            opacity: 0.6;
+        }
     </style>
 </head>
 <body>
@@ -724,8 +1184,46 @@ public static class MiniAppUI
 
     <div id='screen-home' class='app-screen active'>
 
-        <div class='welcome-section' id='welcomeSec' style='justify-content: center; text-align: center; padding: 16px 20px;'>
-            <div class='welcome-title' style='max-width: 100%; font-size: 19px; letter-spacing: 0.5px;'>Приветствую на голодных играх</div>
+        <div class='welcome-section' id='welcomeSec'>
+            <div class='welcome-title'>Приветствую<br>на голодных<br>играх</div>
+            <div id='mainSphere' class='sphere-container'>
+                <div class='sphere-scene'>
+                    <div class='sphere-particles'>
+                        <div class='sp sp1'></div>
+                        <div class='sp sp2'></div>
+                        <div class='sp sp3'></div>
+                        <div class='sp sp4'></div>
+                        <div class='sp sp5'></div>
+                        <div class='sp sp6'></div>
+                        <div class='sp sp7'></div>
+                        <div class='sp sp8'></div>
+                    </div>
+                    <div class='orbits'>
+                        <div class='orbit o1'></div>
+                        <div class='orbit o2'></div>
+                        <div class='orbit o3'></div>
+                    </div>
+                    <div class='magic-ball'>
+                        <div class='ball-line lh lh1'></div>
+                        <div class='ball-line lh lh2'></div>
+                        <div class='ball-line lv lv1'></div>
+                        <div class='ball-line lv lv2'></div>
+                        <div class='ball-glare'></div>
+                        <div class='ball-glare-2'></div>
+                        <div class='ball-arrow'>
+                            <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='3' stroke-linecap='round' stroke-linejoin='round' width='48' height='48'>
+                                <polyline points='23 6 13.5 15.5 8.5 10.5 1 18'></polyline>
+                                <polyline points='17 6 23 6 23 12'></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class='base-stand'>
+                    <div class='base-top'></div>
+                    <div class='base-mid'></div>
+                    <div class='base-bot'></div>
+                </div>
+            </div>
         </div>
 
         <div class='top-categories' id='topCategories'>
@@ -793,8 +1291,10 @@ public static class MiniAppUI
             </div>
             </div>
 
+
+
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
-            <div id='errorDisplay' class='error-box' style='display:none'></div>
+            <div id='errorDisplay' class=""error-box"" style=""display:none""></div>
 
             <div class='status-bar' id='statusBar'>
                 <div class='sb-text'>
@@ -896,6 +1396,10 @@ public static class MiniAppUI
             </div>
         </div>
     </div>
+    <!-- True 3D Magic Sphere Modal -->
+    <div id='magic3DModal' style='display:none; position:fixed; inset:0; background:rgba(3,2,10,0.85); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:150; justify-content:center; align-items:center; opacity:0; transition:opacity 0.4s ease;'>
+        <div id='canvas3DContainer' style='width:350px; height:350px; position:relative; cursor:grab;'></div>
+    </div>
 
     <script>
         const tg = window.Telegram.WebApp;
@@ -913,6 +1417,7 @@ public static class MiniAppUI
 
         let currentAsset = 'EUR/USD OTC';
         let currentTf = 'm1';
+        let syncStatusInterval = null;
 
         const assetsData = {
             fiat: {
@@ -962,6 +1467,95 @@ public static class MiniAppUI
             document.getElementById(m).classList.toggle('show');
         }
 
+        let priceSocket = null;
+        let lastPriceVal = 0;
+
+        function initPriceWebSocket() {
+            closePriceWebSocket();
+
+            const isSecondsTf = currentTf.startsWith('s');
+            const livePriceContainer = document.getElementById('livePriceContainer');
+            
+            if (!isSecondsTf) {
+                if (livePriceContainer) livePriceContainer.style.display = 'none';
+                return;
+            }
+
+            if (livePriceContainer) livePriceContainer.style.display = 'flex';
+            const valEl = document.getElementById('livePriceValue');
+            if (valEl) {
+                valEl.innerText = 'ЗАГРУЗКА...';
+                valEl.className = 'live-price-value';
+            }
+
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/prices?asset=${encodeURIComponent(currentAsset)}`;
+                
+                priceSocket = new WebSocket(wsUrl);
+
+                priceSocket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data && data.price !== undefined) {
+                            const newPrice = data.price;
+                            updateLivePriceUI(newPrice);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing WS message:', e);
+                    }
+                };
+
+                priceSocket.onclose = function() {
+                    console.log('Price WebSocket closed');
+                };
+
+                priceSocket.onerror = function(err) {
+                    console.error('Price WebSocket error:', err);
+                };
+            } catch (err) {
+                console.error('Failed to create WebSocket:', err);
+            }
+        }
+
+        function closePriceWebSocket() {
+            if (priceSocket) {
+                try {
+                    priceSocket.close();
+                } catch(e) {}
+                priceSocket = null;
+            }
+            lastPriceVal = 0;
+        }
+
+        function updateLivePriceUI(price) {
+            const valEl = document.getElementById('livePriceValue');
+            if (!valEl) return;
+
+            const isHighVal = price > 100;
+            const formatted = price.toFixed(isHighVal ? 2 : 5);
+
+            valEl.innerText = formatted;
+
+            if (lastPriceVal > 0) {
+                if (price > lastPriceVal) {
+                    valEl.className = 'live-price-value up';
+                } else if (price < lastPriceVal) {
+                    valEl.className = 'live-price-value down';
+                }
+                
+                setTimeout(() => {
+                    if (valEl.innerText === formatted) {
+                        valEl.className = 'live-price-value';
+                    }
+                }, 400);
+            } else {
+                valEl.className = 'live-price-value';
+            }
+
+            lastPriceVal = price;
+        }
+
         function setAsset(el) {
             let a = el.getAttribute('data-asset');
             currentAsset = a;
@@ -969,6 +1563,9 @@ public static class MiniAppUI
             document.querySelectorAll('.asset-item').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
             document.getElementById('assetMenu').classList.remove('show');
+            const sphere = document.getElementById('mainSphere');
+            if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
+            initPriceWebSocket();
         }
 
         function setTf(el) {
@@ -978,6 +1575,9 @@ public static class MiniAppUI
             document.querySelectorAll('.tf-btn').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
             document.getElementById('tfMenu').classList.remove('show');
+            const sphere = document.getElementById('mainSphere');
+            if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
+            initPriceWebSocket();
         }
 
         document.addEventListener('click', function(e) {
@@ -1001,6 +1601,7 @@ public static class MiniAppUI
 
         changeTopCategory(document.querySelector('.top-cat-btn'));
         syncTime();
+        initPriceWebSocket();
         
         var timeOffset = 0;
 
@@ -1111,6 +1712,7 @@ public static class MiniAppUI
             }
         }
 
+        /* ─── Status bar animation (non-blocking) ─── */
         const sbStatuses = ['ЗАГРУЗКА ДАННЫХ', 'ПОЛУЧЕНИЕ ЦЕНЫ', 'АНАЛИЗ РЫНКА'];
         let sbTimer = null, sbIdx = 0;
 
@@ -1155,6 +1757,77 @@ public static class MiniAppUI
             const span = max - min;
             if (span < 1e-12) return tail.map(() => 0.5);
             return tail.map(p => 0.05 + 0.9 * (p - min) / span);
+        }
+
+        function renderPriceChart(canvasId, prices, direction) {
+            const c = document.getElementById(canvasId);
+            if (!c || !prices || prices.length < 2) return;
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = c.clientWidth || c.parentNode.clientWidth || 320;
+            const cssH = c.clientHeight || 140;
+            c.width = Math.round(cssW * dpr);
+            c.height = Math.round(cssH * dpr);
+            const ctx = c.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cssW, cssH);
+
+            const pad = { l: 8, r: 8, t: 10, b: 10 };
+            const w = cssW - pad.l - pad.r;
+            const h = cssH - pad.t - pad.b;
+            const min = Math.min.apply(null, prices);
+            const max = Math.max.apply(null, prices);
+            const span = Math.max(max - min, 1e-12);
+            const x = i => pad.l + (i / (prices.length - 1)) * w;
+            const y = v => pad.t + h - ((v - min) / span) * h;
+
+            ctx.strokeStyle = 'rgba(124,77,255,0.08)';
+            ctx.lineWidth = 1;
+            for (let k = 1; k < 4; k++) {
+                const gy = pad.t + (h / 4) * k;
+                ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(pad.l + w, gy); ctx.stroke();
+            }
+
+            const stroke = direction === 'BUY' ? '#00e676'
+                          : direction === 'PUT' ? '#ff1744'
+                          : '#7c4dff';
+            const fillTop = direction === 'BUY' ? 'rgba(0,230,118,0.35)'
+                          : direction === 'PUT' ? 'rgba(255,23,68,0.35)'
+                          : 'rgba(124,77,255,0.35)';
+
+            const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
+            grad.addColorStop(0, fillTop);
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.beginPath();
+            ctx.moveTo(x(0), pad.t + h);
+            for (let i = 0; i < prices.length; i++) ctx.lineTo(x(i), y(prices[i]));
+            ctx.lineTo(x(prices.length - 1), pad.t + h);
+            ctx.closePath();
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(x(0), y(prices[0]));
+            for (let i = 1; i < prices.length; i++) ctx.lineTo(x(i), y(prices[i]));
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2;
+            ctx.shadowColor = stroke;
+            ctx.shadowBlur = 8;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            const lx = x(prices.length - 1), ly = y(prices[prices.length - 1]);
+            ctx.beginPath();
+            ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = stroke;
+            ctx.fill();
+
+            const lastTxt = prices[prices.length - 1].toFixed(prices[0] > 100 ? 2 : 5);
+            ctx.font = '600 11px Inter, sans-serif';
+            ctx.fillStyle = stroke;
+            const tw = ctx.measureText(lastTxt).width;
+            ctx.fillRect(lx - tw - 10, ly - 9, tw + 8, 16);
+            ctx.fillStyle = '#0b0a1f';
+            ctx.fillText(lastTxt, lx - tw - 6, ly + 3);
         }
 
         function renderError(rawError, debugText) {
@@ -1206,10 +1879,10 @@ public static class MiniAppUI
             }
 
             errDisp.innerHTML = `
-                <div class='error-header'>${title}</div>
-                <div class='error-desc'>${desc}</div>
-                <div class='error-debug-toggle' onclick='toggleErrorDebug(this)'>▸ Детали отладки</div>
-                <div class='error-debug-content' id='errorDebugContent' style='display: none;'>${debugText}</div>
+                <div class=""error-header"">${title}</div>
+                <div class=""error-desc"">${desc}</div>
+                <div class=""error-debug-toggle"" onclick=""toggleErrorDebug(this)"">▸ Детали отладки</div>
+                <div class=""error-debug-content"" id=""errorDebugContent"" style=""display: none;"">${debugText}</div>
             `;
             errDisp.style.display = 'block';
         }
@@ -1224,6 +1897,7 @@ public static class MiniAppUI
 
         document.getElementById('btnGet').onclick = async () => {
             const btn = document.getElementById('btnGet');
+            const sphere = document.getElementById('mainSphere');
             
             try {
                 document.getElementById('errorDisplay').style.display = 'none';
@@ -1231,6 +1905,10 @@ public static class MiniAppUI
                 startStatusBar();
 
                 requestAnimationFrame(() => {
+                    if (sphere) {
+                        sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
+                        sphere.classList.add('analyzing');
+                    }
                     if (btn) {
                         btn.disabled = true;
                         btn.innerText = 'СКАНИРОВАНИЕ...';
@@ -1251,6 +1929,7 @@ public static class MiniAppUI
 
                 setTimeout(() => {
                     stopStatusBar();
+                    sphere.classList.remove('analyzing');
                     btn.disabled = false;
                     btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
 
@@ -1260,17 +1939,22 @@ public static class MiniAppUI
                         return;
                     }
 
+
+
                     const isUnclear = data.unclear === true;
                     const resDir = document.getElementById('resDir');
                     if (data.direction === 'BUY') {
                         resDir.innerText = 'ВВЕРХ';
                         resDir.style.color = '#00e676';
+                        sphere.classList.add('buy-signal');
                     } else if (data.direction === 'PUT') {
                         resDir.innerText = 'ВНИЗ';
                         resDir.style.color = '#ff1744';
+                        sphere.classList.add('put-signal');
                     } else {
                         resDir.innerText = 'НЕЙТРАЛЬНО';
                         resDir.style.color = 'var(--dim)';
+                        sphere.classList.add('neutral-signal');
                     }
 
                     document.getElementById('resProb').innerText = data.probability + '%';
@@ -1295,6 +1979,34 @@ public static class MiniAppUI
                     if (data.tfConflict) {
                         document.getElementById('resProb').innerText += ' \u26A0\uFE0F';
                     }
+                    // ML and News cards are disabled/hidden by user request.
+                    /*
+                    if (data.mlDirection && data.mlDirection !== 'NEUTRAL') {
+                        const mc = document.getElementById('mlCard');
+                        mc.style.display = 'flex';
+                        const dirEl = document.getElementById('mlDir');
+                        dirEl.innerText = data.mlDirection === 'BUY' ? '\u2191 ВВЕРХ' : '\u2193 ВНИЗ';
+                        dirEl.style.color = data.mlDirection === 'BUY' ? '#00e676' : '#ff1744';
+                        document.getElementById('mlConf').innerText = data.mlConfidence + '%';
+                    }
+
+                    if (data.newsScore !== undefined) {
+                        const nc = document.getElementById('newsCard');
+                        nc.style.display = 'block';
+                        const senEl = document.getElementById('newsSentiment');
+                        senEl.innerText = data.newsSentiment;
+                        if (data.newsScore > 0.5) { senEl.style.color = '#00e676'; }
+                        else if (data.newsScore < -0.5) { senEl.style.color = '#ff1744'; }
+                        else { senEl.style.color = 'var(--subtext)'; }
+                        document.getElementById('newsSummary').innerText = data.newsSummary;
+                        const nl = document.getElementById('newsList');
+                        if (data.newsHeadlines && data.newsHeadlines.length) {
+                            nl.innerHTML = data.newsHeadlines.map(h => `<div class='news-list-item'>${h}</div>`).join('');
+                        } else {
+                            nl.innerHTML = '';
+                        }
+                    }
+                    */
 
                     if (data.claudeDirection && data.claudeReasoning) {
                         const cc = document.getElementById('claudeCard');
@@ -1318,6 +2030,8 @@ public static class MiniAppUI
 
                     const durBars = pricesToBars(data.chartData, 8);
                     if (durBars.length) renderMiniChart('durChart', durBars, '');
+
+                    // renderPriceChart('priceChart', data.chartData || [], data.direction);
 
                     if(data.levels) {
                         const L = data.levels;
@@ -1343,6 +2057,7 @@ public static class MiniAppUI
                 }, remainingDelay);
             } catch(e) {
                 stopStatusBar();
+                sphere.classList.remove('analyzing');
                 btn.disabled = false;
                 btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
                 const catchMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
@@ -1357,6 +2072,613 @@ public static class MiniAppUI
             const open = list.classList.toggle('open');
             toggle.innerText = open ? '\u25BD Заголовки' : '\u25B8 Заголовки';
         }
+
+        /* ─── 3D Sphere Logic ─── */
+        let activeScene = false;
+        let renderer = null, scene = null, camera = null, sphereGroup = null, outerSphere = null, crystalGroup = null, coreMat = null, coreLight = null;
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let openTime = 0;
+        window.dragDistance = 0;
+
+        let corePulseTarget = 1.0;
+        let currentCorePulse = 1.0;
+
+        // Magic spark system variables
+        let sparkGeo = null, sparkParticles = null;
+        let sparkPositions = null, sparkVelocities = [], sparkOpacity = null;
+        let nextSparkIndex = 0;
+        const maxSparks = 60;
+
+        function emitSpark(x, y, z) {
+            if (!sparkGeo) return;
+            const index = nextSparkIndex;
+            const arr = sparkGeo.attributes.position.array;
+            
+            // Emit 2 particles per move event for denser magic trail
+            for (let k = 0; k < 2; k++) {
+                const subIdx = (index + k) % maxSparks;
+                arr[subIdx * 3] = x + (Math.random() - 0.5) * 0.15;
+                arr[subIdx * 3 + 1] = y + (Math.random() - 0.5) * 0.15;
+                arr[subIdx * 3 + 2] = z + (Math.random() - 0.5) * 0.15;
+
+                sparkVelocities[subIdx] = {
+                    x: (Math.random() - 0.5) * 0.05,
+                    y: (Math.random() - 0.5) * 0.05,
+                    z: (Math.random() - 0.5) * 0.05
+                };
+                sparkOpacity[subIdx] = 1.0;
+            }
+            sparkGeo.attributes.position.needsUpdate = true;
+            nextSparkIndex = (nextSparkIndex + 2) % maxSparks;
+        }
+
+        const onPointerDown = (e) => {
+            if (!activeScene) return;
+            isDragging = true;
+            corePulseTarget = 2.4;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            previousMousePosition = { x: clientX, y: clientY };
+            window.dragDistance = 0;
+        };
+
+        const onPointerMove = (e) => {
+            if (!isDragging || !sphereGroup || !activeScene) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const deltaMove = {
+                x: clientX - previousMousePosition.x,
+                y: clientY - previousMousePosition.y
+            };
+
+            sphereGroup.rotation.y += deltaMove.x * 0.006;
+            sphereGroup.rotation.x += deltaMove.y * 0.006;
+
+            window.dragDistance += Math.sqrt(deltaMove.x * deltaMove.x + deltaMove.y * deltaMove.y);
+            previousMousePosition = { x: clientX, y: clientY };
+
+            // Raycast drag traces on the outer sphere surface
+            if (outerSphere && camera) {
+                const container = document.getElementById('canvas3DContainer');
+                if (container) {
+                    const rect = container.getBoundingClientRect();
+                    const width = container.clientWidth;
+                    const height = container.clientHeight;
+                    const normX = ((clientX - rect.left) / width) * 2 - 1;
+                    const normY = -((clientY - rect.top) / height) * 2 + 1;
+
+                    const raycaster = new THREE.Raycaster();
+                    const mouseVec = new THREE.Vector2(normX, normY);
+                    raycaster.setFromCamera(mouseVec, camera);
+                    const intersects = raycaster.intersectObject(outerSphere);
+                    if (intersects.length > 0) {
+                        const p = intersects[0].point;
+                        emitSpark(p.x, p.y, p.z);
+                    }
+                }
+            }
+        };
+
+        const onPointerUp = (e) => {
+            isDragging = false;
+            corePulseTarget = 1.0;
+        };
+
+        // Static event binding once on load
+        const container3D = document.getElementById('canvas3DContainer');
+        if (container3D) {
+            container3D.addEventListener('mousedown', onPointerDown);
+            container3D.addEventListener('mousemove', onPointerMove);
+            container3D.addEventListener('touchstart', onPointerDown, { passive: true });
+            container3D.addEventListener('touchmove', onPointerMove, { passive: true });
+
+            container3D.onclick = (e) => {
+                e.stopPropagation();
+                if (window.dragDistance < 10) {
+                    close3DModal();
+                }
+            };
+        }
+        window.addEventListener('mouseup', onPointerUp);
+        window.addEventListener('touchend', onPointerUp);
+
+        document.getElementById('mainSphere').onclick = (e) => {
+            e.stopPropagation();
+            open3DModal();
+        };
+
+        document.getElementById('magic3DModal').onclick = (e) => {
+            close3DModal();
+        };
+
+        function open3DModal() {
+            const modal = document.getElementById('magic3DModal');
+            if (!modal) return;
+            
+            modal.style.display = 'flex';
+            modal.offsetHeight; 
+            modal.style.opacity = '1';
+            activeScene = true;
+            openTime = Date.now();
+
+            init3DScene();
+        }
+
+        function close3DModal() {
+            if (Date.now() - openTime < 300) return;
+            const modal = document.getElementById('magic3DModal');
+            if (!modal) return;
+            modal.style.opacity = '0';
+            activeScene = false;
+            setTimeout(() => {
+                modal.style.display = 'none';
+                destroy3DScene();
+            }, 400);
+        }
+
+        function init3DScene() {
+            const container = document.getElementById('canvas3DContainer');
+            if (!container) return;
+            container.innerHTML = '';
+
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.z = 7.5;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            sphereGroup = new THREE.Group();
+            scene.add(sphereGroup);
+
+            // 1a. Outer Crystal Glass Sphere (Dark Obsidian Purple/Amethyst Tint)
+            const outerGeo = new THREE.SphereGeometry(2.0, 128, 128);
+            const outerMat = new THREE.MeshPhysicalMaterial({
+                color: 0x110825, // deep space obsidian purple tint
+                transparent: true,
+                opacity: 0.38, // richer glass body color
+                roughness: 0.005,
+                metalness: 0.15,
+                transmission: 0.78, // less transparent for darker glass feel
+                ior: 1.62, // crystal glass refraction
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.0,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            outerSphere = new THREE.Mesh(outerGeo, outerMat);
+            sphereGroup.add(outerSphere);
+
+
+
+            // 1c. Fresnel Rim Glow Material for the sphere edges (chromatic dispersion / rainbow split)
+            const rimVertexShader = `
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+                void main() {
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    vNormal = normalize(normalMatrix * normal);
+                    vViewPosition = -mvPosition.xyz;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `;
+            const rimFragmentShader = `
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+                void main() {
+                    vec3 normal = normalize(vNormal);
+                    vec3 viewDir = normalize(vViewPosition);
+                    float dotProd = max(dot(normal, viewDir), 0.0);
+                    
+                    // Slightly offset exponents for RGB channels to create chromatic split
+                    float rIntensity = pow(1.0 - dotProd, 3.8);
+                    float gIntensity = pow(1.0 - dotProd, 3.4);
+                    float bIntensity = pow(1.0 - dotProd, 3.0);
+                    
+                    vec3 color = vec3(
+                        rIntensity * 0.85, 
+                        gIntensity * 0.70 + rIntensity * 0.15, 
+                        bIntensity * 0.95 + gIntensity * 0.20
+                    );
+                    
+                    // Amethyst violet base tint mixed with dispersion spectrum
+                    vec3 amethystBase = vec3(0.58, 0.35, 0.95);
+                    vec3 finalColor = mix(amethystBase * bIntensity, color, 0.72);
+                    
+                    gl_FragColor = vec4(finalColor, 1.0) * bIntensity * 0.88;
+                }
+            `;
+            const rimMat = new THREE.ShaderMaterial({
+                vertexShader: rimVertexShader,
+                fragmentShader: rimFragmentShader,
+                blending: THREE.AdditiveBlending,
+                side: THREE.BackSide,
+                transparent: true,
+                depthWrite: false
+            });
+            const rimMesh = new THREE.Mesh(outerGeo, rimMat);
+            sphereGroup.add(rimMesh);
+
+            // 1d. Inner Opposite-Rotating Wireframe Sphere (Burnished platinum mesh)
+            const innerWireSphere = new THREE.Mesh(
+                new THREE.SphereGeometry(1.8, 12, 12),
+                new THREE.MeshBasicMaterial({
+                    color: 0x888888, // platinum
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.12
+                })
+            );
+            sphereGroup.add(innerWireSphere);
+
+            // 1e. Constellation Astrolabe Grid (Subtle Dark Silver outer delicate mesh)
+            const gridGeo = new THREE.SphereGeometry(1.98, 16, 16);
+            const gridSphere = new THREE.Mesh(
+                gridGeo,
+                new THREE.MeshBasicMaterial({
+                    color: 0x8899aa, // silver/platinum
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.06 // extremely subtle phantom grid
+                })
+            );
+            sphereGroup.add(gridSphere);
+
+            // Particle helper textures
+            const pCanvas = document.createElement('canvas');
+            pCanvas.width = 16;
+            pCanvas.height = 16;
+            const pCtx = pCanvas.getContext('2d');
+            const grad = pCtx.createRadialGradient(8, 8, 0, 8, 8, 8);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            pCtx.fillStyle = grad;
+            pCtx.fillRect(0, 0, 16, 16);
+            const pTexture = new THREE.CanvasTexture(pCanvas);
+
+            // Glowing Constellation Stars at grid vertices (soft deep violet stars)
+            const gridPositions = gridGeo.attributes.position.array;
+            const starGeo = new THREE.BufferGeometry();
+            const starPositions = new Float32Array(gridPositions.length);
+            for (let i = 0; i < gridPositions.length; i++) {
+                starPositions[i] = gridPositions[i];
+            }
+            starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+            const starMat = new THREE.PointsMaterial({
+                size: 0.1,
+                map: pTexture,
+                color: 0x7c4dff, // magical deep violet star tint
+                transparent: true,
+                opacity: 0.45, // subtler glow
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            const constellationStars = new THREE.Points(starGeo, starMat);
+            sphereGroup.add(constellationStars);
+
+            // 1f. Massive Carved Basalt/Obsidian and Silver Pedestal Base
+            const pedestalGroup = new THREE.Group();
+            pedestalGroup.position.y = -2.18;
+
+            const basaltMat = new THREE.MeshStandardMaterial({
+                color: 0x110f14, // dark basalt stone
+                roughness: 0.65,
+                metalness: 0.8
+            });
+            const silverMat = new THREE.MeshStandardMaterial({
+                color: 0xdddddd, // polished silver/chrome
+                roughness: 0.12,
+                metalness: 0.98
+            });
+
+            // Heavy round stone base tier 1
+            const tier1Geo = new THREE.CylinderGeometry(1.2, 1.4, 0.22, 64);
+            const tier1 = new THREE.Mesh(tier1Geo, basaltMat);
+            pedestalGroup.add(tier1);
+
+            // Inlaid Silver Ring collar
+            const silverCollarGeo = new THREE.CylinderGeometry(1.0, 1.05, 0.08, 64);
+            const silverCollar = new THREE.Mesh(silverCollarGeo, silverMat);
+            silverCollar.position.y = 0.15;
+            pedestalGroup.add(silverCollar);
+
+            // Heavy stone base tier 2
+            const tier2Geo = new THREE.CylinderGeometry(0.85, 0.95, 0.15, 64);
+            const tier2 = new THREE.Mesh(tier2Geo, basaltMat);
+            tier2.position.y = 0.26;
+            pedestalGroup.add(tier2);
+
+            // Four elegant round silver pillar supports with sphere caps
+            for (let i = 0; i < 4; i++) {
+                const angle = (i * Math.PI) / 2;
+                const bracketGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.42, 16);
+                const bracket = new THREE.Mesh(bracketGeo, silverMat);
+                bracket.position.set(Math.cos(angle) * 1.02, 0.15, Math.sin(angle) * 1.02);
+                
+                // Add a small smooth sphere cap on top of each support pillar
+                const capGeo = new THREE.SphereGeometry(0.07, 16, 16);
+                const cap = new THREE.Mesh(capGeo, silverMat);
+                cap.position.y = 0.21;
+                bracket.add(cap);
+                
+                pedestalGroup.add(bracket);
+            }
+            sphereGroup.add(pedestalGroup);
+
+            // (Trend Arrow removed per user preference)
+
+            // 1g. Soft realistic ground shadow under the pedestal
+            const shadowCanvas = document.createElement('canvas');
+            shadowCanvas.width = 64;
+            shadowCanvas.height = 64;
+            const shadowCtx = shadowCanvas.getContext('2d');
+            const shadowGrad = shadowCtx.createRadialGradient(32, 32, 0, 32, 32, 30);
+            shadowGrad.addColorStop(0, 'rgba(0, 0, 0, 0.85)');
+            shadowGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.4)');
+            shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            shadowCtx.fillStyle = shadowGrad;
+            shadowCtx.fillRect(0, 0, 64, 64);
+            const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+
+            const shadowGeo = new THREE.PlaneGeometry(3.5, 3.5);
+            const shadowMat = new THREE.MeshBasicMaterial({
+                map: shadowTexture,
+                transparent: true,
+                depthWrite: false
+            });
+            const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+            shadowMesh.rotation.x = -Math.PI / 2;
+            shadowMesh.position.y = -2.25; // slightly below the bottom of basalt base
+            scene.add(shadowMesh);
+
+            // 2. Soft Volumetric Nebula Clouds (large overlapping glowing particles)
+            const fogCanvas = document.createElement('canvas');
+            fogCanvas.width = 64;
+            fogCanvas.height = 64;
+            const fogCtx = fogCanvas.getContext('2d');
+            const fogGrad = fogCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+            fogGrad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+            fogGrad.addColorStop(0.25, 'rgba(224, 64, 251, 0.45)');  // glowing magenta
+            fogGrad.addColorStop(0.55, 'rgba(124, 77, 255, 0.15)');  // magical violet
+            fogGrad.addColorStop(0.85, 'rgba(0, 229, 255, 0.04)');   // soft cyan rim
+            fogGrad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+            fogCtx.fillStyle = fogGrad;
+            fogCtx.fillRect(0, 0, 64, 64);
+            const fogTexture = new THREE.CanvasTexture(fogCanvas);
+
+            // (Trend Arrow and Crystal removed to display pure swirling nebula fog per reference)
+
+            // 3. Cyan & Magenta Nebula Cloud Storm (Volumetric glowing nebula particles in bot's native palette)
+            const particleCount = 180;
+            const particleGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            const particleSpeeds = new Float32Array(particleCount);
+            const particleRadii = new Float32Array(particleCount);
+            const particleAngles = new Float32Array(particleCount);
+            const particleYOffs = new Float32Array(particleCount);
+
+            const colCyan = new THREE.Color(0x00e5ff);
+            const colMagenta = new THREE.Color(0xb388ff);
+            const colPurple = new THREE.Color(0x7c4dff);
+
+            for (let i = 0; i < particleCount; i++) {
+                const r = Math.random() * 1.55;
+                const theta = Math.random() * Math.PI * 2;
+                const y = (Math.random() - 0.5) * 1.6 * Math.sqrt(1.55*1.55 - r*r) / 1.55;
+
+                positions[i * 3] = r * Math.cos(theta);
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = r * Math.sin(theta);
+
+                particleRadii[i] = r;
+                particleAngles[i] = theta;
+                particleYOffs[i] = y;
+                particleSpeeds[i] = 0.002 + Math.random() * 0.003; // slow smoke drift
+
+                let col = colPurple;
+                const rand = Math.random();
+                if (rand < 0.4) col = colMagenta;
+                else if (rand < 0.8) col = colCyan;
+
+                colors[i * 3] = col.r;
+                colors[i * 3 + 1] = col.g;
+                colors[i * 3 + 2] = col.b;
+            }
+
+            particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const particleMat = new THREE.PointsMaterial({
+                size: 2.2, // large overlapping cloud particles
+                map: fogTexture,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.65,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            const particles = new THREE.Points(particleGeo, particleMat);
+            sphereGroup.add(particles);
+
+            // 3b. Glowing Electrical Lightning Threads inside the clouds
+            const lightningGeometries = [];
+            const lightningMeshes = [];
+            const lightningCount = 3;
+            const lightningPointsCount = 18;
+
+            const lightningMat = new THREE.LineBasicMaterial({
+                color: 0xffe6ff, // glowing violet-white electric bolt
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+
+            for (let l = 0; l < lightningCount; l++) {
+                const points = [];
+                for (let p = 0; p < lightningPointsCount; p++) {
+                    points.push(new THREE.Vector3(0, 0, 0));
+                }
+                const lGeo = new THREE.BufferGeometry().setFromPoints(points);
+                const lMesh = new THREE.Line(lGeo, lightningMat);
+                sphereGroup.add(lMesh);
+
+                lightningGeometries.push(lGeo);
+                lightningMeshes.push(lMesh);
+            }
+
+            // 4. Active Magic Spark Particle System (Drag trace trail - cyan/magenta sparks)
+            sparkGeo = new THREE.BufferGeometry();
+            const sparkPositionsArr = new Float32Array(maxSparks * 3);
+            const sparkColorsArr = new Float32Array(maxSparks * 3);
+            sparkOpacity = new Float32Array(maxSparks);
+            sparkVelocities = [];
+
+            for (let i = 0; i < maxSparks; i++) {
+                sparkPositionsArr[i * 3] = 999;
+                sparkPositionsArr[i * 3 + 1] = 999;
+                sparkPositionsArr[i * 3 + 2] = 999;
+
+                const col = Math.random() > 0.5 ? colCyan : colMagenta;
+                sparkColorsArr[i * 3] = col.r;
+                sparkColorsArr[i * 3 + 1] = col.g;
+                sparkColorsArr[i * 3 + 2] = col.b;
+
+                sparkOpacity[i] = 0;
+                sparkVelocities.push({ x: 0, y: 0, z: 0 });
+            }
+
+            sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPositionsArr, 3));
+            sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkColorsArr, 3));
+
+            const sparkMat = new THREE.PointsMaterial({
+                size: 0.16,
+                map: pTexture,
+                vertexColors: true,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            sparkParticles = new THREE.Points(sparkGeo, sparkMat);
+            scene.add(sparkParticles);
+
+            // 5. Lighting - Dynamic museum lighting for glass and crystals (darkened for high contrast)
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.15); // reduced from 0.42 for rich dark shadows
+            scene.add(ambientLight);
+
+            // High specular highlight directional light (white)
+            const keyLight = new THREE.DirectionalLight(0xffffff, 2.2); // reduced from 3.2
+            keyLight.position.set(4, 5, 4);
+            scene.add(keyLight);
+
+            // Cool sapphire back fill light (darker magical cyan)
+            const goldFillLight = new THREE.DirectionalLight(0x00a8d6, 1.2); // reduced from 1.8
+            goldFillLight.position.set(-4, -4, 2);
+            scene.add(goldFillLight);
+
+            // Cool core glow light source (darker purple glow)
+            coreLight = new THREE.PointLight(0x7c00ff, 2.0, 10);
+            coreLight.position.set(0, 0.15, 0);
+            scene.add(coreLight);
+
+            // Pedestal upward highlight light source (platinum white)
+            const baseLight = new THREE.PointLight(0xcccccc, 2.2, 4);
+            baseLight.position.set(0, -2.1, 0);
+            scene.add(baseLight);
+
+            // Render loop
+            function animate() {
+                if (!activeScene) return;
+                requestAnimationFrame(animate);
+
+                const time = Date.now() * 0.0025;
+
+                // Auto rotate group slowly when not dragging (slow, majestic)
+                if (!isDragging) {
+                    sphereGroup.rotation.y += 0.0015;
+                }
+
+                // Parallax opposite-rotating inner wireframe sphere
+                innerWireSphere.rotation.y -= 0.003;
+                innerWireSphere.rotation.x += 0.001;
+
+                // Animate swirling volumetric nebula clouds
+                const posArr = particleGeo.attributes.position.array;
+                for (let i = 0; i < particleCount; i++) {
+                    particleAngles[i] += particleSpeeds[i];
+                    const r = particleRadii[i];
+                    const theta = particleAngles[i];
+                    const yOff = particleYOffs[i];
+
+                    // undulating waves to simulate fluid smoke currents
+                    const waveX = Math.sin(time + r * 3.0 + yOff) * 0.06;
+                    const waveY = Math.cos(time * 1.2 + r * 2.5) * 0.05 * (1.55 - r);
+                    const waveZ = Math.cos(time + r * 3.0 - yOff) * 0.06;
+
+                    posArr[i * 3] = r * Math.cos(theta) + waveX;
+                    posArr[i * 3 + 1] = yOff + waveY;
+                    posArr[i * 3 + 2] = r * Math.sin(theta) + waveZ;
+                }
+                particleGeo.attributes.position.needsUpdate = true;
+
+                // Update and flicker lightning paths
+                if (Math.random() > 0.4) {
+                    for (let l = 0; l < lightningCount; l++) {
+                        const points = [];
+                        const drift = 0.28;
+                        let currentPoint = new THREE.Vector3(
+                            (Math.random() - 0.5) * 0.4,
+                            -1.1,
+                            (Math.random() - 0.5) * 0.4
+                        );
+                        points.push(currentPoint.clone());
+
+                        for (let p = 1; p < lightningPointsCount - 1; p++) {
+                            const progress = p / (lightningPointsCount - 1);
+                            const targetY = -1.1 + progress * 2.2;
+                            currentPoint.set(
+                                (Math.random() - 0.5) * drift + Math.sin(time * 4.0 + l + p) * 0.15,
+                                targetY,
+                                (Math.random() - 0.5) * drift + Math.cos(time * 4.0 + l - p) * 0.15
+                            );
+                            points.push(currentPoint.clone());
+                        }
+                        points.push(new THREE.Vector3(
+                            (Math.random() - 0.5) * 0.4,
+                            1.1,
+                            (Math.random() - 0.5) * 0.4
+                        ));
+                        
+                        lightningGeometries[l].setFromPoints(points);
+                        lightningGeometries[l].attributes.position.needsUpdate = true;
+                        
+                        // Flickering glow effect
+                        lightningMeshes[l].material.opacity = (0.25 + Math.random() * 0.55) * currentCorePulse;
+                    }
+                }
+
+                // Update magic trace drag sparks
+                if (sparkGeo && sparkParticles) {
+                    const sArr = sparkGeo.attributes.position.array;
+                    for (let i = 0; i < maxSparks; i++) {
+                        if (sparkOpacity[i] > 0) {
+                            sArr[i * 3] += sparkVelocities[i].x;
+                            sArr[i * 3 + 1] += sparkVelocities[i].y;
+                            sArr[i * 3 + 2] += sparkVelocities[i].z;
+                            
+                            sparkOpacity[i] -= 0.045; // fade out speed
+                            if (sparkOpacity[i] <= 0) {
+                                sparkOpacity[i] = 0;
+                                sArr[i * 3] = 999;
+                                sArr[i * 3 + 1] = 999;
                                 sArr[i * 3 + 2] = 999;
                             }
                         }
