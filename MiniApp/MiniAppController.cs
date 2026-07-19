@@ -91,13 +91,14 @@ public static class MiniAppController
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
 
-            string originalAsset = asset.ToUpper().Replace(" OTC", "").Replace("OTC", "").Trim();
+            string cleanAsset = SanitizeAsset(asset);
+            string originalAsset = cleanAsset == "EURUSD" ? "EUR/USD OTC" : (cleanAsset == "GBPUSD" ? "GBP/USD OTC" : (cleanAsset == "AUDUSD" ? "AUD/USD OTC" : asset));
             string tf = timeframe.ToLower().Trim();
-            Console.WriteLine($"[ANALYZE] {originalAsset} | TF: {timeframe}");
+            Console.WriteLine($"[ANALYZE] {cleanAsset} (mapped to {originalAsset}) | TF: {timeframe}");
 
             try
             {
-                var result = await ExecuteBinanceAnalysis(originalAsset, tf);
+                var result = await ExecuteBinanceAnalysis(cleanAsset, tf);
                 // Serialize manually to catch float.NaN or reference errors during serialization
                 var options = new JsonSerializerOptions
                 {
@@ -1240,16 +1241,15 @@ public static class MiniAppController
     {
         try
         {
-            asset = asset.ToUpper().Replace(" OTC", "").Replace("OTC", "").Trim();
-            string raw = asset.Replace("/", "").Trim();
+            string clean = SanitizeAsset(asset);
             DayOfWeek day = DateTime.UtcNow.DayOfWeek;
             bool isWeekend = day == DayOfWeek.Saturday || day == DayOfWeek.Sunday;
 
-            string? symbol = raw switch
+            string? symbol = clean switch
             {
-                "BTCUSDT" or "BTC" => "BTCUSDT",
-                "ETHUSDT" or "ETH" => "ETHUSDT",
-                "SOLUSDT" or "SOL" => "SOLUSDT",
+                "BTCUSDT" or "BTC" or "BTCUSD" => "BTCUSDT",
+                "ETHUSDT" or "ETH" or "ETHUSD" => "ETHUSDT",
+                "SOLUSDT" or "SOL" or "SOLUSD" => "SOLUSDT",
                 "EURUSD" when isWeekend => "EURUSDT",
                 "GBPUSD" when isWeekend => "GBPUSDT",
                 "AUDUSD" when isWeekend => "AUDUSDT",
@@ -1299,14 +1299,14 @@ public static class MiniAppController
 
             if (timeframe.ToLower().StartsWith("s"))
             {
-                var subMinuteResult = await GetSubMinuteCandles(symbol, asset, timeframe, limit);
+                var subMinuteResult = await GetSubMinuteCandles(symbol, clean, timeframe, limit);
                 mainPrices = subMinuteResult.prices;
                 mainVolumes = subMinuteResult.volumes;
             }
             else
             {
                 int mainCacheTtl = 10;
-                var mainResultTuple = await FetchBinanceWithFallback(symbol, mainInterval, asset, limit, mainCacheTtl);
+                var mainResultTuple = await FetchBinanceWithFallback(symbol, mainInterval, clean, limit, mainCacheTtl);
                 mainPrices = mainResultTuple.prices;
                 mainVolumes = mainResultTuple.volumes;
             }
@@ -1769,27 +1769,45 @@ public static class MiniAppController
             {
                 double overrideScore = 0;
 
-                // 1. Last candle direction (most immediate signal)
-                double d1 = mainPrices[^1] - mainPrices[^2];
-                if (d1 > 0) overrideScore += 1.0; else if (d1 < 0) overrideScore -= 1.0;
+                // 1. Last candle direction & magnitude (in basis points)
+                double changeBps = (mainPrices[^1] - mainPrices[^2]) / (mainPrices[^2] + 1e-10) * 10000;
+                double prevChangeBps = (mainPrices[^2] - mainPrices[^3]) / (mainPrices[^3] + 1e-10) * 10000;
 
-                // 2. Last 3 candles net direction (short-term trend)
+                // Filter out micro-noise (if change is less than 0.15 bps, treat as flat)
+                if (Math.Abs(changeBps) > 0.15)
+                {
+                    overrideScore += changeBps > 0 ? 1.0 : -1.0;
+                }
+
+                // 2. Last 3 candles net direction
                 double d3 = mainPrices[^1] - mainPrices[^4];
-                if (d3 > 0) overrideScore += 0.8; else if (d3 < 0) overrideScore -= 0.8;
+                if (Math.Abs(d3) > 1e-7)
+                {
+                    overrideScore += d3 > 0 ? 0.8 : -0.8;
+                }
 
-                // 3. Price vs EMA9 (trend bias)
+                // 3. Agreeing micro-trend (consecutive ticks)
+                if (changeBps > 0.2 && prevChangeBps > 0.2)
+                    overrideScore += 0.5;
+                else if (changeBps < -0.2 && prevChangeBps < -0.2)
+                    overrideScore -= 0.5;
+
+                // 4. Price vs EMA9 (trend bias)
                 double emaPos = mainPrices[^1] - mainResult.emaVal;
-                if (emaPos > 0) overrideScore += 0.5; else if (emaPos < 0) overrideScore -= 0.5;
+                if (Math.Abs(emaPos) > 1e-7)
+                {
+                    overrideScore += emaPos > 0 ? 0.4 : -0.4;
+                }
 
-                // 4. RSI mean-reversion at extremes
+                // 5. RSI mean-reversion at extremes
                 double rsiVal = mainResult.rsiVal;
-                if (rsiVal > 70) overrideScore -= 1.0;       // overbought → expect down
-                else if (rsiVal < 30) overrideScore += 1.0;  // oversold → expect up
-                else if (rsiVal > 55) overrideScore += 0.3;  // mild bullish
-                else if (rsiVal < 45) overrideScore -= 0.3;  // mild bearish
+                if (rsiVal > 75) overrideScore -= 1.2;       // strong overbought → expect down
+                else if (rsiVal < 25) overrideScore += 1.2;  // strong oversold → expect up
+                else if (rsiVal > 58) overrideScore += 0.2;  // mild bullish
+                else if (rsiVal < 42) overrideScore -= 0.2;  // mild bearish
 
                 totalScore = overrideScore;
-                Console.WriteLine($"[SubMin] Override score={totalScore:F2} (d1={d1:F6}, d3={d3:F6}, emaPos={emaPos:F6}, rsi={rsiVal:F1})");
+                Console.WriteLine($"[SubMin] Override score={totalScore:F2} (change={changeBps:F2}bps, d3={d3:F6}, emaPos={emaPos:F6}, rsi={rsiVal:F1})");
             }
 
             // ─── SNIPER MODE: Направление и вероятность ───
@@ -1920,7 +1938,9 @@ public static class MiniAppController
                 else if (blockedByLevel || absScore < minScore || !momentumOk)
                 {
                     direction = candidateDir;
-                    probability = Math.Clamp(62 + Random.Shared.Next(-2, 3), 58, 68);
+                    probability = isSubMinute 
+                        ? Math.Clamp(58 + Random.Shared.Next(-2, 3), 55, 62)
+                        : Math.Clamp(62 + Random.Shared.Next(-2, 3), 58, 68);
 
                     claudeResult.modelName = "Математический анализ";
                     claudeResult.direction = direction;
@@ -1947,8 +1967,17 @@ public static class MiniAppController
                 {
                     direction = candidateDir;
 
-                    double rawProbFloat = 75.0 + (absScore - minScore) * 15.0 + (Random.Shared.NextDouble() - 0.5) * 4.0;
-                    probability = Math.Clamp((int)Math.Round(rawProbFloat), 75, 95);
+                    double rawProbFloat;
+                    if (isSubMinute)
+                    {
+                        rawProbFloat = 65.0 + (absScore - minScore) * 8.0 + (Random.Shared.NextDouble() - 0.5) * 3.0;
+                        probability = Math.Clamp((int)Math.Round(rawProbFloat), 62, 80);
+                    }
+                    else
+                    {
+                        rawProbFloat = 75.0 + (absScore - minScore) * 15.0 + (Random.Shared.NextDouble() - 0.5) * 4.0;
+                        probability = Math.Clamp((int)Math.Round(rawProbFloat), 75, 95);
+                    }
 
                     claudeResult.modelName = "Математический анализ";
                     claudeResult.direction = direction;
@@ -2017,6 +2046,19 @@ public static class MiniAppController
             Console.WriteLine($"[ERR] Analysis failed: {ex.Message}");
             return GetMomentumPrediction(asset, timeframe);
         }
+    }
+
+    public static string SanitizeAsset(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        return raw.ToUpper()
+            .Replace("OTC", "")
+            .Replace("ОТС", "") // Cyrillic
+            .Replace(" ", "")
+            .Replace("/", "")
+            .Replace("-", "")
+            .Replace("_", "")
+            .Trim();
     }
 
     /* ─── Fallback ─── */

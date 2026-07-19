@@ -162,7 +162,14 @@ public static class TwelveDataService
         if (raw.Contains("BTC") || raw.Contains("ETH") || raw.Contains("SOL"))
             return null;
 
-        string a = raw.Replace(" OTC", "").Trim().ToUpper();
+        string a = raw.ToUpper()
+            .Replace("OTC", "")
+            .Replace("ОТС", "") // Cyrillic
+            .Replace(" ", "")
+            .Replace("/", "")
+            .Replace("-", "")
+            .Replace("_", "")
+            .Trim();
         if (a == "GOLD" || a == "XAUUSD") return "XAU/USD";
         if (a == "SILVER" || a == "XAGUSD") return "XAG/USD";
 
