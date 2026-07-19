@@ -1172,7 +1172,7 @@ public static class MiniAppController
     /* ─── Scoring Engine ─── */
 
     private static (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal)
-        ScoreTimeframe(double[] prices, double[] volumes, OhlcCandle[]? candles = null, double? adxOverride = null, double? atrOverride = null)
+        ScoreTimeframe(double[] prices, double[] volumes, OhlcCandle[]? candles = null, double? adxOverride = null, double? atrOverride = null, bool isForex = false)
     {
         int n = prices.Length;
         if (n < EmaLong + 5) return (0, 50, 50, 0, 0, 0);
@@ -1199,14 +1199,12 @@ public static class MiniAppController
             // Mean-reverting regime: suppress trend-following, boost oscillators
             trendWeight = 0.55;
             rangeWeight = 1.45;
-            Console.WriteLine($"[Hurst-Regime] Mean-Reverting detected (H = {hurst:F2}). Oscillators boosted.");
         }
         else if (hurst > 0.55)
         {
             // Trending regime: boost trend-following, suppress oscillators
             trendWeight = 1.45;
             rangeWeight = 0.55;
-            Console.WriteLine($"[Hurst-Regime] Trending detected (H = {hurst:F2}). Momentum boosted.");
         }
         else
         {
@@ -1221,8 +1219,13 @@ public static class MiniAppController
                 trendWeight = adx < 15.0 ? 0.45 : 0.65;
                 rangeWeight = adx < 15.0 ? 1.35 : 1.15;
             }
-            Console.WriteLine($"[Hurst-Regime] Random Walk detected (H = {hurst:F2}). Using standard ADX weights.");
         }
+
+        // Apply Forex Session weight multipliers
+        var (trendAdj, rangeAdj, sessionName) = GetSessionMultipliers(isForex);
+        trendWeight *= trendAdj;
+        rangeWeight *= rangeAdj;
+        Console.WriteLine($"[Regime-Consensus] Hurst={hurst:F2}, Session={sessionName} (TrendWeight={trendWeight:F2}, RangeWeight={rangeWeight:F2})");
 
         // 1. Trend Direction (EMA 9 vs 21) — proportional (no dead zone needed)
         double emaSpread = (emaS - emaL) / (lastPrice + 1e-10) * 10000; // basis points
@@ -1629,14 +1632,14 @@ public static class MiniAppController
             double mainAtr = mainOhlc != null ? ComputeAtr(mainOhlc) : 0;
 
             // Store results for conflict detection
-            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, candles: mainOhlc, adxOverride: mainAdx, atrOverride: mainAtr);
+            var mainResult = ScoreTimeframe(mainPrices, mainVolumes, candles: mainOhlc, adxOverride: mainAdx, atrOverride: mainAtr, isForex: isForex);
             double conflictPenalty = 1.0;
 
             if (higherResultData != null)
             {
                 var (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
                 double hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
-                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr);
+                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: isForex);
                 conflictPenalty = MfConflictPenalty(mainResult, higherResult);
 
                 totalScore += higherResult.score;
@@ -1653,7 +1656,7 @@ public static class MiniAppController
             {
                 var (lAdx, lPdi, lMdi) = lowerOhlc != null ? ComputeTrueAdx(lowerOhlc) : (20.0, 0.0, 0.0);
                 double lAtr = lowerOhlc != null ? ComputeAtr(lowerOhlc) : 0;
-                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes, candles: lowerOhlc, adxOverride: lAdx, atrOverride: lAtr);
+                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes, candles: lowerOhlc, adxOverride: lAdx, atrOverride: lAtr, isForex: isForex);
 
                 totalScore += lowerResult.score;
                 totalConfidence += lowerResult.confidence * 0.5;
@@ -2272,6 +2275,43 @@ public static class MiniAppController
         }
 
         return 0.0;
+    }
+
+    private static (double trendAdj, double rangeAdj, string sessionName) GetSessionMultipliers(bool isForex)
+    {
+        // Forex sessions only apply on weekdays to Forex pairs
+        if (!isForex) return (1.0, 1.0, "CRYPTO / 24/7");
+
+        DayOfWeek day = DateTime.UtcNow.DayOfWeek;
+        bool isWeekend = day == DayOfWeek.Saturday || day == DayOfWeek.Sunday;
+        if (isWeekend) return (1.0, 1.0, "FOREX WEEKEND (SYNTHETIC)");
+
+        int hour = DateTime.UtcNow.Hour;
+        
+        // Asian Session (22:00 - 07:00 UTC)
+        if (hour >= 22 || hour < 7)
+        {
+            // Low volatility, range-bound mean reversion is favored
+            return (0.75, 1.25, "ASIAN (RANGE)");
+        }
+        // London/NY Overlap (12:00 - 16:00 UTC)
+        else if (hour >= 12 && hour < 16)
+        {
+            // Maximum volatility and trending breakouts
+            return (1.30, 0.70, "LONDON-NY OVERLAP (TREND)");
+        }
+        // European Session (07:00 - 12:00 UTC)
+        else if (hour >= 7 && hour < 12)
+        {
+            // Trending behavior favored
+            return (1.15, 0.85, "LONDON (TREND)");
+        }
+        // Late US Session (16:00 - 22:00 UTC)
+        else
+        {
+            // Balanced but still trending biased
+            return (1.10, 0.90, "NEW YORK (BALANCED)");
+        }
     }
 
     /* ─── Fallback ─── */
