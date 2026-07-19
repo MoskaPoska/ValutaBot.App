@@ -119,6 +119,62 @@ public static class MiniAppController
             }
         });
 
+        app.MapGet("/api/stats", (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            var overall = SignalTracker.GetOverallStats();
+            var allStats = SignalTracker.GetAllStats()
+                .Where(s => s.Key != "ALL" && s.Verified > 0)
+                .OrderByDescending(s => s.Verified)
+                .Select(s => new
+                {
+                    key       = s.Key,
+                    verified  = s.Verified,
+                    correct   = s.Correct,
+                    incorrect = s.Incorrect,
+                    winRate   = s.WinRate,
+                    pending   = s.Pending
+                });
+
+            var signalSources = SignalTracker.GetSignalStats()
+                .Select(s => new
+                {
+                    name      = s.name,
+                    agreeRate = s.agreeRatePct,
+                    weight    = s.weight,
+                    count     = s.count
+                });
+
+            var recent = SignalTracker.GetRecentArchive(20)
+                .Select(r => new
+                {
+                    asset     = r.Asset,
+                    tf        = r.Timeframe,
+                    direction = r.Direction,
+                    entry     = Math.Round(r.EntryPrice, 5),
+                    exit      = r.ExitPrice.HasValue ? Math.Round(r.ExitPrice.Value, 5) : (double?)null,
+                    pnlBps    = r.PnlBps,
+                    correct   = r.WasCorrect,
+                    at        = r.CreatedAt.ToString("HH:mm:ss")
+                });
+
+            return Results.Json(new
+            {
+                overall = new
+                {
+                    winRate   = overall.HasData ? overall.WinRate : (double?)null,
+                    verified  = overall.Verified,
+                    correct   = overall.Correct,
+                    incorrect = overall.Incorrect,
+                    pending   = SignalTracker.GetPendingCount(),
+                    hasData   = overall.HasData
+                },
+                byAsset       = allStats,
+                signalSources,
+                recentSignals = recent
+            });
+        });
+
         app.MapGet("/api/fear-greed", async (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
@@ -157,7 +213,7 @@ public static class MiniAppController
 
             return Results.Json(new
             {
-                accuracy = SignalTracker.GetOverallAccuracy(),
+                accuracy = SignalTracker.GetOverallStats().WinRate,
                 signals = SignalTracker.GetSignalStats()
             });
         });
@@ -1913,8 +1969,9 @@ public static class MiniAppController
                 rawProb = Math.Max(50, rawProb - 8);
 
             // ─── Калибровка вероятности (только после 10+ предсказаний) ───
-            double accuracy = SignalTracker.GetOverallAccuracy() / 100.0;
-            int totalPreds = SignalTracker.GetTotalPredictions();
+            var overallCalibStats = SignalTracker.GetOverallStats();
+            double accuracy = overallCalibStats.WinRate / 100.0;
+            int totalPreds = overallCalibStats.Verified;
             int probability;
             if (accuracy > 0 && totalPreds >= 10)
             {
@@ -2160,28 +2217,37 @@ public static class MiniAppController
             }
 
             // ─── Signal Tracker (only track real signals, not NEUTRAL) ───
+            int expiryCandles = GetExpiryCandles(timeframe);
+
+            // Always update the price cache for verification (even for NEUTRAL)
+            SignalTracker.UpdatePrice(symbol ?? asset, mainPrices[^1]);
+
             if (direction != "NEUTRAL")
             {
-                SignalTracker.RecordPrediction(direction, asset, timeframe, mainPrices[^1]);
+                SignalTracker.RecordPrediction(
+                    direction, asset, timeframe, mainPrices[^1],
+                    expiryCandles, timeframeSec, isForex, symbol);
+
                 double finalDir = direction == "BUY" ? 1 : -1;
-                double mainDir = mainResult.score >= 0 ? 1 : -1;
-                double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
+                double mainDir  = mainResult.score >= 0 ? 1 : -1;
+                double mlDirVal   = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
                 double lgbmDirVal = lgbmDirection == "BUY" ? 1 : lgbmDirection == "PUT" ? -1 : 0;
-                double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
+                double newsDirVal   = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
                 double claudeDirVal = claudeResult.direction == "BUY" ? 1 : claudeResult.direction == "PUT" ? -1 : 0;
-                double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
+                double imbDirVal    = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
                     ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
 
                 SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
-                if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
-                if (lgbmDirVal != 0) SignalTracker.RecordSignalVote("LightGBM", Math.Abs(lgbmDirVal - finalDir) < 0.1);
-                if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
+                if (mlDirVal != 0)   SignalTracker.RecordSignalVote("ML прогноз",  Math.Abs(mlDirVal   - finalDir) < 0.1);
+                if (lgbmDirVal != 0) SignalTracker.RecordSignalVote("LightGBM",   Math.Abs(lgbmDirVal - finalDir) < 0.1);
+                if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости",    Math.Abs(newsDirVal  - finalDir) < 0.1);
                 if (claudeDirVal != 0) SignalTracker.RecordSignalVote("Claude AI", Math.Abs(claudeDirVal - finalDir) < 0.1);
-                if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
+                if (imbDirVal != 0)  SignalTracker.RecordSignalVote("Ордербук",    Math.Abs(imbDirVal  - finalDir) < 0.1);
             }
 
             // Expiry: вычисляем сколько свечей нужно для закрытия сделки
-            int expiryCandles = GetExpiryCandles(timeframe);
+            var overallStats = SignalTracker.GetOverallStats();
+            var assetStats   = SignalTracker.GetStats(asset, timeframe);
 
             return new
             {
@@ -2194,7 +2260,7 @@ public static class MiniAppController
                 ema = Math.Round(mainResult.emaVal, 2),
                 volumeStrength = Math.Round(mainResult.volStrengthVal, 2),
                 tfConflict = conflictPenalty < 1.0,
-                mlDirection = mlDirection,
+                mlDirection,
                 mlConfidence = Math.Round(mlConfidence, 0),
                 lgbmDirection,
                 lgbmConfidence = Math.Round(lgbmConfidence * 100, 0),
@@ -2207,7 +2273,12 @@ public static class MiniAppController
                 claudeDirection = claudeResult.direction,
                 claudeProbability = Math.Round(claudeResult.probability, 0),
                 claudeReasoning = claudeResult.reasoning,
-                aiModel = claudeResult.modelName
+                aiModel = claudeResult.modelName,
+                // ── Accuracy stats ──
+                winRateOverall    = overallStats.HasData ? overallStats.WinRate : (double?)null,
+                winRateAsset      = assetStats.HasData   ? assetStats.WinRate   : (double?)null,
+                signalsVerified   = overallStats.Verified,
+                signalsPending    = SignalTracker.GetPendingCount()
             };
         }
         catch (Exception ex)

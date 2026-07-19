@@ -144,8 +144,8 @@ public sealed class MarketDataService : BackgroundService
                         if (RecentAlerts.Count > 20) RecentAlerts.TryDequeue(out _);
                     }
 
-                    // ─── Check prediction outcomes ───
-                    CheckPredictionOutcomes(sym, prices[^1]);
+                    // ─── Update Signal Tracker price cache ───
+                    SignalTracker.UpdatePrice(sym, prices[^1]);
                 }
             }
             catch { /* retry next cycle */ }
@@ -179,26 +179,5 @@ public sealed class MarketDataService : BackgroundService
         double avgLoss = loss / period;
         if (avgLoss < 1e-12) return 100;
         return 100 - 100 / (1 + avgGain / avgLoss);
-    }
-
-    private static void CheckPredictionOutcomes(string symbol, double currentPrice)
-    {
-        try
-        {
-            string asset = symbol.Replace("USDT", "/USDT");
-            var pending = SignalTracker.GetPending();
-            foreach (var pred in pending)
-            {
-                if (pred.Asset != asset) continue;
-                double elapsed = (DateTime.UtcNow - pred.CreatedAt).TotalMinutes;
-                if (elapsed < 1.5) continue;
-
-                double change = (currentPrice - pred.Price) / pred.Price;
-                bool correct = pred.Direction == "BUY" ? change > 0.001 : change < -0.001;
-                SignalTracker.MarkChecked(pred, correct);
-                Console.WriteLine($"[Tracker] {pred.Asset} pred={pred.Direction} actual={(change > 0 ? "UP" : "DOWN")} ({(correct ? "CORRECT" : "WRONG")}) acc={SignalTracker.GetOverallAccuracy()}%");
-            }
-        }
-        catch { }
     }
 }
