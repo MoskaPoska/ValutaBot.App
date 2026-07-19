@@ -1242,15 +1242,21 @@ public static class MiniAppController
         {
             asset = asset.ToUpper().Replace(" OTC", "").Replace("OTC", "").Trim();
             string raw = asset.Replace("/", "").Trim();
+            DayOfWeek day = DateTime.UtcNow.DayOfWeek;
+            bool isWeekend = day == DayOfWeek.Saturday || day == DayOfWeek.Sunday;
+
             string? symbol = raw switch
             {
                 "BTCUSDT" or "BTC" => "BTCUSDT",
                 "ETHUSDT" or "ETH" => "ETHUSDT",
                 "SOLUSDT" or "SOL" => "SOLUSDT",
+                "EURUSD" when isWeekend => "EURUSDT",
+                "GBPUSD" when isWeekend => "GBPUSDT",
+                "AUDUSD" when isWeekend => "AUDUSDT",
                 _ => null // All Forex, metals, and commodities bypass Binance and fetch from TwelveData
             };
 
-            bool isForex = symbol == null;
+            bool isForex = symbol == null || symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
             bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
             int limit = 100;
             string tfLower = timeframe.ToLower().Trim();
