@@ -2092,42 +2092,7 @@ public static class MiniAppUI
             const open = list.classList.toggle('open');
             toggle.innerText = open ? '\u25BD Заголовки' : '\u25B8 Заголовки';
         }
-                                sArr[i * 3 + 2] = 999;
-                            }
-                        }
-                    }
-                    sparkGeo.attributes.position.needsUpdate = true;
-                }
 
-                // Smoothly interpolate core pulse state driven by dragging
-                currentCorePulse += (corePulseTarget - currentCorePulse) * 0.1;
-
-                // Breathing nebula cloud size and opacity
-                particleMat.size = (2.2 + Math.sin(time * 0.8) * 0.2) * (0.8 + currentCorePulse * 0.3);
-                particleMat.opacity = 0.65 * (0.6 + currentCorePulse * 0.4);
-                
-                    // (Core animations removed per user preference)
-                if (coreLight) {
-                    coreLight.intensity = 2.0 * currentCorePulse;
-                }
-
-                renderer.render(scene, camera);
-            }
-
-            animate();
-        }
-
-        function destroy3DScene() {
-            if (renderer) {
-                try {
-                    renderer.dispose();
-                } catch(e) {}
-                renderer = null;
-            }
-            scene = null;
-            camera = null;
-            sphereGroup = null;
-        }
 
     </script>
 </body>
