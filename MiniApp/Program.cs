@@ -71,9 +71,17 @@ internal static class Program
             // ─── 2. TEST HURST EXPONENT REGIME ESTIMATOR ───
             Console.WriteLine("\n[2] Testing Hurst Exponent Regime Estimator...");
             
-            // Generate linear trend: H should be high (>0.55)
-            double[] trendPrices = new double[50];
-            for (int i = 0; i < 50; i++) trendPrices[i] = 1.0 + i * 0.01;
+            // Generate trending prices with positive autocorrelation: H should be high (>0.55)
+            double[] trendPrices = new double[60];
+            var randTrend = new Random(100);
+            double lastChange = 0;
+            trendPrices[0] = 10.0;
+            for (int i = 1; i < 60; i++)
+            {
+                double currentChange = (randTrend.NextDouble() - 0.5) * 0.1 + lastChange * 0.75 + 0.02;
+                trendPrices[i] = trendPrices[i - 1] + currentChange;
+                lastChange = currentChange;
+            }
             
             var hurstMethod = typeof(MiniAppController).GetMethod("CalculateHurstExponent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
             double trendHurst = (double)hurstMethod.Invoke(null, new object[] { trendPrices })!;
