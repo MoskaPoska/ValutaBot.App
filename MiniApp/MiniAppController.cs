@@ -909,11 +909,36 @@ public static class MiniAppController
 
         int last = candles.Length - 1;
         double spread = candles[last].High - candles[last].Low;
-        double volume = candles[last].Volume;
+
+        // Check if we need to estimate volumes (for Forex on weekdays or missing feeds)
+        bool estimateVolume = candles.Average(c => c.Volume) < 0.01;
+        double[] finalVolumes = new double[candles.Length];
+        
+        if (estimateVolume)
+        {
+            // Estimate proxy volume based on candle spread relative to average spread
+            double[] windowSpreads = candles.Select(c => c.High - c.Low).ToArray();
+            double avgSpreadAll = windowSpreads.Average();
+            for (int i = 0; i < candles.Length; i++)
+            {
+                double s = candles[i].High - candles[i].Low;
+                double ratio = s / (avgSpreadAll + 1e-12);
+                finalVolumes[i] = 100.0 * ratio + 10.0; // base activity of 10 ticks
+            }
+        }
+        else
+        {
+            for (int i = 0; i < candles.Length; i++)
+            {
+                finalVolumes[i] = candles[i].Volume;
+            }
+        }
+
+        double volume = finalVolumes[last];
 
         // Compute average spread and volume for context
         double[] spreads = candles.Skip(candles.Length - 10).Take(10).Select(c => c.High - c.Low).ToArray();
-        double[] volumes = candles.Skip(candles.Length - 10).Take(10).Select(c => c.Volume).ToArray();
+        double[] volumes = finalVolumes.Skip(finalVolumes.Length - 10).Take(10).ToArray();
         
         double avgSpread = spreads.Average();
         double avgVolume = volumes.Average();
@@ -1279,6 +1304,9 @@ public static class MiniAppController
             score += kalmanScore;
             Console.WriteLine($"[Kalman-Filter] Slope={kalmanSlope:F2}bps, Dev={priceDevBps:F2}bps -> score contribution: {kalmanScore:F2}");
         }
+
+        // 10. TD Sequential trend exhaustion count (Setup 9 - 13)
+        score += ComputeDeMarkScore(prices) * rangeWeight;
 
         double confidence = 50;
         double absScore = Math.Abs(score);
@@ -2202,6 +2230,48 @@ public static class MiniAppController
         }
 
         return filtered;
+    }
+
+    private static double ComputeDeMarkScore(double[] prices)
+    {
+        int n = prices.Length;
+        if (n < 13) return 0.0;
+
+        int currentBuySetup = 0;
+        int currentSellSetup = 0;
+
+        for (int i = 4; i < n; i++)
+        {
+            if (prices[i] < prices[i - 4])
+            {
+                currentBuySetup++;
+                currentSellSetup = 0;
+            }
+            else if (prices[i] > prices[i - 4])
+            {
+                currentSellSetup++;
+                currentBuySetup = 0;
+            }
+            else
+            {
+                currentBuySetup = 0;
+                currentSellSetup = 0;
+            }
+        }
+
+        // Setup completions (9 through 13 represent mature exhaustion zones)
+        if (currentBuySetup >= 9)
+        {
+            Console.WriteLine($"[TD-Sequential] TD Buy Setup {currentBuySetup} detected (Trend exhausted DOWN -> expecting UP).");
+            return 0.35;
+        }
+        if (currentSellSetup >= 9)
+        {
+            Console.WriteLine($"[TD-Sequential] TD Sell Setup {currentSellSetup} detected (Trend exhausted UP -> expecting DOWN).");
+            return -0.35;
+        }
+
+        return 0.0;
     }
 
     /* ─── Fallback ─── */
