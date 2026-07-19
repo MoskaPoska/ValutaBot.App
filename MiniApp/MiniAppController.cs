@@ -355,6 +355,12 @@ public static class MiniAppController
             return Results.Ok(new { success = true, message = "Postback processed successfully" });
         });
 
+        // Init Python ML microservice (LightGBM)
+        string mlServiceUrl = builder.Configuration["MLService:BaseUrl"]
+            ?? Environment.GetEnvironmentVariable("ML_SERVICE_URL")
+            ?? string.Empty;
+        MLPythonService.Init(mlServiceUrl);
+
         // Start background TwelveData WebSocket connection immediately to start accumulating ticks
         _ = TwelveDataWebSocketManager.StartBackgroundStreamingAsync();
 
@@ -1609,6 +1615,51 @@ public static class MiniAppController
                 totalWeight += 1.0;
             }
 
+            // ─── LightGBM Python ML Service ───
+            string lgbmDirection = "NEUTRAL";
+            double lgbmConfidence = 0.5;
+            string lgbmModelVersion = "disabled";
+            double? lgbmAccuracy = null;
+
+            if (mainOhlc != null && mainOhlc.Length >= 60)
+            {
+                try
+                {
+                    var lgbmResult = await MLPythonService.PredictAsync(
+                        asset, timeframe, mainOhlc, isForex);
+
+                    if (lgbmResult != null && lgbmResult.Direction != "NEUTRAL")
+                    {
+                        lgbmDirection = lgbmResult.Direction;
+                        lgbmConfidence = lgbmResult.Confidence;
+                        lgbmModelVersion = lgbmResult.ModelVersion;
+                        lgbmAccuracy = lgbmResult.Accuracy;
+
+                        // Weight: 1.2 — slightly higher than SSA ML (1.0) since LightGBM
+                        // is a supervised model trained on actual historical outcomes
+                        double lgbmSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
+                        double lgbmWeight = 1.2;
+                        totalScore += lgbmSign * lgbmConfidence * lgbmWeight;
+                        totalConfidence += lgbmConfidence * 100.0;
+                        totalWeight += lgbmWeight;
+
+                        Console.WriteLine(
+                            $"[LGBM] {lgbmDirection} conf={lgbmConfidence:F2} " +
+                            $"acc={lgbmResult.Accuracy?.ToString("F3") ?? "?"} " +
+                            $"model={lgbmModelVersion}");
+                    }
+                    else if (lgbmResult != null)
+                    {
+                        lgbmModelVersion = lgbmResult.ModelVersion;
+                        Console.WriteLine($"[LGBM] NEUTRAL (conf={lgbmResult.Confidence:F2})");
+                    }
+                }
+                catch (Exception lgbmEx)
+                {
+                    Console.WriteLine($"[LGBM] Skipped: {lgbmEx.Message}");
+                }
+            }
+
             // ─── News Analysis (нормализован к −1..+1) ───
             var newsResult = NewsAnalysisService.Analyze(asset);
             if (Math.Abs(newsResult.score) > 0.1)
@@ -2115,6 +2166,7 @@ public static class MiniAppController
                 double finalDir = direction == "BUY" ? 1 : -1;
                 double mainDir = mainResult.score >= 0 ? 1 : -1;
                 double mlDirVal = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
+                double lgbmDirVal = lgbmDirection == "BUY" ? 1 : lgbmDirection == "PUT" ? -1 : 0;
                 double newsDirVal = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
                 double claudeDirVal = claudeResult.direction == "BUY" ? 1 : claudeResult.direction == "PUT" ? -1 : 0;
                 double imbDirVal = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
@@ -2122,6 +2174,7 @@ public static class MiniAppController
 
                 SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
                 if (mlDirVal != 0) SignalTracker.RecordSignalVote("ML прогноз", Math.Abs(mlDirVal - finalDir) < 0.1);
+                if (lgbmDirVal != 0) SignalTracker.RecordSignalVote("LightGBM", Math.Abs(lgbmDirVal - finalDir) < 0.1);
                 if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости", Math.Abs(newsDirVal - finalDir) < 0.1);
                 if (claudeDirVal != 0) SignalTracker.RecordSignalVote("Claude AI", Math.Abs(claudeDirVal - finalDir) < 0.1);
                 if (imbDirVal != 0) SignalTracker.RecordSignalVote("Ордербук", Math.Abs(imbDirVal - finalDir) < 0.1);
@@ -2143,6 +2196,10 @@ public static class MiniAppController
                 tfConflict = conflictPenalty < 1.0,
                 mlDirection = mlDirection,
                 mlConfidence = Math.Round(mlConfidence, 0),
+                lgbmDirection,
+                lgbmConfidence = Math.Round(lgbmConfidence * 100, 0),
+                lgbmAccuracy = lgbmAccuracy.HasValue ? Math.Round(lgbmAccuracy.Value * 100, 1) : (double?)null,
+                lgbmModelVersion,
                 newsSentiment = newsResult.sentiment,
                 newsScore = Math.Round(newsResult.score, 1),
                 newsSummary = newsResult.summary,

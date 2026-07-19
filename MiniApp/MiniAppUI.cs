@@ -1364,10 +1364,19 @@ public static class MiniAppUI
                 </div>
             </div>
 
+            <div class='ml-card' id='lgbmCard' style='display:none'>
+                <div class='ml-header'><span class='ml-badge' style='background:linear-gradient(135deg,#f59e0b,#d97706)'>⚡ ML</span><span class='ml-label'>LightGBM прогноз</span></div>
+                <div class='ml-body'>
+                    <span class='ml-dir' id='lgbmDir'>--</span>
+                    <span class='ml-conf' id='lgbmConf' style='font-size:10px'>--%</span>
+                </div>
+                <div style='font-size:9px;color:var(--subtext);text-align:center;margin-top:2px;padding-bottom:4px' id='lgbmAcc'></div>
+            </div>
+
             <div class='news-card' id='newsCard' style='display:none'>
                 <div class='news-header'>
                     <span class='news-badge'>📰 LLM</span>
-                    <span class='news-label'>Анализ новостей</span>
+                    <span class='news-label'>Анализ новостей</span>
                     <span class='news-sentiment' id='newsSentiment'>--</span>
                 </div>
                 <div class='news-summary' id='newsSummary'></div>
@@ -1668,6 +1677,7 @@ public static class MiniAppUI
             document.getElementById('levelsBar').style.display = 'none';
             document.getElementById('mlCard').style.display = 'none';
             document.getElementById('claudeCard').style.display = 'none';
+                    document.getElementById('lgbmCard').style.display = 'none';
             document.getElementById('newsCard').style.display = 'none';
             document.getElementById('welcomeSec').style.display = 'flex';
             document.getElementById('topCategories').style.display = 'flex';
@@ -2018,7 +2028,22 @@ public static class MiniAppUI
                         document.getElementById('claudeReasoning').innerText = reasoningText;
                     }
 
-                    const probBars = pricesToBars(data.chartData, 16);
+                    // ── LightGBM card ──
+                    if (data.lgbmDirection && data.lgbmDirection !== 'NEUTRAL' && data.lgbmConfidence) {
+                        const lc = document.getElementById('lgbmCard');
+                        lc.style.display = 'flex';
+                        const ldirEl = document.getElementById('lgbmDir');
+                        ldirEl.innerText = data.lgbmDirection === 'BUY' ? '↑ ВВЕРХ' : '↓ ВНИЗ';
+                        ldirEl.style.color = data.lgbmDirection === 'BUY' ? '#00e676' : '#ff1744';
+                        document.getElementById('lgbmConf').innerText = data.lgbmConfidence + '%';
+                        const accEl = document.getElementById('lgbmAcc');
+                        if (data.lgbmAccuracy != null) {
+                            accEl.innerText = 'Точность модели: ' + data.lgbmAccuracy + '%';
+                            accEl.style.color = data.lgbmAccuracy >= 55 ? '#a78bfa' : 'var(--subtext)';
+                        }
+                    }
+
+
                     if (probBars.length) renderMiniChart('probChart', probBars, '');
 
                     renderDirSvg(data.direction);
