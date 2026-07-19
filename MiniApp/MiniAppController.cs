@@ -709,38 +709,65 @@ public static class MiniAppController
         return ema;
     }
 
-    private static double ComputeRsi(double[] data, int period, int index)
+    private static double[] ComputeRsiArray(double[] data, int period)
     {
-        if (index < period) return double.NaN;
-        double gain = 0, loss = 0;
-        for (int i = index - period + 1; i <= index; i++)
+        int n = data.Length;
+        var rsi = new double[n];
+        if (n <= period) return rsi;
+
+        double avgGain = 0;
+        double avgLoss = 0;
+
+        // First RSI value (SMA base)
+        for (int i = 1; i <= period; i++)
         {
             double diff = data[i] - data[i - 1];
-            if (diff > 0) gain += diff; else loss -= diff;
+            if (diff > 0) avgGain += diff; else avgLoss -= diff;
         }
-        double avgGain = gain / period;
-        double avgLoss = loss / period;
-        if (avgLoss < 1e-12)
+        avgGain /= period;
+        avgLoss /= period;
+
+        rsi[period] = avgLoss < 1e-12 ? 100 : 100 - (100 / (1 + (avgGain / (avgLoss + 1e-12))));
+
+        // Subsequent smoothed RSI values (Wilder's smoothing)
+        for (int i = period + 1; i < n; i++)
         {
-            return avgGain < 1e-12 ? 50.0 : 100.0;
+            double diff = data[i] - data[i - 1];
+            double gain = diff > 0 ? diff : 0;
+            double loss = diff < 0 ? -diff : 0;
+
+            avgGain = (avgGain * (period - 1) + gain) / period;
+            avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+            rsi[i] = avgLoss < 1e-12 ? 100 : 100 - (100 / (1 + (avgGain / (avgLoss + 1e-12))));
         }
-        double rs = avgGain / avgLoss;
-        return 100 - 100 / (1 + rs);
+
+        return rsi;
+    }
+
+    private static double ComputeRsi(double[] data, int period, int index)
+    {
+        var rsi = ComputeRsiArray(data, period);
+        if (index < 0 || index >= rsi.Length) return 50.0;
+        return rsi[index];
     }
 
     private static (double macd, double signal) ComputeMacd(double[] data, int index)
     {
-        double macdVal = ComputeEma(data, 12, index) - ComputeEma(data, 26, index);
-        // signal line is 9-period EMA of MACD values, not price
-        double[] macdHistory = new double[index + 1];
-        for (int i = 0; i <= index; i++)
+        if (data.Length < 26) return (0.0, 0.0);
+        var ema12 = ComputeEmaArray(data, 12);
+        var ema26 = ComputeEmaArray(data, 26);
+        
+        var macdHistory = new double[data.Length];
+        for (int i = 0; i < data.Length; i++)
         {
-            double ema12 = ComputeEma(data, 12, i);
-            double ema26 = ComputeEma(data, 26, i);
-            macdHistory[i] = ema12 - ema26;
+            macdHistory[i] = ema12[i] - ema26[i];
         }
-        double signalVal = ComputeEma(macdHistory, 9, index);
-        return (macdVal, signalVal);
+        
+        var signalHistory = ComputeEmaArray(macdHistory, 9);
+        
+        int safeIndex = Math.Clamp(index, 0, data.Length - 1);
+        return (macdHistory[safeIndex], signalHistory[safeIndex]);
     }
 
     /* ─── Volume strength ─── */
