@@ -1243,14 +1243,15 @@ public static class MiniAppController
         if (mom5 > 0.02) roccScore += 0.5; else if (mom5 < -0.02) roccScore -= 0.5;
         score += roccScore * trendWeight;
 
-        // 4. RSI — active mean-reversion signal (replaces old veto)
-        // Overbought (>65): bearish pressure, strongest above 80
-        // Oversold  (<35): bullish pressure, strongest below 20
+        // 4. RSI — active mean-reversion signal with adaptive volatility boundaries
+        double volatilityRatio = CalculateVolatilityRatio(prices);
+        double rsiObLimit = Math.Clamp(50.0 + 15.0 * volatilityRatio, 62.0, 82.0);
+        double rsiOsLimit = Math.Clamp(50.0 - 15.0 * volatilityRatio, 18.0, 38.0);
         double rsiScore = 0;
-        if (rsi > 65)
-            rsiScore = -Math.Clamp((rsi - 50) / 25.0, 0.0, 1.2);
-        else if (rsi < 35)
-            rsiScore = Math.Clamp((50 - rsi) / 25.0, 0.0, 1.2);
+        if (rsi > rsiObLimit)
+            rsiScore = -Math.Clamp((rsi - 50.0) / (rsiObLimit - 50.0), 0.0, 1.25);
+        else if (rsi < rsiOsLimit)
+            rsiScore = Math.Clamp((50.0 - rsi) / (50.0 - rsiOsLimit), 0.0, 1.25);
         score += rsiScore * rangeWeight;
 
         // 5. WaveTrend Oscillator (Advanced Range / Cycle oscillator)
@@ -1310,6 +1311,20 @@ public static class MiniAppController
 
         // 10. TD Sequential trend exhaustion count (Setup 9 - 13)
         score += ComputeDeMarkScore(prices) * rangeWeight;
+
+        // 11. Linear Regression Channel (LRC) deviation score
+        double lrcZscore = CalculateLrcZscore(prices, 20);
+        if (Math.Abs(lrcZscore) > 1.5)
+        {
+            double lrcScore = 0;
+            if (lrcZscore > 1.5)
+                lrcScore = -Math.Clamp((lrcZscore - 1.5) * 0.8, 0.0, 0.8);
+            else
+                lrcScore = Math.Clamp((-1.5 - lrcZscore) * 0.8, 0.0, 0.8);
+            
+            score += lrcScore * rangeWeight;
+            Console.WriteLine($"[LRC-Channel] Z-score={lrcZscore:F2} -> score contribution: {lrcScore * rangeWeight:F2}");
+        }
 
         double confidence = 50;
         double absScore = Math.Abs(score);
@@ -2312,6 +2327,46 @@ public static class MiniAppController
             // Balanced but still trending biased
             return (1.10, 0.90, "NEW YORK (BALANCED)");
         }
+    }
+
+    private static double CalculateLrcZscore(double[] prices, int len)
+    {
+        int n = Math.Min(len, prices.Length);
+        if (n < 5) return 0.0;
+
+        var segment = prices.TakeLast(n).ToArray();
+        
+        // Fit linear regression y = slope * x + intercept
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        for (int i = 0; i < n; i++)
+        {
+            sumX += i;
+            sumY += segment[i];
+            sumXY += i * segment[i];
+            sumX2 += i * i;
+        }
+        double denominator = n * sumX2 - sumX * sumX;
+        if (Math.Abs(denominator) < 1e-12) return 0.0;
+
+        double slope = (n * sumXY - sumX * sumY) / denominator;
+        double intercept = (sumY - slope * sumX) / n;
+
+        // Calculate standard deviation of residuals (distances from the regression line)
+        double sumSqResiduals = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double expected = slope * i + intercept;
+            double residual = segment[i] - expected;
+            sumSqResiduals += residual * residual;
+        }
+        double stdDev = Math.Sqrt(sumSqResiduals / n);
+        if (stdDev < 1e-12) return 0.0;
+
+        // Z-score for the last price
+        double lastExpected = slope * (n - 1) + intercept;
+        double lastResidual = prices[^1] - lastExpected;
+
+        return lastResidual / stdDev;
     }
 
     /* ─── Fallback ─── */
