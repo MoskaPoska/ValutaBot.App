@@ -2043,7 +2043,7 @@ public static class MiniAppUI
                         }
                     }
 
-
+                    const probBars = pricesToBars(data.chartData, 16);
                     if (probBars.length) renderMiniChart('probChart', probBars, '');
 
                     renderDirSvg(data.direction);
