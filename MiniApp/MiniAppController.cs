@@ -1164,21 +1164,39 @@ public static class MiniAppController
 
         double score = 0;
 
-        // Trend vs Range scaling factors based on ADX (Average Directional Index)
+        // --- 0. Hurst Exponent Regime Weights ---
+        double hurst = CalculateHurstExponent(prices);
         double trendWeight = 1.0;
         double rangeWeight = 1.0;
 
-        if (adx > 25.0)
+        if (hurst < 0.45)
         {
-            // Strong trend: emphasize trend-following, suppress mean-reversion
-            trendWeight = adx > 40.0 ? 1.5 : 1.2;
-            rangeWeight = adx > 40.0 ? 0.3 : 0.5;
+            // Mean-reverting regime: suppress trend-following, boost oscillators
+            trendWeight = 0.55;
+            rangeWeight = 1.45;
+            Console.WriteLine($"[Hurst-Regime] Mean-Reverting detected (H = {hurst:F2}). Oscillators boosted.");
         }
-        else if (adx < 20.0)
+        else if (hurst > 0.55)
         {
-            // Weak trend / Range bound: suppress trend indicators, emphasize mean-reversion
-            trendWeight = adx < 15.0 ? 0.4 : 0.6;
-            rangeWeight = adx < 15.0 ? 1.4 : 1.25;
+            // Trending regime: boost trend-following, suppress oscillators
+            trendWeight = 1.45;
+            rangeWeight = 0.55;
+            Console.WriteLine($"[Hurst-Regime] Trending detected (H = {hurst:F2}). Momentum boosted.");
+        }
+        else
+        {
+            // Random Walk / Balanced regime: default to ADX scaling
+            if (adx > 25.0)
+            {
+                trendWeight = adx > 40.0 ? 1.4 : 1.15;
+                rangeWeight = adx > 40.0 ? 0.35 : 0.55;
+            }
+            else if (adx < 20.0)
+            {
+                trendWeight = adx < 15.0 ? 0.45 : 0.65;
+                rangeWeight = adx < 15.0 ? 1.35 : 1.15;
+            }
+            Console.WriteLine($"[Hurst-Regime] Random Walk detected (H = {hurst:F2}). Using standard ADX weights.");
         }
 
         // 1. Trend Direction (EMA 9 vs 21) — proportional (no dead zone needed)
@@ -1239,6 +1257,28 @@ public static class MiniAppController
 
         // 8. Fibonacci golden ratio bounce
         score += GetFibonacciBounce(prices);
+
+        // 9. Kalman Filter Price Trend & Dev (Lag-free estimate)
+        var kalman = ComputeKalmanFilter(prices);
+        if (kalman.Length >= 2)
+        {
+            double kalmanSlope = (kalman[^1] - kalman[^2]) / (kalman[^2] + 1e-10) * 10000; // basis points slope
+            double priceDevBps = (prices[^1] - kalman[^1]) / (kalman[^1] + 1e-10) * 10000; // basis points price dev
+
+            double kalmanScore = 0;
+            // Trend-following component (slope)
+            if (kalmanSlope > 0.1) kalmanScore += 0.45 * trendWeight;
+            else if (kalmanSlope < -0.1) kalmanScore -= 0.45 * trendWeight;
+
+            // Mean-reversion component (price deviation from true value)
+            // If price deviates significantly from its Kalman line, expect pullback
+            double devThresh = prices[0] > 100 ? 25.0 : 8.0; // 25 bps for crypto/stocks, 8 bps for forex
+            if (priceDevBps > devThresh) kalmanScore -= 0.4 * rangeWeight;
+            else if (priceDevBps < -devThresh) kalmanScore += 0.4 * rangeWeight;
+
+            score += kalmanScore;
+            Console.WriteLine($"[Kalman-Filter] Slope={kalmanSlope:F2}bps, Dev={priceDevBps:F2}bps -> score contribution: {kalmanScore:F2}");
+        }
 
         double confidence = 50;
         double absScore = Math.Abs(score);
@@ -2086,6 +2126,82 @@ public static class MiniAppController
             .Replace("-", "")
             .Replace("_", "")
             .Trim();
+    }
+
+    private static double CalculateHurstExponent(double[] prices)
+    {
+        int n = prices.Length;
+        if (n < 30) return 0.5;
+
+        // Calculate differences at scale 2 (2-bar changes)
+        var diff2 = new List<double>();
+        for (int i = 2; i < n; i += 2)
+        {
+            diff2.Add(prices[i] - prices[i - 2]);
+        }
+
+        // Calculate differences at scale 16 (16-bar changes)
+        var diff16 = new List<double>();
+        for (int i = 16; i < n; i += 16)
+        {
+            diff16.Add(prices[i] - prices[i - 16]);
+        }
+
+        if (diff2.Count < 4 || diff16.Count < 2) return 0.5;
+
+        double mean2 = diff2.Average();
+        double var2 = diff2.Sum(d => Math.Pow(d - mean2, 2)) / diff2.Count;
+        double std2 = Math.Sqrt(var2);
+
+        double mean16 = diff16.Average();
+        double var16 = diff16.Sum(d => Math.Pow(d - mean16, 2)) / diff16.Count;
+        double std16 = Math.Sqrt(var16);
+
+        if (std2 < 1e-12) return 0.5;
+
+        // H = log(std16 / std2) / log(16 / 2)
+        // since log(16/2) = log(8)
+        double ratio = std16 / std2;
+        if (ratio < 1e-10) return 0.0;
+        
+        double hurst = Math.Log(ratio) / Math.Log(8.0);
+        return Math.Clamp(hurst, 0.0, 1.0);
+    }
+
+    private static double[] ComputeKalmanFilter(double[] prices)
+    {
+        int n = prices.Length;
+        var filtered = new double[n];
+        if (n == 0) return filtered;
+
+        // Calculate standard deviation of prices to set R and Q dynamically
+        double mean = prices.Average();
+        double variance = prices.Sum(p => Math.Pow(p - mean, 2)) / n;
+        double std = Math.Sqrt(variance);
+
+        double R = std * std;
+        if (R < 1e-10) R = 1e-4;
+        double Q = R * 0.02; // Process variance is 2% of measurement noise
+
+        double x = prices[0]; // initial state estimate
+        double P = 1.0;       // initial estimation error covariance
+
+        filtered[0] = x;
+
+        for (int i = 1; i < n; i++)
+        {
+            // Predict
+            P = P + Q;
+
+            // Correct
+            double K = P / (P + R);
+            x = x + K * (prices[i] - x);
+            P = (1 - K) * P;
+
+            filtered[i] = x;
+        }
+
+        return filtered;
     }
 
     /* ─── Fallback ─── */
