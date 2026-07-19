@@ -127,8 +127,36 @@ internal static class Program
 
             Assert("TD Sequential Buy Setup completion", tdScore == 0.35, $"Expected score 0.35, got {tdScore}");
 
-            // ─── 5. TEST DATA FETCH AND REAL-TIME SYMBOLS (BINANCE & FALLBACK) ───
-            Console.WriteLine("\n[5] Testing live Binance data retrieval & validation...");
+            // ─── 5. TEST DIRECTIONAL DYNAMISM (DYNAMISM CHECK) ───
+            Console.WriteLine("\n[5] Testing Directional Dynamism (Dynamism Check)...");
+            
+            double[] upTrend = new double[50];
+            double[] downTrend = new double[50];
+            double[] mockVols = new double[50];
+            for (int i = 0; i < 50; i++)
+            {
+                upTrend[i] = 100.0 + i * 0.5; // strongly rising
+                downTrend[i] = 100.0 - i * 0.5; // strongly falling
+                mockVols[i] = 100.0;
+            }
+
+            var scoreMethod = typeof(MiniAppController).GetMethod("ScoreTimeframe", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            
+            // Score upward trend
+            var upRes = scoreMethod.Invoke(null, new object[] { upTrend, mockVols, null, 30.0, 0.1, false })!;
+            // ScoreTimeframe returns a value tuple, we can cast it or use reflection
+            var upScore = (double)upRes.GetType().GetField("Item1").GetValue(upRes);
+
+            // Score downward trend
+            var downRes = scoreMethod.Invoke(null, new object[] { downTrend, mockVols, null, 30.0, 0.1, false })!;
+            var downScore = (double)downRes.GetType().GetField("Item1").GetValue(downRes);
+
+            Assert("Dynamism: Uptrend produces positive score", upScore > 0, $"Expected positive score, got {upScore:F2}");
+            Assert("Dynamism: Downtrend produces negative score", downScore < 0, $"Expected negative score, got {downScore:F2}");
+            Assert("Dynamism: Reversal detected correctly", upScore > downScore, $"Uptrend score ({upScore:F2}) should be greater than downtrend score ({downScore:F2})");
+
+            // ─── 6. TEST DATA FETCH AND REAL-TIME SYMBOLS (BINANCE & FALLBACK) ───
+            Console.WriteLine("\n[6] Testing live Binance data retrieval & validation...");
             var options = new JsonSerializerOptions { WriteIndented = true };
             
             // Test weekend fallback for EUR/USD
