@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from model import ForexPredictor, TF_MAP
+from model import ForexPredictor, TF_MAP, is_forex_symbol
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -220,12 +220,12 @@ def _background_train(symbol: str, interval: str, candles: Optional[list]):
 # Pre-warm the most common symbols on startup (non-blocking)
 
 _DEFAULT_SYMBOLS = os.getenv("PRETRAIN_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",")
-_DEFAULT_INTERVAL = os.getenv("PRETRAIN_INTERVAL", "1m")
+_DEFAULT_INTERVALS = os.getenv("PRETRAIN_INTERVALS", "1m,2m,3m,5m,15m,30m,1h,4h").split(",")
 
 
 @app.on_event("startup")
 async def startup_event():
-    log.info("[Startup] Launching background pre-training...")
+    log.info("[Startup] Launching background pre-training for all timeframes...")
 
     async def _train_all():
         await asyncio.sleep(5)   # give FastAPI time to finish startup
@@ -233,17 +233,31 @@ async def startup_event():
             sym = sym.strip().upper()
             if not sym:
                 continue
-            predictor = _get_predictor(sym, _DEFAULT_INTERVAL)
-            if predictor.needs_retrain():
-                t = threading.Thread(
-                    target=_background_train,
-                    args=(sym, _DEFAULT_INTERVAL, None),
-                    daemon=True,
-                )
-                t.start()
-                await asyncio.sleep(2)   # stagger starts to avoid API rate-limit
+            is_forex = is_forex_symbol(sym)
+            
+            for tf in _DEFAULT_INTERVALS:
+                tf = tf.strip().lower()
+                if not tf:
+                    continue
+                
+                predictor = _get_predictor(sym, tf)
+                if predictor.needs_retrain():
+                    # Stagger to avoid TwelveData 8 requests/min rate limit (12s space = 5 reqs/min)
+                    delay = 12.0 if is_forex else 1.5
+                    
+                    log.info(f"[Startup] Training {sym} ({tf}) | is_forex={is_forex}. Stagger delay={delay}s")
+                    
+                    t = threading.Thread(
+                        target=_background_train,
+                        args=(sym, tf, None),
+                        daemon=True,
+                    )
+                    t.start()
+                    
+                    await asyncio.sleep(delay)
 
     asyncio.create_task(_train_all())
+
 
 
 # ── Entry point ────────────────────────────────────────────────────────────
