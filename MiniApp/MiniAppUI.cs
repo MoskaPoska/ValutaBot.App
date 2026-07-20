@@ -578,9 +578,11 @@ public static class MiniAppUI
             transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
             box-shadow: 0 4px 12px rgba(124, 77, 255, 0.2);
             position: relative;
+            z-index: 1;
             overflow: hidden;
             animation: btnShimmer 4s ease-in-out infinite;
         }
+
 
         @keyframes btnShimmer {
             0% { background-position: 0% 50%; }
