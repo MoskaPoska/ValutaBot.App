@@ -1669,9 +1669,10 @@ public static class MiniAppController
             {
                 mlScoreNormalized /= mlSubSignals;
                 mlScoreNormalized = Math.Clamp(mlScoreNormalized, -1, 1);
-                totalScore += mlScoreNormalized;
-                totalConfidence += mlConfTotal / mlSubSignals;
-                totalWeight += 1.0;
+                double mlWeight = SignalTracker.GetSignalWeight("ML прогноз", 1.0);
+                totalScore += mlScoreNormalized * mlWeight;
+                totalConfidence += (mlConfTotal / mlSubSignals) * mlWeight;
+                totalWeight += mlWeight;
             }
 
             // ─── LightGBM Python ML Service ───
@@ -1697,9 +1698,9 @@ public static class MiniAppController
                         // Weight: 1.2 — slightly higher than SSA ML (1.0) since LightGBM
                         // is a supervised model trained on actual historical outcomes
                         double lgbmSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
-                        double lgbmWeight = 1.2;
+                        double lgbmWeight = SignalTracker.GetSignalWeight("LightGBM", 1.2);
                         totalScore += lgbmSign * lgbmConfidence * lgbmWeight;
-                        totalConfidence += lgbmConfidence * 100.0;
+                        totalConfidence += lgbmConfidence * 100.0 * lgbmWeight;
                         totalWeight += lgbmWeight;
 
                         Console.WriteLine(
@@ -1723,10 +1724,11 @@ public static class MiniAppController
             var newsResult = NewsAnalysisService.Analyze(asset);
             if (Math.Abs(newsResult.score) > 0.1)
             {
+                double newsWeight = SignalTracker.GetSignalWeight("Новости", 0.8);
                 double newsScoreNormalized = Math.Clamp(newsResult.score / 2.0, -1, 1);
-                totalScore += newsScoreNormalized;
-                totalConfidence += Math.Clamp(Math.Abs(newsResult.score) / 2.0 * 100, 50, 98);
-                totalWeight += 1.0;
+                totalScore += newsScoreNormalized * newsWeight;
+                totalConfidence += Math.Clamp(Math.Abs(newsResult.score) / 2.0 * 100, 50, 98) * newsWeight;
+                totalWeight += newsWeight;
                 Console.WriteLine($"[News] sentiment={newsResult.sentiment} score={newsResult.score:F1} normalized={newsScoreNormalized:F2}");
             }
 
@@ -1743,11 +1745,12 @@ public static class MiniAppController
                     }
 
                     double imbWeight = Math.Min(Math.Abs(imbalance) * 5, 2.0) * timeframeScale;
-                    double imbNorm = Math.Clamp(imbWeight / 2.0, -1, 1);
+                    double dynamicImbWeight = SignalTracker.GetSignalWeight("Ордербук", imbWeight);
+                    double imbNorm = Math.Clamp(dynamicImbWeight / 2.0, -1, 1);
                     double imbSign = imbalance > 0 ? 1 : -1;
                     totalScore += imbSign * imbNorm;
-                    totalConfidence += Math.Clamp(55 + Math.Abs(imbalance) * 35, 55, 90) * timeframeScale;
-                    totalWeight += 1.0 * timeframeScale;
+                    totalConfidence += Math.Clamp(55 + Math.Abs(imbalance) * 35, 55, 90) * dynamicImbWeight;
+                    totalWeight += dynamicImbWeight;
                     Console.WriteLine($"[OrderBook] {imbalanceKey} imbalance={imbalance:F3} norm={imbSign * imbNorm:F2} (scaled by {timeframeScale:F1})");
                 }
             }
@@ -1789,9 +1792,10 @@ public static class MiniAppController
             }
 
             // Main TF
-            totalScore += mainResult.score;
-            totalConfidence += mainResult.confidence * 1.0;
-            totalWeight += 1.0;
+            double indicatorWeight = SignalTracker.GetSignalWeight("Индикаторы", 1.0);
+            totalScore += mainResult.score * indicatorWeight;
+            totalConfidence += mainResult.confidence * indicatorWeight;
+            totalWeight += indicatorWeight;
 
             // ─── Extra TF scoring for major pairs ───
             int tfAgreement = 1;
@@ -1893,10 +1897,11 @@ public static class MiniAppController
             if (claudeResult.direction != "NEUTRAL")
             {
                 double claudeSign = claudeResult.direction == "BUY" ? 1 : -1;
-                totalScore += claudeSign * (claudeResult.probability / 100.0);
-                totalConfidence += claudeResult.probability;
-                totalWeight += 1.5;
-                Console.WriteLine($"[Claude] dir={claudeResult.direction} prob={claudeResult.probability:F0}% reasoning={claudeResult.reasoning}");
+                double claudeWeight = SignalTracker.GetSignalWeight("Claude AI", 1.5);
+                totalScore += claudeSign * (claudeResult.probability / 100.0) * claudeWeight;
+                totalConfidence += claudeResult.probability * claudeWeight;
+                totalWeight += claudeWeight;
+                Console.WriteLine($"[Claude] dir={claudeResult.direction} prob={claudeResult.probability:F0}% weight={claudeWeight:F2} reasoning={claudeResult.reasoning}");
             }
             else
             {
@@ -2228,25 +2233,21 @@ public static class MiniAppController
 
             if (direction != "NEUTRAL")
             {
+                var sourceDirs = new Dictionary<string, string>
+                {
+                    { "Индикаторы", mainResult.score >= 0 ? "BUY" : "PUT" },
+                    { "ML прогноз", mlDirection },
+                    { "LightGBM", lgbmDirection },
+                    { "Новости", newsResult.score > 0 ? "BUY" : newsResult.score < 0 ? "PUT" : "NEUTRAL" },
+                    { "Claude AI", claudeResult.direction }
+                };
+
+                double imb = MarketDataService.GetBookImbalance(imbalanceKey);
+                sourceDirs["Ордербук"] = Math.Abs(imb) > 0.1 ? (imb > 0 ? "BUY" : "PUT") : "NEUTRAL";
+
                 SignalTracker.RecordPrediction(
                     direction, asset, timeframe, mainPrices[^1],
-                    expiryCandles, timeframeSec, isForex, symbol);
-
-                double finalDir = direction == "BUY" ? 1 : -1;
-                double mainDir  = mainResult.score >= 0 ? 1 : -1;
-                double mlDirVal   = mlDirection == "BUY" ? 1 : mlDirection == "PUT" ? -1 : 0;
-                double lgbmDirVal = lgbmDirection == "BUY" ? 1 : lgbmDirection == "PUT" ? -1 : 0;
-                double newsDirVal   = newsResult.score > 0 ? 1 : newsResult.score < 0 ? -1 : 0;
-                double claudeDirVal = claudeResult.direction == "BUY" ? 1 : claudeResult.direction == "PUT" ? -1 : 0;
-                double imbDirVal    = Math.Abs(MarketDataService.GetBookImbalance(imbalanceKey)) > 0.1
-                    ? (MarketDataService.GetBookImbalance(imbalanceKey) > 0 ? 1 : -1) : 0;
-
-                SignalTracker.RecordSignalVote("Индикаторы", Math.Abs(mainDir - finalDir) < 0.1);
-                if (mlDirVal != 0)   SignalTracker.RecordSignalVote("ML прогноз",  Math.Abs(mlDirVal   - finalDir) < 0.1);
-                if (lgbmDirVal != 0) SignalTracker.RecordSignalVote("LightGBM",   Math.Abs(lgbmDirVal - finalDir) < 0.1);
-                if (newsDirVal != 0) SignalTracker.RecordSignalVote("Новости",    Math.Abs(newsDirVal  - finalDir) < 0.1);
-                if (claudeDirVal != 0) SignalTracker.RecordSignalVote("Claude AI", Math.Abs(claudeDirVal - finalDir) < 0.1);
-                if (imbDirVal != 0)  SignalTracker.RecordSignalVote("Ордербук",    Math.Abs(imbDirVal  - finalDir) < 0.1);
+                    expiryCandles, timeframeSec, isForex, symbol, sourceDirs);
             }
 
             // Expiry: вычисляем сколько свечей нужно для закрытия сделки

@@ -50,7 +50,8 @@ public static class SignalTracker
         int expiryCandles = 3,
         int timeframeSecs = 60,
         bool isForex = false,
-        string? binanceSymbol = null)
+        string? binanceSymbol = null,
+        Dictionary<string, string>? sourceDirections = null)
     {
         string sym = (binanceSymbol ?? MapToBinanceSymbol(asset)).ToUpper();
         int verifyDelaySecs = expiryCandles * timeframeSecs + 5; // +5s buffer for candle close
@@ -65,7 +66,8 @@ public static class SignalTracker
             EntryPrice  = price,
             CreatedAt   = DateTime.UtcNow,
             VerifyAt    = DateTime.UtcNow.AddSeconds(verifyDelaySecs),
-            IsForex     = isForex
+            IsForex     = isForex,
+            SourceDirections = sourceDirections ?? new Dictionary<string, string>()
         };
 
         _pending[record.Id] = record;
@@ -128,16 +130,16 @@ public static class SignalTracker
     /// </summary>
     public static double GetSignalWeight(string signalName, double baseWeight = 1.0)
     {
-        if (!_signalHistory.TryGetValue(signalName, out var q) || q.Count < 10)
+        if (!_signalHistory.TryGetValue(signalName, out var q) || q.Count < 5)
             return baseWeight;
 
         var arr = q.ToArray();
-        double agreeRate = arr.Count(v => v) / (double)arr.Length;
-        // agreeRate 0.5 → weight = baseWeight (neutral)
-        // agreeRate 1.0 → weight = baseWeight × 2.0 (boost)
-        // agreeRate 0.0 → weight = baseWeight × 0.3 (suppress)
-        double adjustment = agreeRate / 0.5;
-        return Math.Clamp(baseWeight * adjustment, 0.3, 2.0);
+        double winRate = arr.Count(v => v) / (double)arr.Length;
+        // winRate 0.50 (50%) → weight = baseWeight (neutral)
+        // winRate 0.80 (80%) → weight = baseWeight × 1.6 (boosted)
+        // winRate 0.30 (30%) → weight = baseWeight × 0.6 (suppressed)
+        double adjustment = winRate / 0.5;
+        return Math.Clamp(baseWeight * adjustment, 0.2, 2.0);
     }
 
     // ── Background Verification ────────────────────────────────────────────
@@ -182,6 +184,20 @@ public static class SignalTracker
             record.ExitPrice  = exitPrice.Value;
             record.PnlBps     = Math.Round(priceDiff * 10000, 2);
             record.WasCorrect = correct;
+
+            // Evaluate sub-signal accuracy based on the actual winning direction
+            string winDirection = priceDiff > 0 ? "BUY" : "PUT";
+            if (record.SourceDirections != null)
+            {
+                foreach (var kv in record.SourceDirections)
+                {
+                    if (kv.Value != "NEUTRAL")
+                    {
+                        bool wasSourceCorrect = kv.Value == winDirection;
+                        RecordSignalVote(kv.Key, wasSourceCorrect);
+                    }
+                }
+            }
 
             // Update accuracy stats
             GetOrCreate("ALL").Record(correct);
@@ -287,6 +303,7 @@ public static class SignalTracker
         public DateTime VerifyAt      { get; set; }
         public bool     IsForex       { get; set; }
         public bool?    WasCorrect    { get; set; }
+        public Dictionary<string, string> SourceDirections { get; set; } = new();
     }
 
     public class AccuracyStats
