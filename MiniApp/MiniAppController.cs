@@ -1997,11 +1997,12 @@ public static class MiniAppController
                 double changeBps = (mainPrices[^1] - mainPrices[^2]) / (mainPrices[^2] + 1e-10) * 10000;
                 double prevChangeBps = (mainPrices[^2] - mainPrices[^3]) / (mainPrices[^3] + 1e-10) * 10000;
 
-                // Filter out micro-noise (if change is less than 0.15 bps, treat as flat)
-                if (Math.Abs(changeBps) > 0.15)
+                // Filter out micro-noise (if change is less than 0.02 bps, treat as flat)
+                if (Math.Abs(changeBps) > 0.02)
                 {
                     overrideScore += changeBps > 0 ? 1.0 : -1.0;
                 }
+
 
                 // 2. Last 3 candles net direction
                 double d3 = mainPrices[^1] - mainPrices[^4];
@@ -2146,7 +2147,7 @@ public static class MiniAppController
                 }
 
                 // --- 1. КРАСНЫЙ СВЕТ: Полный флэт (очень низкий балл консенсуса) ---
-                if (absScore < 0.10)
+                if (absScore < 0.04)
                 {
                     direction = "NEUTRAL";
                     probability = 50;
