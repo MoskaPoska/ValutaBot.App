@@ -13,6 +13,11 @@ public static class ClaudeSignalService
     public static string? GetLastRawResponse() => _lastRawResponse;
     public static string? GetLastPrimaryError() => _lastPrimaryError;
 
+    // Circuit breaker to temporarily disable AI requests when balance/credits are depleted
+    private static bool _aiDisabled = false;
+    private static DateTime _nextAiCheck = DateTime.MinValue;
+
+
     private static string GetApiKey(string envVar, string configKey)
     {
         string apiKey = Environment.GetEnvironmentVariable(envVar) ?? "";
@@ -58,6 +63,12 @@ public static class ClaudeSignalService
         double plusDi = 0,
         double minusDi = 0)
     {
+        if (_aiDisabled && DateTime.UtcNow < _nextAiCheck)
+        {
+            Console.WriteLine("[AI] AI calls temporarily disabled due to credit depletion (Circuit Open)");
+            return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
+        }
+
 
         try
         {
@@ -248,9 +259,18 @@ public static class ClaudeSignalService
             catch (Exception ex)
             {
                 _lastPrimaryError = ex.ToString();
+                
+                string errorStr = ex.Message.ToLower();
+                if (errorStr.Contains("402") || errorStr.Contains("credits") || errorStr.Contains("payment") || errorStr.Contains("depleted"))
+                {
+                    Console.WriteLine("[AI] OpenRouter credit error detected. Activating AI circuit breaker for 30 minutes.");
+                    _aiDisabled = true;
+                    _nextAiCheck = DateTime.UtcNow.AddMinutes(30);
+                }
+                
                 Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {fallbackLabel}...");
 
-                if (!string.IsNullOrEmpty(geminiApiKey))
+                if (!_aiDisabled && !string.IsNullOrEmpty(geminiApiKey))
                 {
                     try
                     {
@@ -260,15 +280,22 @@ public static class ClaudeSignalService
                     }
                     catch (Exception fallbackEx)
                     {
+                        string fallbackErrorStr = fallbackEx.Message.ToLower();
+                        if (fallbackErrorStr.Contains("402") || fallbackErrorStr.Contains("depleted") || fallbackErrorStr.Contains("quota") || fallbackErrorStr.Contains("credits"))
+                        {
+                            Console.WriteLine("[AI] Gemini credit/quota error detected. Activating AI circuit breaker for 30 minutes.");
+                            _aiDisabled = true;
+                            _nextAiCheck = DateTime.UtcNow.AddMinutes(30);
+                        }
+                        
                         Console.WriteLine($"[AI] {fallbackLabel} failed: {fallbackEx.Message}");
-
                         _lastRawResponse = $"ERROR: Both AI models failed. Claude: {ex.Message}. Gemini: {fallbackEx.Message}";
                         return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"[AI] Gemini API key not configured, no fallback available");
+                    Console.WriteLine($"[AI] Gemini API key not configured or AI disabled, no fallback available");
                     _lastRawResponse = $"ERROR: Claude failed and Gemini not configured. Claude: {ex.Message}";
                     return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
                 }
