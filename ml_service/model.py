@@ -34,6 +34,37 @@ RETRAIN_INTERVAL_H = int(os.getenv("RETRAIN_INTERVAL_H", "24"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.60"))  # below → NEUTRAL
 BINANCE_BASE = "https://api.binance.com"
 
+# ── TwelveData Config ──
+TWELVE_DATA_BASE = "https://api.twelvedata.com"
+TWELVE_DATA_API_KEY = os.getenv("TwelveDataApiKey") or os.getenv("TWELVE_DATA_API_KEY")
+
+TD_INTERVAL_MAP = {
+    "1m": "1min", "2m": "2min", "3m": "5min", "5m": "5min",
+    "10m": "10min", "15m": "15min", "30m": "30min", "45m": "45min",
+    "1h": "1h", "2h": "2h", "4h": "4h", "1d": "1day"
+}
+
+def is_forex_symbol(symbol: str) -> bool:
+    sym = symbol.upper()
+    if sym in ["GOLD", "SILVER", "BRENT", "OIL", "XAUUSD", "XAGUSD"]:
+        return True
+    # Most Forex assets are 6 letters (EURUSD, USDJPY) and do not end with USDT
+    if len(sym) == 6 and not sym.endswith("USDT"):
+        return True
+    return False
+
+def to_twelvedata_symbol(symbol: str) -> str:
+    sym = symbol.upper()
+    if sym in ["GOLD", "XAUUSD"]:
+        return "XAU/USD"
+    if sym in ["SILVER", "XAGUSD"]:
+        return "XAG/USD"
+    # EURUSD -> EUR/USD
+    if len(sym) == 6:
+        return f"{sym[:3]}/{sym[3:]}"
+    return sym
+
+
 # ── Timeframe → Binance interval string ──
 TF_MAP = {
     "s3": "1m", "s5": "1m", "s10": "1m", "s15": "1m", "s30": "1m",
@@ -145,7 +176,10 @@ class ForexPredictor:
         log.info(f"[Train] Starting training for {self._key}")
         try:
             if candles is None:
-                candles = self._fetch_binance(1500)
+                if is_forex_symbol(self.symbol):
+                    candles = self._fetch_twelvedata(1500)
+                else:
+                    candles = self._fetch_binance(1500)
 
             if len(candles) < 150:
                 return {"error": f"Not enough candles: {len(candles)} < 150"}
@@ -286,3 +320,49 @@ class ForexPredictor:
             for k in raw
         ]
         return candles
+
+    def _fetch_twelvedata(self, limit: int = 1500) -> List[Dict]:
+        """Fetch historical candles from TwelveData REST API."""
+        if not TWELVE_DATA_API_KEY:
+            raise ValueError("TwelveDataApiKey environment variable is not configured on the service.")
+
+        td_symbol = to_twelvedata_symbol(self.symbol)
+        td_interval = TD_INTERVAL_MAP.get(self.interval, "1min")
+        
+        log.info(f"[TwelveData] Fetching history for {td_symbol} ({td_interval}), limit={limit}")
+        
+        url = f"{TWELVE_DATA_BASE}/time_series"
+        params = {
+            "symbol": td_symbol,
+            "interval": td_interval,
+            "outputsize": min(limit, 5000),
+            "apikey": TWELVE_DATA_API_KEY
+        }
+        
+        resp = requests.get(url, params=params, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        if data.get("status") == "error":
+            raise Exception(f"TwelveData API error: {data.get('message')}")
+            
+        raw_candles = data.get("values")
+        if not raw_candles:
+            raise Exception(f"TwelveData returned no candles for {td_symbol}")
+            
+        # Reversing so that the oldest is at index 0 and latest is at index -1
+        raw_candles.reverse()
+        
+        candles = [
+            {
+                "open":   float(k["open"]),
+                "high":   float(k["high"]),
+                "low":    float(k["low"]),
+                "close":  float(k["close"]),
+                "volume": float(k.get("volume", 0.0) or 0.0),
+            }
+            for k in raw_candles
+        ]
+        log.info(f"[TwelveData] Successfully fetched {len(candles)} candles for {td_symbol}")
+        return candles
+
