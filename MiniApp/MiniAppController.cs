@@ -411,11 +411,14 @@ public static class MiniAppController
             return Results.Ok(new { success = true, message = "Postback processed successfully" });
         });
 
-        // Init Python ML microservice (LightGBM)
-        string mlServiceUrl = builder.Configuration["MLService:BaseUrl"]
-            ?? Environment.GetEnvironmentVariable("ML_SERVICE_URL")
-            ?? string.Empty;
+        string? mlServiceUrl = builder.Configuration["MLService:BaseUrl"];
+        if (string.IsNullOrWhiteSpace(mlServiceUrl))
+            mlServiceUrl = Environment.GetEnvironmentVariable("ML_SERVICE_URL");
+        if (string.IsNullOrWhiteSpace(mlServiceUrl))
+            mlServiceUrl = string.Empty;
+        
         MLPythonService.Init(mlServiceUrl);
+
 
         // Start background TwelveData WebSocket connection immediately to start accumulating ticks
         _ = TwelveDataWebSocketManager.StartBackgroundStreamingAsync();
