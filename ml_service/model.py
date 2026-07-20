@@ -64,6 +64,50 @@ def to_twelvedata_symbol(symbol: str) -> str:
         return f"{sym[:3]}/{sym[3:]}"
     return sym
 
+def _interpolate_subminute(m1_candles: List[Dict], interval: str) -> List[Dict]:
+    """Interpolate 1-minute candles into sub-minute steps (s5, s10, s15, s30)."""
+    sec = int(interval[1:]) if (interval.startswith("s") and len(interval) > 1) else 60
+    if sec >= 60:
+        return m1_candles
+        
+    sub_per_min = 60 // sec
+    interpolated = []
+    
+    import random
+    
+    for m in m1_candles:
+        start_price = m["open"]
+        end_price = m["close"]
+        price_range = end_price - start_price
+        high_limit = m["high"]
+        low_limit = m["low"]
+        vol_step = (high_limit - low_limit) / sub_per_min
+        
+        for i in range(sub_per_min):
+            frac_start = i / sub_per_min
+            frac_end = (i + 1) / sub_per_min
+            
+            o = start_price + price_range * frac_start
+            c = start_price + price_range * frac_end
+            
+            rand_offset = (random.random() - 0.5) * vol_step * 0.5
+            h = max(o, c) + abs(rand_offset)
+            l = min(o, c) - abs(rand_offset)
+            
+            h = min(h, high_limit)
+            l = max(l, low_limit)
+            
+            interpolated.append({
+                "open": o,
+                "high": h,
+                "low": l,
+                "close": c,
+                "volume": m["volume"] / sub_per_min
+            })
+            
+    return interpolated
+
+
 
 # ── Timeframe → Binance interval string ──
 TF_MAP = {
@@ -176,10 +220,18 @@ class ForexPredictor:
         log.info(f"[Train] Starting training for {self._key}")
         try:
             if candles is None:
+                # 1500 sub-minute candles require at least 750 1-minute candles
+                limit = 750 if self.interval.startswith("s") else 1500
                 if is_forex_symbol(self.symbol):
-                    candles = self._fetch_twelvedata(1500)
+                    candles = self._fetch_twelvedata(limit)
                 else:
-                    candles = self._fetch_binance(1500)
+                    candles = self._fetch_binance(limit)
+
+            # If sub-minute timeframe, interpolate 1-minute history
+            if self.interval.startswith("s") and len(candles) > 0:
+                candles = _interpolate_subminute(candles, self.interval)
+                if len(candles) > 1500:
+                    candles = candles[-1500:]
 
             if len(candles) < 150:
                 return {"error": f"Not enough candles: {len(candles)} < 150"}

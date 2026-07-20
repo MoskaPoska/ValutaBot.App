@@ -220,7 +220,8 @@ def _background_train(symbol: str, interval: str, candles: Optional[list]):
 # Pre-warm the most common symbols on startup (non-blocking)
 
 _DEFAULT_SYMBOLS = os.getenv("PRETRAIN_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",")
-_DEFAULT_INTERVALS = os.getenv("PRETRAIN_INTERVALS", "1m,2m,3m,5m,15m,30m,1h,4h").split(",")
+_DEFAULT_INTERVALS = os.getenv("PRETRAIN_INTERVALS", "s5,s10,s15,s30,1m,2m,3m,5m,15m,30m,1h,4h").split(",")
+
 
 
 @app.on_event("startup")
