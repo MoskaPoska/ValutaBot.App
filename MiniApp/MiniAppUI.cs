@@ -522,7 +522,7 @@ public static class MiniAppUI
             top: calc(100% + 8px);
             left: 0;
             width: 100%;
-            background: rgba(8, 6, 24, 0.97);
+            background: #080618;
             backdrop-filter: blur(30px);
             -webkit-backdrop-filter: blur(30px);
             border: 1px solid var(--panel-border);
