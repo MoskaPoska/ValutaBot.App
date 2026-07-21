@@ -2393,15 +2393,7 @@ public static class MiniAppController
 
     public static string SanitizeAsset(string raw)
     {
-        if (string.IsNullOrWhiteSpace(raw)) return "";
-        return raw.ToUpper()
-            .Replace("OTC", "")
-            .Replace("ОТС", "") // Cyrillic
-            .Replace(" ", "")
-            .Replace("/", "")
-            .Replace("-", "")
-            .Replace("_", "")
-            .Trim();
+        return AssetSanitizer.Sanitize(raw);
     }
 
     private static double CalculateHurstExponent(double[] prices)
