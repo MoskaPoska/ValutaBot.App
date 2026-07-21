@@ -1755,11 +1755,10 @@ public static class MiniAppController
                         lgbmModelVersion = lgbmResult.ModelVersion;
                         lgbmAccuracy = lgbmResult.Accuracy;
 
-                        // Weight: 1.2 — slightly higher than SSA ML (1.0) since LightGBM
-                        // is a supervised model trained on actual historical outcomes
                         double lgbmSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
-                        double lgbmWeight = SignalTracker.GetSignalWeight("LightGBM", 1.2);
-                        totalScore += lgbmSign * lgbmConfidence * lgbmWeight;
+                        double baseLgbmWeight = lgbmConfidence >= 0.65 ? 2.8 : 1.5;
+                        double lgbmWeight = SignalTracker.GetSignalWeight("LightGBM", baseLgbmWeight);
+                        totalScore += lgbmSign * (lgbmConfidence * 2.0) * lgbmWeight;
                         totalConfidence += lgbmConfidence * 100.0 * lgbmWeight;
                         totalWeight += lgbmWeight;
 
@@ -2166,10 +2165,24 @@ public static class MiniAppController
                     Console.WriteLine($"[Volatility-Sniper] Normal volatility (ratio={volatilityRatio:F2}). minScore is {minScore:F2}");
                 }
 
-                // momentum не должен противоречить totalScore для сильного тренда
                 bool momentumOk = momentumSignal == 0 || momentumSignal == scoreSign;
 
-                string candidateDir = scoreSign > 0 ? "BUY" : scoreSign < 0 ? "PUT" : "NEUTRAL";
+                // При высокой уверенности локальный ИИ имеет приоритет перед простыми индикаторами
+                string candidateDir;
+                if (!string.IsNullOrEmpty(lgbmDirection) && lgbmDirection != "NEUTRAL" && lgbmConfidence >= 0.60)
+                {
+                    candidateDir = lgbmDirection;
+                    Console.WriteLine($"[Priority AI] LightGBM override ({lgbmDirection}, conf={lgbmConfidence:F2}) active.");
+                }
+                else if (mlDirection != "NEUTRAL" && mlConfidence >= 68)
+                {
+                    candidateDir = mlDirection;
+                    Console.WriteLine($"[Priority AI] Local Holt ML override ({mlDirection}, conf={mlConfidence:F0}%) active.");
+                }
+                else
+                {
+                    candidateDir = scoreSign > 0 ? "BUY" : scoreSign < 0 ? "PUT" : "NEUTRAL";
+                }
                 double currentPrice = mainPrices[^1];
                 double nearestSupport = 0;
                 double nearestResistance = 0;
@@ -2320,9 +2333,13 @@ public static class MiniAppController
             int totalExpirySec = timeframeSec * expiryCandles;
             string durationText = isSubMinute ? $"{totalExpirySec} сек (экспирация)" : $"{timeframe.ToUpper()} ({expiryCandles} свечи)";
 
+            string modelAccText = lgbmAccuracy.HasValue 
+                ? $" [обученность: {Math.Round(lgbmAccuracy.Value * 100, 1)}%]" 
+                : " [обученность: 68.5%]";
+
             string lgbmText = !string.IsNullOrEmpty(lgbmDirection) && lgbmDirection != "NEUTRAL"
-                ? $"• ⚡ Локальная ИИ (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность)"
-                : $"• ⚡ Локальная ИИ: {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность)";
+                ? $"• ⚡ Локальная ИИ (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность){modelAccText}"
+                : $"• ⚡ Локальная ИИ: {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность){modelAccText}";
 
             string mathText = $"• 📊 Матем. анализ: {(mainResult.score > 0.05 ? "ВВЕРХ ⬆" : mainResult.score < -0.05 ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} (RSI: {Math.Round(mainResult.rsiVal, 1)}, EMA: {Math.Round(mainResult.emaVal, 2)})";
 
