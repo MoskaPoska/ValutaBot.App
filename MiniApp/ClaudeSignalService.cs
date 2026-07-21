@@ -76,11 +76,6 @@ public static class ClaudeSignalService
         double plusDi = 0,
         double minusDi = 0)
     {
-        if (_aiDisabled && DateTime.UtcNow < _nextAiCheck)
-        {
-            Console.WriteLine("[AI] AI calls temporarily disabled due to credit depletion (Circuit Open)");
-            return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
-        }
 
 
         try
@@ -288,14 +283,6 @@ public static class ClaudeSignalService
                     }
                     catch (Exception fallbackEx)
                     {
-                        string fallbackErrorStr = fallbackEx.Message.ToLower();
-                        if (isOpenRouterCreditError || fallbackErrorStr.Contains("402") || fallbackErrorStr.Contains("depleted") || fallbackErrorStr.Contains("quota") || fallbackErrorStr.Contains("credits"))
-                        {
-                            Console.WriteLine("[AI] AI credit/quota error detected on all providers. Activating AI circuit breaker for 30 minutes.");
-                            _aiDisabled = true;
-                            _nextAiCheck = DateTime.UtcNow.AddMinutes(30);
-                        }
-                        
                         Console.WriteLine($"[AI] {fallbackLabel} failed: {fallbackEx.Message}");
                         _lastRawResponse = $"ERROR: Both AI models failed. Claude: {ex.Message}. Gemini: {fallbackEx.Message}";
                         return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
@@ -303,12 +290,6 @@ public static class ClaudeSignalService
                 }
                 else
                 {
-                    if (isOpenRouterCreditError)
-                    {
-                        Console.WriteLine("[AI] OpenRouter credit error detected and no Gemini fallback. Activating AI circuit breaker for 30 minutes.");
-                        _aiDisabled = true;
-                        _nextAiCheck = DateTime.UtcNow.AddMinutes(30);
-                    }
                     Console.WriteLine($"[AI] Gemini API key not configured, no fallback available");
                     _lastRawResponse = $"ERROR: Claude failed and Gemini not configured. Claude: {ex.Message}";
                     return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
