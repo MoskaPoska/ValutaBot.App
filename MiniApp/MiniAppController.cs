@@ -2135,7 +2135,7 @@ public static class MiniAppController
                 // Используем математику с адаптивным порогом
                 bool aiWasAvailable = !string.IsNullOrEmpty(claudeResult.modelName) && claudeResult.modelName != "Математический анализ";
                 double absScore = Math.Abs(totalScore);
-                int scoreSign = totalScore >= 0 ? 1 : -1;
+                int scoreSign = totalScore > 0.02 ? 1 : totalScore < -0.02 ? -1 : 0;
 
                 // Пороги откалиброваны для пропорциональных оценок (диапазон ~±2.0)
                 double baseMinScore = aiWasAvailable ? 0.50 : 0.30;
@@ -2166,7 +2166,7 @@ public static class MiniAppController
                 // momentum не должен противоречить totalScore для сильного тренда
                 bool momentumOk = momentumSignal == 0 || momentumSignal == scoreSign;
 
-                string candidateDir = scoreSign > 0 ? "BUY" : "PUT";
+                string candidateDir = scoreSign > 0 ? "BUY" : scoreSign < 0 ? "PUT" : "NEUTRAL";
                 double currentPrice = mainPrices[^1];
                 double nearestSupport = 0;
                 double nearestResistance = 0;

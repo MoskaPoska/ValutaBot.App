@@ -1320,6 +1320,25 @@ public static class MiniAppUI
                 <div class='res-chart' id='durChart'></div>
             </div>
         </div>
+
+        <!-- System Breakdown Cards (Claude AI + LightGBM ML) -->
+        <div class='news-card' id='claudeCard' style='display:none;margin-top:8px'>
+            <div class='news-header'>
+                <span class='news-badge' id='aiModelBadge'>🧠 AI</span>
+                <span class='news-label'>анализ графика</span>
+                <span class='news-sentiment' id='claudeSentiment'>--</span>
+            </div>
+            <div class='news-summary' id='claudeReasoning' style='max-height:100px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext)'></div>
+        </div>
+
+        <div class='ml-card' id='lgbmCard' style='display:none;margin-top:8px'>
+            <div class='ml-header'><span class='ml-badge' style='background:linear-gradient(135deg,#f59e0b,#d97706)'>⚡ ML</span><span class='ml-label'>LightGBM локальная ИИ</span></div>
+            <div class='ml-body'>
+                <span class='ml-dir' id='lgbmDir'>--</span>
+                <span class='ml-conf' id='lgbmConf' style='font-size:11px'>--%</span>
+            </div>
+            <div style='font-size:9px;color:var(--subtext);text-align:center;margin-top:2px;padding-bottom:4px' id='lgbmAcc'></div>
+        </div>
         <!-- Tab Bar -->
         <div class='tab-bar' id='resultsTabBar' style='display:none'>
             <div class='tab-btn active' id='tabBtnChart' onclick=""switchResultTab('chart')"">
@@ -1359,37 +1378,6 @@ public static class MiniAppUI
                     <span class='ml-dir' id='mlDir'>--</span>
                     <span class='ml-conf' id='mlConf'>--%</span>
                 </div>
-            </div>
-
-            <div class='ml-card' id='lgbmCard' style='display:none'>
-                <div class='ml-header'><span class='ml-badge' style='background:linear-gradient(135deg,#f59e0b,#d97706)'>⚡ ML</span><span class='ml-label'>LightGBM прогноз</span></div>
-                <div class='ml-body'>
-                    <span class='ml-dir' id='lgbmDir'>--</span>
-                    <span class='ml-conf' id='lgbmConf' style='font-size:10px'>--%</span>
-                </div>
-                <div style='font-size:9px;color:var(--subtext);text-align:center;margin-top:2px;padding-bottom:4px' id='lgbmAcc'></div>
-            </div>
-
-            <div class='news-card' id='newsCard' style='display:none'>
-                <div class='news-header'>
-                    <span class='news-badge'>📰 LLM</span>
-                    <span class='news-label'>Анализ новостей</span>
-                    <span class='news-sentiment' id='newsSentiment'>--</span>
-                </div>
-                <div class='news-summary' id='newsSummary'></div>
-                <div class='news-headlines'>
-                    <span class='news-toggle' id='newsToggle' onclick='toggleNews()'>▸ Заголовки</span>
-                    <div class='news-list' id='newsList'></div>
-                </div>
-            </div>
-
-            <div class='news-card' id='claudeCard' style='display:none'>
-                <div class='news-header'>
-                    <span class='news-badge' id='aiModelBadge'>🧠 AI</span>
-                    <span class='news-label'>анализ графика</span>
-                    <span class='news-sentiment' id='claudeSentiment'>--</span>
-                </div>
-                <div class='news-summary' id='claudeReasoning' style='max-height:100px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext)'></div>
             </div>
 
             <div class='levels-bar' id='levelsBar' style='margin-top:10px'>
