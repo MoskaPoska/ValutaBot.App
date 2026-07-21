@@ -54,51 +54,54 @@ public static class MLPythonService
 
     private static void EnsureLocalPythonServiceRunning()
     {
-        try
+        Task.Run(async () =>
         {
-            using var testClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-            var res = testClient.GetAsync($"{_baseUrl}/health").GetAwaiter().GetResult();
-            if (res.IsSuccessStatusCode)
+            try
             {
-                Console.WriteLine("[MLPython] Local LightGBM service is active.");
-                return;
-            }
-        }
-        catch
-        {
-            // Not running yet -> try launching
-        }
-
-        try
-        {
-            string mlDir = Path.Combine(Directory.GetCurrentDirectory(), "ml_service");
-            string mainScript = Path.Combine(mlDir, "main.py");
-
-            if (!File.Exists(mainScript))
-            {
-                mlDir = Path.Combine(AppContext.BaseDirectory, "ml_service");
-                mainScript = Path.Combine(mlDir, "main.py");
-            }
-
-            if (File.Exists(mainScript))
-            {
-                Console.WriteLine("[MLPython] Auto-starting Python LightGBM microservice...");
-                var psi = new System.Diagnostics.ProcessStartInfo
+                using var testClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+                var res = await testClient.GetAsync($"{_baseUrl}/health");
+                if (res.IsSuccessStatusCode)
                 {
-                    FileName = "py",
-                    Arguments = $"\"{mainScript}\"",
-                    WorkingDirectory = mlDir,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                System.Diagnostics.Process.Start(psi);
-                Console.WriteLine("[MLPython] Python LightGBM service started in background!");
+                    Console.WriteLine("[MLPython] Local LightGBM service is active.");
+                    return;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[MLPython] Local auto-start notice: {ex.Message}");
-        }
+            catch
+            {
+                // Not running yet -> try launching
+            }
+
+            try
+            {
+                string mlDir = Path.Combine(Directory.GetCurrentDirectory(), "ml_service");
+                string mainScript = Path.Combine(mlDir, "main.py");
+
+                if (!File.Exists(mainScript))
+                {
+                    mlDir = Path.Combine(AppContext.BaseDirectory, "ml_service");
+                    mainScript = Path.Combine(mlDir, "main.py");
+                }
+
+                if (File.Exists(mainScript))
+                {
+                    Console.WriteLine("[MLPython] Auto-starting Python LightGBM microservice...");
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "py",
+                        Arguments = $"\"{mainScript}\"",
+                        WorkingDirectory = mlDir,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    System.Diagnostics.Process.Start(psi);
+                    Console.WriteLine("[MLPython] Python LightGBM service started in background!");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MLPython] Local auto-start notice: {ex.Message}");
+            }
+        });
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
