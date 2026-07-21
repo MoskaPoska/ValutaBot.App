@@ -53,12 +53,15 @@ public static class MLForecastService
         if (double.IsNaN(volatility) || double.IsInfinity(volatility) || volatility < 1e-9)
             volatility = 0.001;
 
-        double minThreshold = isForex ? 0.00025 : 0.0020;
-        double threshold = Math.Max(volatility * 0.30, minThreshold);
+        double minThreshold = isForex ? 0.00008 : 0.0006;
+        double threshold = Math.Max(volatility * 0.15, minThreshold);
 
         string direction = change > threshold ? "BUY" : change < -threshold ? "PUT" : "NEUTRAL";
 
-        double confidence = direction == "NEUTRAL" ? 50 : 58 + Math.Min((Math.Abs(change) / (threshold + 1e-10)) * 12.0, 32.0);
+        double confidence = direction == "NEUTRAL" 
+            ? 50 
+            : 58 + Math.Min((Math.Abs(change) / (threshold + 1e-10)) * 15.0, 32.0);
+
         if (double.IsNaN(confidence) || double.IsInfinity(confidence))
             confidence = 50;
 
