@@ -1894,47 +1894,59 @@ public static class MiniAppUI
 
                     if (data.rsi !== undefined) {
                         const rsiEl = document.getElementById('resRsi');
-                        rsiEl.innerText = data.rsi;
-                        rsiEl.style.color = data.rsi > 70 ? '#ff1744' : data.rsi < 30 ? '#00e676' : 'var(--subtext)';
+                        if (rsiEl) {
+                            rsiEl.innerText = data.rsi;
+                            rsiEl.style.color = data.rsi > 70 ? '#ff1744' : data.rsi < 30 ? '#00e676' : 'var(--subtext)';
+                        }
                     }
                     if (data.ema !== undefined) {
-                        document.getElementById('resEma').innerText = data.ema;
+                        const emaEl = document.getElementById('resEma');
+                        if (emaEl) emaEl.innerText = data.ema;
                     }
                     if (data.volumeStrength !== undefined) {
                         const volEl = document.getElementById('resVol');
-                        const vs = data.volumeStrength;
-                        volEl.innerText = vs > 0 ? '\u2B06 ' + vs.toFixed(1) : vs < 0 ? '\u2B07 ' + Math.abs(vs).toFixed(1) : '\u2014';
-                        volEl.style.color = vs > 0.5 ? '#00e676' : vs < -0.5 ? '#ff1744' : 'var(--subtext)';
+                        if (volEl) {
+                            const vs = data.volumeStrength;
+                            volEl.innerText = vs > 0 ? '\u2B06 ' + vs.toFixed(1) : vs < 0 ? '\u2B07 ' + Math.abs(vs).toFixed(1) : '\u2014';
+                            volEl.style.color = vs > 0.5 ? '#00e676' : vs < -0.5 ? '#ff1744' : 'var(--subtext)';
+                        }
                     }
                     if (data.tfConflict) {
-                        document.getElementById('resProb').innerText += ' \u26A0\uFE0F';
+                        const rp = document.getElementById('resProb');
+                        if (rp) rp.innerText += ' \u26A0\uFE0F';
                     }
 
                     if (data.claudeDirection && data.claudeReasoning) {
                         const cc = document.getElementById('claudeCard');
-                        cc.style.display = 'block';
+                        if (cc) cc.style.display = 'block';
                         const badge = document.getElementById('aiModelBadge');
-                        badge.innerText = data.aiModel ? '🧠 ' + data.aiModel : '🧠 AI недоступен';
+                        if (badge) badge.innerText = data.aiModel ? '🧠 ' + data.aiModel : '🧠 AI недоступен';
                         const senEl = document.getElementById('claudeSentiment');
-                        senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
-                        senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
+                        if (senEl) {
+                            senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
+                            senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
+                        }
                         let reasoningText = data.claudeReasoning;
                         if (data.claudeProbability && data.claudeDirection !== 'NEUTRAL') {
                             reasoningText += ` (вероятность: ${data.claudeProbability}%)`;
                         }
-                        document.getElementById('claudeReasoning').innerText = reasoningText;
+                        const crEl = document.getElementById('claudeReasoning');
+                        if (crEl) crEl.innerText = reasoningText;
                     }
 
                     // ── LightGBM card ──
                     if (data.lgbmDirection && data.lgbmDirection !== 'NEUTRAL' && data.lgbmConfidence) {
                         const lc = document.getElementById('lgbmCard');
-                        lc.style.display = 'flex';
+                        if (lc) lc.style.display = 'flex';
                         const ldirEl = document.getElementById('lgbmDir');
-                        ldirEl.innerText = data.lgbmDirection === 'BUY' ? '↑ ВВЕРХ' : '↓ ВНИЗ';
-                        ldirEl.style.color = data.lgbmDirection === 'BUY' ? '#00e676' : '#ff1744';
-                        document.getElementById('lgbmConf').innerText = data.lgbmConfidence + '%';
+                        if (ldirEl) {
+                            ldirEl.innerText = data.lgbmDirection === 'BUY' ? '↑ ВВЕРХ' : '↓ ВНИЗ';
+                            ldirEl.style.color = data.lgbmDirection === 'BUY' ? '#00e676' : '#ff1744';
+                        }
+                        const lconfEl = document.getElementById('lgbmConf');
+                        if (lconfEl) lconfEl.innerText = data.lgbmConfidence + '%';
                         const accEl = document.getElementById('lgbmAcc');
-                        if (data.lgbmAccuracy != null) {
+                        if (accEl && data.lgbmAccuracy != null) {
                             accEl.innerText = 'Точность модели: ' + data.lgbmAccuracy + '%';
                             accEl.style.color = data.lgbmAccuracy >= 55 ? '#a78bfa' : 'var(--subtext)';
                         }
@@ -1951,21 +1963,34 @@ public static class MiniAppUI
                     if(data.levels) {
                         const L = data.levels;
                         const renderLevel = (id, lv) => {
-                            document.getElementById(id).className = `result ${lv.direction.toLowerCase()}`;
-                            document.getElementById(id).innerText = `${lv.direction === 'NEUTRAL' ? '\u2014' : lv.direction}`;
-                            document.getElementById(id.replace('res', '')).style.display = 'flex';
+                            const resEl = document.getElementById(id);
+                            if (resEl) {
+                                resEl.className = `result ${lv.direction.toLowerCase()}`;
+                                resEl.innerText = `${lv.direction === 'NEUTRAL' ? '\u2014' : lv.direction}`;
+                            }
+                            const lineEl = document.getElementById(id.replace('res', ''));
+                            if (lineEl) {
+                                lineEl.style.display = 'flex';
+                            }
                         };
                         renderLevel('ll1res', L.level1);
                         renderLevel('ll2res', L.level2);
                         renderLevel('ll3res', L.level3);
-                        document.getElementById('ltotalVotes').innerHTML = `<span style='color:var(--green)'>\u2191 ${data.levels.level1.buy + data.levels.level2.buy + data.levels.level3.buy}</span> / <span style='color:var(--red)'>\u2193 ${data.levels.level1.put + data.levels.level2.put + data.levels.level3.put}</span>`;
+                        const tvEl = document.getElementById('ltotalVotes');
+                        if (tvEl) tvEl.innerHTML = `<span style='color:var(--green)'>\u2191 ${data.levels.level1.buy + data.levels.level2.buy + data.levels.level3.buy}</span> / <span style='color:var(--red)'>\u2193 ${data.levels.level1.put + data.levels.level2.put + data.levels.level3.put}</span>`;
                         const td = document.getElementById('ltotalDir');
-                        td.className = `dir ${data.direction.toLowerCase()}`;
-                        td.innerText = data.direction === 'BUY' ? '\u2191 ВВЕРХ' : data.direction === 'PUT' ? '\u2193 ВНИЗ' : '\u2014 НЕЙТРАЛЬНО';
-                        document.getElementById('levelsBar').style.display = 'block';
+                        if (td) {
+                            td.className = `dir ${data.direction.toLowerCase()}`;
+                            td.innerText = data.direction === 'BUY' ? '\u2191 ВВЕРХ' : data.direction === 'PUT' ? '\u2193 ВНИЗ' : '\u2014 НЕЙТРАЛЬНО';
+                        }
+                        const lbEl = document.getElementById('levelsBar');
+                        if (lbEl) lbEl.style.display = 'block';
                     }
 
-                    document.getElementById('resultsTabBar').style.display = 'flex';
+                    const tabReg = document.getElementById('resultsTabBar');
+                    if (tabReg) tabReg.style.display = 'flex';
+                    switchResultTab('chart');
+                    flashResults();
                     switchResultTab('chart');
                     flashResults();
 
