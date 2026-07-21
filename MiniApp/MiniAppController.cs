@@ -1406,13 +1406,43 @@ public static class MiniAppController
             Console.WriteLine($"[LRC-Channel] Z-score={lrcZscore:F2} -> score contribution: {lrcScore * rangeWeight:F2}");
         }
 
+        double volStrength = 0.0;
+        if (volumes != null && volumes.Length >= 5)
+        {
+            double sumVol = 0;
+            int count = Math.Min(volumes.Length - 1, 10);
+            for (int i = volumes.Length - 1 - count; i < volumes.Length - 1; i++)
+            {
+                sumVol += volumes[i];
+            }
+            double avgVol = count > 0 ? sumVol / count : 1.0;
+            double currentVol = volumes[^1];
+            double ratio = avgVol > 0 ? currentVol / avgVol : 1.0;
+            double priceChange = prices.Length >= 2 ? prices[^1] - prices[^2] : 0;
+            volStrength = (priceChange >= 0 ? 1.0 : -1.0) * ratio;
+        }
+        else if (candles != null && candles.Length >= 5)
+        {
+            double sumVol = 0;
+            int count = Math.Min(candles.Length - 1, 10);
+            for (int i = candles.Length - 1 - count; i < candles.Length - 1; i++)
+            {
+                sumVol += candles[i].Volume;
+            }
+            double avgVol = count > 0 ? sumVol / count : 1.0;
+            double currentVol = candles[^1].Volume;
+            double ratio = avgVol > 0 ? currentVol / avgVol : 1.0;
+            double priceChange = candles[^1].Close - candles[^1].Open;
+            volStrength = (priceChange >= 0 ? 1.0 : -1.0) * ratio;
+        }
+
         double confidence = 50;
         double absScore = Math.Abs(score);
         if (absScore >= 3.0) confidence = 92;
         else if (absScore >= 1.8) confidence = 78;
         else confidence = 50;
 
-        return (score, confidence, rsi, emaS, 0.0, atr);
+        return (score, confidence, rsi, emaS, volStrength, atr);
     }
 
     /* ─── Multi-TF conflict penalty ─── */
