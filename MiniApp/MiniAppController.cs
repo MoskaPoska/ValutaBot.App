@@ -2317,6 +2317,20 @@ public static class MiniAppController
             int totalExpirySec = timeframeSec * expiryCandles;
             string durationText = isSubMinute ? $"{totalExpirySec} сек (экспирация)" : $"{timeframe.ToUpper()} ({expiryCandles} свечи)";
 
+            string lgbmText = !string.IsNullOrEmpty(lgbmDirection) && lgbmDirection != "NEUTRAL"
+                ? $"• ⚡ Локальная ИИ (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность)"
+                : $"• ⚡ Локальная ИИ: {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность)";
+
+            string mathText = $"• 📊 Матем. анализ: {(mainResult.score > 0.05 ? "ВВЕРХ ⬆" : mainResult.score < -0.05 ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} (RSI: {Math.Round(mainResult.rsiVal, 1)}, EMA: {Math.Round(mainResult.emaVal, 2)})";
+
+            string baseClaudeReasoning = string.IsNullOrEmpty(claudeResult.reasoning)
+                ? "Анализ структуры цены и технических индикаторов."
+                : claudeResult.reasoning;
+
+            string claudeText = $"• 🧠 Claude 3.5 Sonnet: {baseClaudeReasoning}";
+
+            string combinedReasoning = $"{lgbmText}\n{mathText}\n{claudeText}";
+
             return new
             {
                 direction,
@@ -2340,7 +2354,7 @@ public static class MiniAppController
                 newsHeadlines = newsResult.headlines,
                 claudeDirection = claudeResult.direction,
                 claudeProbability = Math.Round(claudeResult.probability, 0),
-                claudeReasoning = claudeResult.reasoning,
+                claudeReasoning = combinedReasoning,
                 aiModel = claudeResult.modelName,
                 // ── Accuracy stats ──
                 winRateOverall    = overallStats.HasData ? overallStats.WinRate : (double?)null,
