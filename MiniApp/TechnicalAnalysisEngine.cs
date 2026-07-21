@@ -1,148 +1,124 @@
+using Skender.Stock.Indicators;
+
 namespace ValutaBot.MiniApp;
 
 /// <summary>
-/// Technical analysis engine for RSI, EMA, MACD, ADX, ATR, DeMark, Hurst Exponent, and Volatility Ratio calculations.
+/// Technical analysis engine using the industry-standard Skender.Stock.Indicators library.
+/// Provides SIMD-optimized, verified calculations for RSI, EMA, MACD, ADX, ATR, and Bollinger Bands.
 /// </summary>
 public static class TechnicalAnalysisEngine
 {
-    public static double ComputeRsi(double[] data, int period = 14)
+    private static List<Quote> ConvertToQuotes(double[] prices, double[]? volumes = null, MiniAppController.OhlcCandle[]? candles = null)
     {
-        if (data.Length < period + 1) return 50.0;
-        double gains = 0, losses = 0;
-        for (int i = data.Length - period; i < data.Length; i++)
+        var quotes = new List<Quote>();
+
+        if (candles != null && candles.Length > 0)
         {
-            double diff = data[i] - data[i - 1];
-            if (diff >= 0) gains += diff;
-            else losses -= diff;
+            DateTime startTime = DateTime.UtcNow.AddMinutes(-candles.Length);
+            for (int i = 0; i < candles.Length; i++)
+            {
+                var c = candles[i];
+                quotes.Add(new Quote
+                {
+                    Date = startTime.AddMinutes(i),
+                    Open = (decimal)c.Open,
+                    High = (decimal)c.High,
+                    Low = (decimal)c.Low,
+                    Close = (decimal)c.Close,
+                    Volume = (decimal)c.Volume
+                });
+            }
         }
-        if (losses == 0) return 100.0;
-        double rs = gains / losses;
-        return 100.0 - (100.0 / (1.0 + rs));
+        else if (prices != null && prices.Length > 0)
+        {
+            DateTime startTime = DateTime.UtcNow.AddMinutes(-prices.Length);
+            for (int i = 0; i < prices.Length; i++)
+            {
+                decimal p = (decimal)prices[i];
+                decimal v = (volumes != null && i < volumes.Length) ? (decimal)volumes[i] : 1.0m;
+                quotes.Add(new Quote
+                {
+                    Date = startTime.AddMinutes(i),
+                    Open = p,
+                    High = p,
+                    Low = p,
+                    Close = p,
+                    Volume = v
+                });
+            }
+        }
+
+        return quotes;
     }
 
-    public static double ComputeEma(double[] data, int period)
+    public static double ComputeRsi(double[] data, int period = 14)
     {
-        if (data.Length < period) return data.Length > 0 ? data[^1] : 0.0;
-        double multiplier = 2.0 / (period + 1);
-        double ema = data[0];
-        for (int i = 1; i < data.Length; i++)
-        {
-            ema = (data[i] - ema) * multiplier + ema;
-        }
-        return ema;
+        var quotes = ConvertToQuotes(data);
+        if (quotes.Count < period + 1) return 50.0;
+
+        var results = quotes.GetRsi(period);
+        var last = results.LastOrDefault();
+        return last?.Rsi.HasValue == true ? (double)last.Rsi.Value : 50.0;
+    }
+
+    public static double ComputeEma(double[] data, int period = 9)
+    {
+        var quotes = ConvertToQuotes(data);
+        if (quotes.Count < period) return data.Length > 0 ? data[^1] : 0.0;
+
+        var results = quotes.GetEma(period);
+        var last = results.LastOrDefault();
+        return last?.Ema.HasValue == true ? (double)last.Ema.Value : data[^1];
     }
 
     public static (double macd, double signal) ComputeMacd(double[] data, int index)
     {
-        if (data.Length < 26) return (0.0, 0.0);
-        int subLen = Math.Min(index + 1, data.Length);
-        var sub = data[..subLen];
+        var quotes = ConvertToQuotes(data);
+        if (quotes.Count < 26) return (0.0, 0.0);
 
-        double ema12 = ComputeEma(sub, 12);
-        double ema26 = ComputeEma(sub, 26);
-        double macdLine = ema12 - ema26;
-
-        int macdHistLen = Math.Max(1, subLen - 26 + 1);
-        var macdHist = new double[macdHistLen];
-        for (int i = 0; i < macdHistLen; i++)
-        {
-            int idx = 26 - 1 + i;
-            if (idx < subLen)
-            {
-                var slice = sub[..(idx + 1)];
-                macdHist[i] = ComputeEma(slice, 12) - ComputeEma(slice, 26);
-            }
-        }
-
-        double signalLine = ComputeEma(macdHist, 9);
+        var results = quotes.GetMacd(12, 26, 9);
+        var last = results.LastOrDefault();
+        double macdLine = last?.Macd.HasValue == true ? (double)last.Macd.Value : 0.0;
+        double signalLine = last?.Signal.HasValue == true ? (double)last.Signal.Value : 0.0;
         return (macdLine, signalLine);
     }
 
     public static (double adx, double pdi, double mdi) ComputeTrueAdx(MiniAppController.OhlcCandle[] candles, int period = 14)
     {
-        int n = candles.Length;
-        if (n < period + 1) return (20.0, 0.0, 0.0);
+        var quotes = ConvertToQuotes(Array.Empty<double>(), candles: candles);
+        if (quotes.Count < period + 1) return (20.0, 0.0, 0.0);
 
-        var tr = new double[n];
-        var pdm = new double[n];
-        var mdm = new double[n];
+        var results = quotes.GetAdx(period);
+        var last = results.LastOrDefault();
+        if (last == null) return (20.0, 0.0, 0.0);
 
-        for (int i = 1; i < n; i++)
-        {
-            double h = candles[i].High, l = candles[i].Low;
-            double pH = candles[i - 1].High, pL = candles[i - 1].Low, pC = candles[i - 1].Close;
+        double adx = last.Adx.HasValue ? (double)last.Adx.Value : 20.0;
+        double pdi = last.Pdi.HasValue ? (double)last.Pdi.Value : 0.0;
+        double mdi = last.Mdi.HasValue ? (double)last.Mdi.Value : 0.0;
 
-            tr[i] = Math.Max(h - l, Math.Max(Math.Abs(h - pC), Math.Abs(l - pC)));
-
-            double upMove = h - pH;
-            double downMove = pL - l;
-
-            pdm[i] = (upMove > downMove && upMove > 0) ? upMove : 0;
-            mdm[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
-        }
-
-        double smoothTr = 0, smoothPdm = 0, smoothMdm = 0;
-        for (int i = 1; i <= period; i++)
-        {
-            smoothTr += tr[i];
-            smoothPdm += pdm[i];
-            smoothMdm += mdm[i];
-        }
-
-        var dx = new List<double>();
-        double lastPdi = 0, lastMdi = 0;
-
-        for (int i = period + 1; i < n; i++)
-        {
-            smoothTr = smoothTr - (smoothTr / period) + tr[i];
-            smoothPdm = smoothPdm - (smoothPdm / period) + pdm[i];
-            smoothMdm = smoothMdm - (smoothMdm / period) + mdm[i];
-
-            if (smoothTr < 1e-12) continue;
-
-            lastPdi = (smoothPdm / smoothTr) * 100.0;
-            lastMdi = (smoothMdm / smoothTr) * 100.0;
-
-            double diDiff = Math.Abs(lastPdi - lastMdi);
-            double diSum = lastPdi + lastMdi;
-            if (diSum > 1e-12)
-            {
-                dx.Add((diDiff / diSum) * 100.0);
-            }
-        }
-
-        if (dx.Count == 0) return (20.0, lastPdi, lastMdi);
-
-        double adx = dx.Count >= period ? dx.TakeLast(period).Average() : dx.Average();
-        return (adx, lastPdi, lastMdi);
+        return (adx, pdi, mdi);
     }
 
     public static double ComputeAtr(MiniAppController.OhlcCandle[] candles, int period = 14)
     {
-        int n = candles.Length;
-        if (n < 2) return 0;
-        var trs = new double[n - 1];
-        for (int i = 1; i < n; i++)
-        {
-            double h = candles[i].High, l = candles[i].Low, pC = candles[i - 1].Close;
-            trs[i - 1] = Math.Max(h - l, Math.Max(Math.Abs(h - pC), Math.Abs(l - pC)));
-        }
-        int count = Math.Min(period, trs.Length);
-        return trs.TakeLast(count).Average();
+        var quotes = ConvertToQuotes(Array.Empty<double>(), candles: candles);
+        if (quotes.Count < period) return 0;
+
+        var results = quotes.GetAtr(period);
+        var last = results.LastOrDefault();
+        return last?.Atr.HasValue == true ? (double)last.Atr.Value : 0.0;
     }
 
     public static double ComputeBollingerZscore(double[] prices, int period = 20)
     {
-        int n = prices.Length;
-        if (n < period) return 0.0;
+        var quotes = ConvertToQuotes(prices);
+        if (quotes.Count < period) return 0.0;
 
-        var slice = prices[^period..];
-        double mean = slice.Average();
-        double variance = slice.Sum(p => Math.Pow(p - mean, 2)) / period;
-        double std = Math.Sqrt(variance);
+        var results = quotes.GetBollingerBands(period, 2);
+        var last = results.LastOrDefault();
+        if (last == null || !last.ZScore.HasValue) return 0.0;
 
-        if (std < 1e-12) return 0.0;
-        return (prices[^1] - mean) / std;
+        return (double)last.ZScore.Value;
     }
 
     public static (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal) ScoreTimeframe(
