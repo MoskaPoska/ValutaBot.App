@@ -1468,15 +1468,19 @@ public static class MiniAppController
             DayOfWeek day = DateTime.UtcNow.DayOfWeek;
             bool isWeekend = day == DayOfWeek.Saturday || day == DayOfWeek.Sunday;
 
-            string? symbol = clean switch
+            string? symbol = isWeekend switch
             {
-                "BTCUSDT" or "BTC" or "BTCUSD" => "BTCUSDT",
-                "ETHUSDT" or "ETH" or "ETHUSD" => "ETHUSDT",
-                "SOLUSDT" or "SOL" or "SOLUSD" => "SOLUSDT",
-                "EURUSD" when isWeekend => "EURUSDT",
-                "GBPUSD" when isWeekend => "GBPUSDT",
-                "AUDUSD" when isWeekend => "AUDUSDT",
-                _ => null // All Forex, metals, and commodities bypass Binance and fetch from TwelveData
+                true => clean switch
+                {
+                    "BTCUSDT" or "BTC" or "BTCUSD" => "BTCUSDT",
+                    "ETHUSDT" or "ETH" or "ETHUSD" => "ETHUSDT",
+                    "SOLUSDT" or "SOL" or "SOLUSD" => "SOLUSDT",
+                    "EURUSD" or "EURUSDT" => "EURUSDT",
+                    "GBPUSD" or "GBPUSDT" => "GBPUSDT",
+                    "AUDUSD" or "AUDUSDT" => "AUDUSDT",
+                    _ => null
+                },
+                false => null // Weekdays: 100% TwelveData for all assets
             };
 
             bool isForex = symbol == null || symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
