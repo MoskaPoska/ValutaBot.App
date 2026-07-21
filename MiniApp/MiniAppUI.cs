@@ -1643,29 +1643,33 @@ public static class MiniAppUI
         }
 
         function clearResults() {
-            document.getElementById('resProb').innerText = '--%';
-            document.getElementById('resProb').style.color = 'var(--accent)';
-            document.getElementById('resDir').innerText = '--';
-            document.getElementById('resDir').style.color = 'var(--subtext)';
-            document.getElementById('resDur').innerText = '--';
-            document.getElementById('resRsi').innerText = '--';
-            document.getElementById('resRsi').style.color = 'var(--subtext)';
-            document.getElementById('resEma').innerText = '--';
-            document.getElementById('resVol').innerText = '--';
-            document.getElementById('resVol').style.color = 'var(--subtext)';
-            document.getElementById('probChart').innerHTML = '';
-            document.getElementById('dirChart').innerHTML = '<svg viewBox=\'0 0 80 40\'><path d=\'M10 35 L40 5 L70 35\' stroke=\'var(--dim)\' stroke-width=\'2.5\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\' opacity=\'0.3\'/></svg>';
-            document.getElementById('durChart').innerHTML = '';
-            if (document.getElementById('resultsTabBar')) document.getElementById('resultsTabBar').style.display = 'none';
-            if (document.getElementById('resultsGrid')) document.getElementById('resultsGrid').style.display = 'none';
-            document.getElementById('tabContentAI').style.display = 'none';
-            document.getElementById('levelsBar').style.display = 'none';
-            document.getElementById('mlCard').style.display = 'none';
-            document.getElementById('claudeCard').style.display = 'none';
-                    document.getElementById('lgbmCard').style.display = 'none';
-            document.getElementById('newsCard').style.display = 'none';
-            document.getElementById('welcomeSec').style.display = 'flex';
-            document.getElementById('topCategories').style.display = 'flex';
+            const safeSetText = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
+            const safeSetHtml = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+            const safeSetStyle = (id, prop, val) => { const el = document.getElementById(id); if (el) el.style[prop] = val; };
+
+            safeSetText('resProb', '--%');
+            safeSetStyle('resProb', 'color', 'var(--accent)');
+            safeSetText('resDir', '--');
+            safeSetStyle('resDir', 'color', 'var(--subtext)');
+            safeSetText('resDur', '--');
+            safeSetText('resRsi', '--');
+            safeSetStyle('resRsi', 'color', 'var(--subtext)');
+            safeSetText('resEma', '--');
+            safeSetText('resVol', '--');
+            safeSetStyle('resVol', 'color', 'var(--subtext)');
+            safeSetHtml('probChart', '');
+            safeSetHtml('dirChart', '<svg viewBox=\'0 0 80 40\'><path d=\'M10 35 L40 5 L70 35\' stroke=\'var(--dim)\' stroke-width=\'2.5\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\' opacity=\'0.3\'/></svg>');
+            safeSetHtml('durChart', '');
+            safeSetStyle('resultsTabBar', 'display', 'none');
+            safeSetStyle('resultsGrid', 'display', 'none');
+            safeSetStyle('tabContentAI', 'display', 'none');
+            safeSetStyle('levelsBar', 'display', 'none');
+            safeSetStyle('mlCard', 'display', 'none');
+            safeSetStyle('claudeCard', 'display', 'none');
+            safeSetStyle('lgbmCard', 'display', 'none');
+            safeSetStyle('newsCard', 'display', 'none');
+            safeSetStyle('welcomeSec', 'display', 'flex');
+            safeSetStyle('topCategories', 'display', 'flex');
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
         }
 
@@ -1830,7 +1834,8 @@ public static class MiniAppUI
             const sphere = document.getElementById('mainSphere');
             
             try {
-                document.getElementById('errorDisplay').style.display = 'none';
+                const ed = document.getElementById('errorDisplay');
+                if (ed) ed.style.display = 'none';
                 clearResults();
                 startStatusBar();
 
@@ -1859,9 +1864,11 @@ public static class MiniAppUI
 
                 setTimeout(() => {
                     stopStatusBar();
-                    sphere.classList.remove('analyzing');
-                    btn.disabled = false;
-                    btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
+                    if (sphere) sphere.classList.remove('analyzing');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
+                    }
 
                     if(data.error) {
                         const debugMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
