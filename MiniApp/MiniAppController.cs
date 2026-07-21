@@ -51,6 +51,9 @@ public static class MiniAppController
         // Init Telegram notifier from config or env (set in Railway dashboard)
         TelegramNotifier.Init(builder.Configuration["TelegramBotToken"] ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
 
+        // Init LightGBM Python ML microservice URL
+        MLPythonService.Init(builder.Configuration["MLService:BaseUrl"] ?? Environment.GetEnvironmentVariable("ML_SERVICE_URL") ?? "http://localhost:8765");
+
         var app = builder.Build();
         app.UseCors("AllowMiniApp");
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
