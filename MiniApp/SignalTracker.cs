@@ -180,6 +180,12 @@ public static class SignalTracker
                 continue;
             }
 
+            if (record.Direction == "NEUTRAL")
+            {
+                _pending.TryRemove(record.Id, out _);
+                continue;
+            }
+
             bool correct = record.Direction == "BUY" ? priceDiff > 0 : priceDiff < 0;
             record.ExitPrice  = exitPrice.Value;
             record.PnlBps     = Math.Round(priceDiff * 10000, 2);
@@ -270,7 +276,6 @@ public static class SignalTracker
 
     private static string MapToBinanceSymbol(string asset) =>
         asset.ToUpper()
-             .Replace("OTC", "")
              .Replace("OTC", "")
              .Replace("/", "")
              .Replace(" ", "")

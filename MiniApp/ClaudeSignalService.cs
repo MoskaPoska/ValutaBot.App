@@ -17,31 +17,44 @@ public static class ClaudeSignalService
     private static bool _aiDisabled = false;
     private static DateTime _nextAiCheck = DateTime.MinValue;
 
+    public static void ResetCircuitBreaker()
+    {
+        _aiDisabled = false;
+        _nextAiCheck = DateTime.MinValue;
+        _apiKeyCache.Clear();
+        Console.WriteLine("[AI] Circuit breaker reset. API calls re-enabled.");
+    }
+
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _apiKeyCache = new();
 
     private static string GetApiKey(string envVar, string configKey)
     {
-        string apiKey = Environment.GetEnvironmentVariable(envVar) ?? "";
-        if (string.IsNullOrEmpty(apiKey))
+        return _apiKeyCache.GetOrAdd($"{envVar}_{configKey}", _ =>
         {
-            try
+            string apiKey = Environment.GetEnvironmentVariable(envVar) ?? "";
+            if (string.IsNullOrEmpty(apiKey))
             {
-                string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
-                if (File.Exists(settingsPath))
+                try
                 {
-                    var json = File.ReadAllText(settingsPath);
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty(configKey, out var prop))
+                    string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+                    if (File.Exists(settingsPath))
                     {
-                        apiKey = prop.GetString() ?? "";
+                        var json = File.ReadAllText(settingsPath);
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty(configKey, out var prop))
+                        {
+                            apiKey = prop.GetString() ?? "";
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[{configKey}] Failed to read appsettings.json: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[{configKey}] Failed to read appsettings.json: {ex.Message}");
-            }
-        }
-        return (apiKey ?? "").Trim();
+            return (apiKey ?? "").Trim();
+        });
     }
 
     public static string GetOpenRouterApiKey() => GetApiKey("OPENROUTER_API_KEY", "OpenRouterApiKey");
@@ -234,8 +247,8 @@ public static class ClaudeSignalService
                 + "ТОЛЬКО JSON:\n"
                 + "{\"direction\": \"BUY\"|\"PUT\"|\"NEUTRAL\", \"probability\": 55-90, \"reasoning\": \"1-2 предложения на русском\"}";
 
-            string primaryModel = "anthropic/claude-sonnet-5";
-            string primaryLabel = "Claude Sonnet";
+            string primaryModel = "anthropic/claude-3.5-sonnet";
+            string primaryLabel = "Claude 3.5 Sonnet";
             string fallbackLabel = "Gemini 2.0 Flash (Google)";
 
             string regimeLabel = marketRegime switch
@@ -261,16 +274,11 @@ public static class ClaudeSignalService
                 _lastPrimaryError = ex.ToString();
                 
                 string errorStr = ex.Message.ToLower();
-                if (errorStr.Contains("402") || errorStr.Contains("credits") || errorStr.Contains("payment") || errorStr.Contains("depleted"))
-                {
-                    Console.WriteLine("[AI] OpenRouter credit error detected. Activating AI circuit breaker for 30 minutes.");
-                    _aiDisabled = true;
-                    _nextAiCheck = DateTime.UtcNow.AddMinutes(30);
-                }
+                bool isOpenRouterCreditError = errorStr.Contains("402") || errorStr.Contains("credits") || errorStr.Contains("payment") || errorStr.Contains("depleted");
                 
                 Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {fallbackLabel}...");
 
-                if (!_aiDisabled && !string.IsNullOrEmpty(geminiApiKey))
+                if (!string.IsNullOrEmpty(geminiApiKey))
                 {
                     try
                     {
@@ -281,9 +289,9 @@ public static class ClaudeSignalService
                     catch (Exception fallbackEx)
                     {
                         string fallbackErrorStr = fallbackEx.Message.ToLower();
-                        if (fallbackErrorStr.Contains("402") || fallbackErrorStr.Contains("depleted") || fallbackErrorStr.Contains("quota") || fallbackErrorStr.Contains("credits"))
+                        if (isOpenRouterCreditError || fallbackErrorStr.Contains("402") || fallbackErrorStr.Contains("depleted") || fallbackErrorStr.Contains("quota") || fallbackErrorStr.Contains("credits"))
                         {
-                            Console.WriteLine("[AI] Gemini credit/quota error detected. Activating AI circuit breaker for 30 minutes.");
+                            Console.WriteLine("[AI] AI credit/quota error detected on all providers. Activating AI circuit breaker for 30 minutes.");
                             _aiDisabled = true;
                             _nextAiCheck = DateTime.UtcNow.AddMinutes(30);
                         }
@@ -295,7 +303,13 @@ public static class ClaudeSignalService
                 }
                 else
                 {
-                    Console.WriteLine($"[AI] Gemini API key not configured or AI disabled, no fallback available");
+                    if (isOpenRouterCreditError)
+                    {
+                        Console.WriteLine("[AI] OpenRouter credit error detected and no Gemini fallback. Activating AI circuit breaker for 30 minutes.");
+                        _aiDisabled = true;
+                        _nextAiCheck = DateTime.UtcNow.AddMinutes(30);
+                    }
+                    Console.WriteLine($"[AI] Gemini API key not configured, no fallback available");
                     _lastRawResponse = $"ERROR: Claude failed and Gemini not configured. Claude: {ex.Message}";
                     return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
                 }
@@ -365,10 +379,7 @@ public static class ClaudeSignalService
                         }
                     },
                     { "temperature", 0.2 },
-                    { "max_tokens", 500 },
-                    { "max_completion_tokens", 500 },
-                    { "response_format", new { type = "json_object" } },
-                    { "cache_control", new { type = "ephemeral" } }
+                    { "max_tokens", 350 }
                 };
             }
 

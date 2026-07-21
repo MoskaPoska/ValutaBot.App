@@ -158,6 +158,7 @@ class ForexPredictor:
         self._model: Optional[lgb.LGBMClassifier] = None
         self._meta: Optional[ModelMeta] = None
         self._lock = threading.Lock()
+        self.is_training = False
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── Public API ──────────────────────────────────────────────────────────
@@ -216,6 +217,12 @@ class ForexPredictor:
         """
         if not HAS_LGBM:
             return {"error": "lightgbm not installed"}
+
+        with self._lock:
+            if self.is_training:
+                log.warning(f"[Train] Training already in progress for {self._key}. Skipping duplicate request.")
+                return {"error": "Training already in progress"}
+            self.is_training = True
 
         log.info(f"[Train] Starting training for {self._key}")
         try:
@@ -310,9 +317,14 @@ class ForexPredictor:
         except Exception as e:
             log.error(f"[Train] {self._key}: {e}", exc_info=True)
             return {"error": str(e)}
+        finally:
+            with self._lock:
+                self.is_training = False
 
     def needs_retrain(self) -> bool:
         with self._lock:
+            if self.is_training:
+                return False
             meta = self._meta
         if meta is None:
             return True

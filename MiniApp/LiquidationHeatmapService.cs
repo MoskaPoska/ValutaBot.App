@@ -16,12 +16,21 @@ public sealed class LiquidationHeatmapService : BackgroundService
         {
             var levels = kv.Value
                 .OrderByDescending(b => b.Key)
-                .Select(b => new
+                .Select(b =>
                 {
-                    price = Math.Round(b.Key, 2),
-                    longVol = Math.Round(b.Value.LongVolume, 4),
-                    shortVol = Math.Round(b.Value.ShortVolume, 4),
-                    total = Math.Round(b.Value.LongVolume + b.Value.ShortVolume, 4)
+                    double longVol, shortVol;
+                    lock (b.Value)
+                    {
+                        longVol = b.Value.LongVolume;
+                        shortVol = b.Value.ShortVolume;
+                    }
+                    return new
+                    {
+                        price = Math.Round(b.Key, 2),
+                        longVol = Math.Round(longVol, 4),
+                        shortVol = Math.Round(shortVol, 4),
+                        total = Math.Round(longVol + shortVol, 4)
+                    };
                 })
                 .ToList();
 
@@ -34,6 +43,10 @@ public sealed class LiquidationHeatmapService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         Console.WriteLine("[LIQ] LiquidationHeatmapService started");
+        
+        // Start background cleanup loop
+        _ = RunCleanupLoopAsync(ct);
+
         var symbols = new[] { "btcusdt", "ethusdt", "solusdt" };
         var streams = symbols.Select(s => $"{s}@forceOrder").ToList();
 
@@ -104,13 +117,6 @@ public sealed class LiquidationHeatmapService : BackgroundService
                 else
                     liqBucket.LongVolume += usdValue;
             }
-
-            // Clean stale buckets (>30 min)
-            foreach (var kv in buckets)
-            {
-                if ((DateTime.UtcNow - kv.Value.LastSeen).TotalMinutes > 30)
-                    buckets.TryRemove(kv.Key, out _);
-            }
         }
         catch { /* malformed liquidation, skip */ }
     }
@@ -121,5 +127,34 @@ public sealed class LiquidationHeatmapService : BackgroundService
         public double LongVolume { get; set; }
         public double ShortVolume { get; set; }
         public DateTime LastSeen { get; set; } = DateTime.UtcNow;
+    }
+
+    private async Task RunCleanupLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMinutes(2), ct);
+                
+                var cutoff = DateTime.UtcNow.AddMinutes(-30);
+                foreach (var kv in _heatmap)
+                {
+                    var buckets = kv.Value;
+                    foreach (var b in buckets)
+                    {
+                        if (b.Value.LastSeen < cutoff)
+                        {
+                            buckets.TryRemove(b.Key, out _);
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LIQ] Cleanup error: {ex.Message}");
+            }
+        }
     }
 }

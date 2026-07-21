@@ -40,7 +40,7 @@ public static class TwelveDataService
         return _apiKey;
     }
 
-    public static (double[] prices, double[] volumes)? FetchCandles(string rawAsset, string interval, int limit = 100, int cacheTtlSeconds = 10)
+    public static async Task<(double[] prices, double[] volumes)?> FetchCandlesAsync(string rawAsset, string interval, int limit = 100, int cacheTtlSeconds = 10)
     {
         string key = $"{rawAsset}_{interval}";
 
@@ -77,8 +77,8 @@ public static class TwelveDataService
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.UserAgent.ParseAdd("ValutaBot/1.0");
 
-            var response = _http.Send(request);
-            string body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            var response = await _http.SendAsync(request);
+            string body = await response.Content.ReadAsStringAsync();
 
             using var doc = JsonDocument.Parse(body);
 

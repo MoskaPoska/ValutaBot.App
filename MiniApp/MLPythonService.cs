@@ -18,9 +18,10 @@ public static class MLPythonService
     };
 
     private static string _baseUrl = string.Empty;
-    private static bool _available = true;       // circuit-breaker flag
+    private static volatile bool _available = true;       // circuit-breaker flag
     private static DateTime _nextRetry = DateTime.MinValue;
     private static readonly TimeSpan CircuitOpenDuration = TimeSpan.FromMinutes(3);
+    private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     // ── Result type ────────────────────────────────────────────────────────
 
@@ -97,8 +98,7 @@ public static class MLPythonService
             }
 
             var body = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<PredictResponseDto>(body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var result = JsonSerializer.Deserialize<PredictResponseDto>(body, _jsonOptions);
 
             if (result == null)
                 return null;

@@ -92,9 +92,8 @@ public static class MiniAppController
                 return Results.Json(new { error = "asset and timeframe are required" });
 
             string cleanAsset = SanitizeAsset(asset);
-            string originalAsset = cleanAsset == "EURUSD" ? "EUR/USD OTC" : (cleanAsset == "GBPUSD" ? "GBP/USD OTC" : (cleanAsset == "AUDUSD" ? "AUD/USD OTC" : asset));
             string tf = timeframe.ToLower().Trim();
-            Console.WriteLine($"[ANALYZE] {cleanAsset} (mapped to {originalAsset}) | TF: {timeframe}");
+            Console.WriteLine($"[ANALYZE] {cleanAsset} | TF: {timeframe}");
 
             try
             {
@@ -349,6 +348,7 @@ public static class MiniAppController
                 using var response = await _httpClient.SendAsync(request);
                 string responseBody = await response.Content.ReadAsStringAsync();
                 
+                ClaudeSignalService.ResetCircuitBreaker();
                 string claudeTestResult = "";
                 try
                 {
@@ -501,11 +501,8 @@ public static class MiniAppController
                             double open = startPrice + range * fractionStart;
                             double close = startPrice + range * fractionEnd;
                             
-                            double stepVol = (mCandle.High - mCandle.Low) / subCandlesPerMinute;
-                            double randomOffset = (Random.Shared.NextDouble() - 0.5) * stepVol * 0.5;
-
-                            double high = Math.Max(open, close) + Math.Abs(randomOffset);
-                            double low = Math.Min(open, close) - Math.Abs(randomOffset);
+                            double high = Math.Max(open, close);
+                            double low = Math.Min(open, close);
 
                             high = Math.Min(high, mCandle.High);
                             low = Math.Max(low, mCandle.Low);
@@ -551,7 +548,7 @@ public static class MiniAppController
 
     private static int GetExpiryCandles(string tf) => tf.ToLower() switch
     {
-        "s3" or "s5" or "s10" or "s15" or "s30" => 1, // Micro-scalps
+        "s3" or "s5" or "s10" or "s15" or "s30" => 3, // Micro-scalp 3-bar expiry
         "m1" => 3,   // 3 minutes (highly stable for M1 charts)
         "m2" => 2,   // 4 minutes
         "m3" => 2,   // 6 minutes
@@ -680,7 +677,7 @@ public static class MiniAppController
         {
             if (originalAsset != null)
             {
-                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval, limit, cacheTtlSeconds);
+                var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit, cacheTtlSeconds);
                 if (tdResult != null)
                     return tdResult.Value;
             }
@@ -693,7 +690,7 @@ public static class MiniAppController
             if (cacheTtlSeconds > 0)
             {
                 string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
-                _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(Math.Min(2, cacheTtlSeconds)));
+                _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(cacheTtlSeconds));
             }
             return res;
         }
@@ -702,7 +699,7 @@ public static class MiniAppController
             // Try Twelve Data for forex pairs
             if (originalAsset != null)
             {
-                var tdResult = TwelveDataService.FetchCandles(originalAsset, interval, limit, cacheTtlSeconds);
+                var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit, cacheTtlSeconds);
                 if (tdResult != null)
                 {
                     Console.WriteLine($"[Fetch] Binance {symbol} not found, got from TwelveData ({originalAsset})");
@@ -810,11 +807,31 @@ public static class MiniAppController
         return rsi;
     }
 
+    // Optimized: computes RSI for a single index without allocating a full array
     private static double ComputeRsi(double[] data, int period, int index)
     {
-        var rsi = ComputeRsiArray(data, period);
-        if (index < 0 || index >= rsi.Length) return 50.0;
-        return rsi[index];
+        if (data.Length <= period || index < period) return 50.0;
+        int safeIndex = Math.Clamp(index, period, data.Length - 1);
+
+        double avgGain = 0, avgLoss = 0;
+        for (int i = 1; i <= period; i++)
+        {
+            double diff = data[i] - data[i - 1];
+            if (diff > 0) avgGain += diff; else avgLoss -= diff;
+        }
+        avgGain /= period;
+        avgLoss /= period;
+
+        for (int i = period + 1; i <= safeIndex; i++)
+        {
+            double diff = data[i] - data[i - 1];
+            double g = diff > 0 ? diff : 0;
+            double l = diff < 0 ? -diff : 0;
+            avgGain = (avgGain * (period - 1) + g) / period;
+            avgLoss = (avgLoss * (period - 1) + l) / period;
+        }
+
+        return avgLoss < 1e-12 ? 100.0 : 100.0 - 100.0 / (1.0 + avgGain / (avgLoss + 1e-12));
     }
 
     private static (double macd, double signal) ComputeMacd(double[] data, int index)
@@ -822,16 +839,16 @@ public static class MiniAppController
         if (data.Length < 26) return (0.0, 0.0);
         var ema12 = ComputeEmaArray(data, 12);
         var ema26 = ComputeEmaArray(data, 26);
-        
-        var macdHistory = new double[data.Length];
-        for (int i = 0; i < data.Length; i++)
-        {
+
+        // Build macdHistory only up to index+9 (for signal EMA warmup)
+        int len = data.Length;
+        var macdHistory = new double[len];
+        for (int i = 0; i < len; i++)
             macdHistory[i] = ema12[i] - ema26[i];
-        }
-        
+
         var signalHistory = ComputeEmaArray(macdHistory, 9);
-        
-        int safeIndex = Math.Clamp(index, 0, data.Length - 1);
+
+        int safeIndex = Math.Clamp(index, 0, len - 1);
         return (macdHistory[safeIndex], signalHistory[safeIndex]);
     }
 
@@ -842,7 +859,10 @@ public static class MiniAppController
         int n = volumes.Length;
         if (n < 10) return 0;
 
-        double avgVol = volumes.Skip(n - 10).Take(10).Average();
+        double sumVol = 0;
+        for (int i = n - 10; i < n; i++)
+            sumVol += volumes[i];
+        double avgVol = sumVol / 10.0;
         if (avgVol < 1e-9) return 0;
 
         double currentVol = volumes[^1];
@@ -850,14 +870,11 @@ public static class MiniAppController
         double currentClose = prices[^1];
         double change = (currentClose - prevClose) / prevClose;
 
-        // If price moves up with above-avg volume → strong trend
-        // If price moves up with below-avg volume → weak trend
         double volRatio = currentVol / avgVol;
         double direction = change > 0 ? 1 : -1;
 
-        // volStrength ranges from -1 to 1
         double volStrength = direction * Math.Min(volRatio, 2.0) / 2.0;
-        return volStrength * 2; // scale to -2..+2 influence range
+        return volStrength * 2;
     }
 
     private static (double wt1, double wt2) ComputeWaveTrend(MiniAppController.OhlcCandle[] candles, int channelLength = 10, int averageLength = 21)
@@ -931,7 +948,6 @@ public static class MiniAppController
             tr[i] = Math.Max(hMinusL, Math.Max(hMinusPc, lMinusPc));
         }
 
-        // EMA of True Range to get ATR
         double[] atr = ComputeEmaArray(tr, period);
 
         double[] finalUpperBand = new double[n];
@@ -939,7 +955,6 @@ public static class MiniAppController
         bool[] isBullish = new bool[n];
         double[] superTrend = new double[n];
 
-        // Init first values
         double basicUpper = (candles[0].High + candles[0].Low) / 2.0 + multiplier * atr[0];
         double basicLower = (candles[0].High + candles[0].Low) / 2.0 - multiplier * atr[0];
         finalUpperBand[0] = basicUpper;
@@ -1435,7 +1450,7 @@ public static class MiniAppController
             };
 
             bool isForex = symbol == null || symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
-            bool isMajor = symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
+            bool isMajor = symbol == "BTCUSDT" || symbol == "ETHUSDT" || symbol == "SOLUSDT";
             int limit = 100;
             string tfLower = timeframe.ToLower().Trim();
             if (tfLower == "s10" || tfLower == "s15" || tfLower == "s30")
@@ -1563,9 +1578,13 @@ public static class MiniAppController
                 if (lastWsPrice > 0)
                 {
                     if (mainPrices != null && mainPrices.Length > 0)
+                    {
+                        mainPrices = (double[])mainPrices.Clone();
                         mainPrices[^1] = lastWsPrice;
+                    }
                     if (mainOhlc != null && mainOhlc.Length > 0)
                     {
+                        mainOhlc = (OhlcCandle[])mainOhlc.Clone();
                         var lastCandle = mainOhlc[^1];
                         mainOhlc[^1] = new OhlcCandle(
                             lastCandle.Open,
@@ -1578,11 +1597,12 @@ public static class MiniAppController
 
                     if (higherResultData != null)
                     {
-                        var hPrices = higherResultData.Value.prices;
+                        var hPrices = (double[])higherResultData.Value.prices.Clone();
                         if (hPrices != null && hPrices.Length > 0)
                             hPrices[^1] = lastWsPrice;
                         if (higherOhlc != null && higherOhlc.Length > 0)
                         {
+                            higherOhlc = (OhlcCandle[])higherOhlc.Clone();
                             var lastCandle = higherOhlc[^1];
                             higherOhlc[^1] = new OhlcCandle(
                                 lastCandle.Open,
@@ -1592,15 +1612,17 @@ public static class MiniAppController
                                 lastCandle.Volume
                             );
                         }
+                        higherResultData = (hPrices, higherResultData.Value.volumes);
                     }
 
                     if (lowerResultData != null)
                     {
-                        var lPrices = lowerResultData.Value.prices;
+                        var lPrices = (double[])lowerResultData.Value.prices.Clone();
                         if (lPrices != null && lPrices.Length > 0)
                             lPrices[^1] = lastWsPrice;
                         if (lowerOhlc != null && lowerOhlc.Length > 0)
                         {
+                            lowerOhlc = (OhlcCandle[])lowerOhlc.Clone();
                             var lastCandle = lowerOhlc[^1];
                             lowerOhlc[^1] = new OhlcCandle(
                                 lastCandle.Open,
@@ -1610,6 +1632,7 @@ public static class MiniAppController
                                 lastCandle.Volume
                             );
                         }
+                        lowerResultData = (lPrices, lowerResultData.Value.volumes);
                     }
 
                     Console.WriteLine($"[LivePrice] Updated last candle close of main and higher TFs to live WS price: {lastWsPrice}");
@@ -1761,13 +1784,15 @@ public static class MiniAppController
 
             // Store results for conflict detection
             var mainResult = ScoreTimeframe(mainPrices, mainVolumes, candles: mainOhlc, adxOverride: mainAdx, atrOverride: mainAtr, isForex: isForex);
+            (double score, double confidence, double rsiVal, double emaVal, double volumeStrength, double atrVal) higherResult = default;
+            double hAdx = 20.0, hPdi = 0.0, hMdi = 0.0, hAtr = 0.0;
             double conflictPenalty = 1.0;
 
             if (higherResultData != null)
             {
-                var (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
-                double hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
-                var higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: isForex);
+                (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
+                hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
+                higherResult = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: isForex);
                 conflictPenalty = MfConflictPenalty(mainResult, higherResult);
 
                 totalScore += higherResult.score;
@@ -1780,11 +1805,13 @@ public static class MiniAppController
                     Console.WriteLine($"[TF] Higher TF conflict: score reduced by {Math.Abs(higherResult.score) * 0.5:F2}");
                 }
             }
+
+            (double score, double confidence, double rsiVal, double emaVal, double volumeStrength, double atrVal) lowerResult = default;
             if (lowerResultData != null)
             {
-                var (lAdx, lPdi, lMdi) = lowerOhlc != null ? ComputeTrueAdx(lowerOhlc) : (20.0, 0.0, 0.0);
+                var (lAdx, _, _) = lowerOhlc != null ? ComputeTrueAdx(lowerOhlc) : (20.0, 0.0, 0.0);
                 double lAtr = lowerOhlc != null ? ComputeAtr(lowerOhlc) : 0;
-                var lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes, candles: lowerOhlc, adxOverride: lAdx, atrOverride: lAtr, isForex: isForex);
+                lowerResult = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes, candles: lowerOhlc, adxOverride: lAdx, atrOverride: lAtr, isForex: isForex);
 
                 totalScore += lowerResult.score;
                 totalConfidence += lowerResult.confidence * 0.5;
@@ -1811,14 +1838,12 @@ public static class MiniAppController
 
                 if (higherResultData != null)
                 {
-                    var s = ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes);
-                    if ((s.score >= 0 && mainDirSign > 0) || (s.score < 0 && mainDirSign < 0))
+                    if ((higherResult.score >= 0 && mainDirSign > 0) || (higherResult.score < 0 && mainDirSign < 0))
                         tfAgreement++;
                 }
                 if (lowerResultData != null)
                 {
-                    var s = ScoreTimeframe(lowerResultData.Value.prices, lowerResultData.Value.volumes);
-                    if ((s.score >= 0 && mainDirSign > 0) || (s.score < 0 && mainDirSign < 0))
+                    if ((lowerResult.score >= 0 && mainDirSign > 0) || (lowerResult.score < 0 && mainDirSign < 0))
                         tfAgreement++;
                 }
 
@@ -1831,14 +1856,10 @@ public static class MiniAppController
             if (higherResultData != null)
             {
                 var hPrices = higherResultData.Value.prices;
-                var hVolumes = higherResultData.Value.volumes;
-                var (hAdx, hPdi, hMdi) = higherOhlc != null ? ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
-                double hAtr = higherOhlc != null ? ComputeAtr(higherOhlc) : 0;
-                var hResult = ScoreTimeframe(hPrices, hVolumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr);
                 var (hMacd, hMacdSig) = ComputeMacd(hPrices, hPrices.Length - 1);
                 double hBbZ = ComputeBollingerZscore(hPrices, 20);
                 
-                higherTfInfo = $"Timeframe: {higherTf}, Score: {hResult.score:F2}, RSI: {hResult.rsiVal:F1}, EMA: {hResult.emaVal:F5}, MACD: {hMacd:F6}, Signal: {hMacdSig:F6}, ADX: {hAdx:F1}, +DI: {hPdi:F1}, -DI: {hMdi:F1}, ATR: {hAtr:F6}, BBz: {hBbZ:F2}";
+                higherTfInfo = $"Timeframe: {higherTf}, Score: {higherResult.score:F2}, RSI: {higherResult.rsiVal:F1}, EMA: {higherResult.emaVal:F5}, MACD: {hMacd:F6}, Signal: {hMacdSig:F6}, ADX: {hAdx:F1}, +DI: {hPdi:F1}, -DI: {hMdi:F1}, ATR: {hAtr:F6}, BBz: {hBbZ:F2}";
             }
 
             // ─── Claude AI Signal with OHLC pattern analysis ───
@@ -1873,11 +1894,7 @@ public static class MiniAppController
             (string direction, double probability, string reasoning, string modelName) claudeResult;
             bool isSubMinute = timeframe.ToLower().StartsWith("s");
 
-            if (isSubMinute)
-            {
-                claudeResult = ("NEUTRAL", 50, "ИИ отключен для секундных таймфреймов для устранения сетевой задержки.", "Математический анализ");
-            }
-            else if (_cache.TryGetValue(cacheKey, out object? cached) && cached is ValueTuple<string, double, string, string> cachedTuple)
+            if (_cache.TryGetValue(cacheKey, out object? cached) && cached is ValueTuple<string, double, string, string> cachedTuple)
             {
                 claudeResult = cachedTuple;
                 Console.WriteLine($"[Cache] HIT for {cacheKey}");
@@ -2152,7 +2169,8 @@ public static class MiniAppController
                 }
 
                 // --- 1. КРАСНЫЙ СВЕТ: Полный флэт (очень низкий балл консенсуса) ---
-                if (absScore < 0.04)
+                double flatThreshold = isSubMinute ? 0.08 : 0.04;
+                if (absScore < flatThreshold)
                 {
                     direction = "NEUTRAL";
                     probability = 50;
@@ -2160,36 +2178,41 @@ public static class MiniAppController
                     claudeResult.modelName = "Математический анализ";
                     claudeResult.direction = "NEUTRAL";
                     claudeResult.probability = 50;
-                    claudeResult.reasoning = "Рынок находится в мертвом флэте или индикаторы полностью противоречат друг другу. Рекомендуется воздержаться от сделок.";
+                    claudeResult.reasoning = isSubMinute 
+                        ? "Микро-тренд на секундном графике слаб или неустойчив. Высокий риск шума, рекомендуется воздержаться от сделок."
+                        : "Рынок находится в мертвом флэте или индикаторы полностью противоречат друг другу. Рекомендуется воздержаться от сделок.";
 
-                    Console.WriteLine($"[Sniper-Flat] Neutral due to dead flat (score={totalScore:F2})");
+                    Console.WriteLine($"[Sniper-Flat] Neutral due to flat/noise (score={totalScore:F2} < {flatThreshold})");
                 }
                 // --- 2. ЖЕЛТЫЙ СВЕТ: Близко уровень поддержки/сопротивления или слабый тренд ---
                 else if (blockedByLevel || absScore < minScore || !momentumOk)
                 {
                     direction = candidateDir;
                     probability = isSubMinute 
-                        ? Math.Clamp(58 + Random.Shared.Next(-2, 3), 55, 62)
-                        : Math.Clamp(62 + Random.Shared.Next(-2, 3), 58, 68);
+                        ? Math.Clamp(58 + (int)Math.Round(absScore * 10), 55, 65)
+                        : Math.Clamp(62 + (int)Math.Round(absScore * 12), 58, 72);
 
-                    claudeResult.modelName = "Математический анализ";
-                    claudeResult.direction = direction;
-                    claudeResult.probability = probability;
+                    if (string.IsNullOrEmpty(claudeResult.modelName) || claudeResult.modelName == "Математический анализ")
+                    {
+                        claudeResult.modelName = "Математический анализ";
+                        claudeResult.direction = direction;
+                        claudeResult.probability = probability;
 
-                    if (blockedByLevel)
-                    {
-                        claudeResult.reasoning = $"Внимание: близко {blockReason}. Сигнал сформирован локально, рекомендуется повышенная осторожность.";
-                        Console.WriteLine($"[Sniper-Warning] Level block ({blockReason}) -> downgraded signal: {direction} {probability}%");
-                    }
-                    else if (!momentumOk)
-                    {
-                        claudeResult.reasoning = "Внимание: импульс противоречит общему тренду. Локальный откат, рекомендуется осторожность.";
-                        Console.WriteLine($"[Sniper-Warning] Momentum conflict -> downgraded signal: {direction} {probability}%");
-                    }
-                    else
-                    {
-                        claudeResult.reasoning = "Внимание: слабый тренд. Возможны ложные колебания, рекомендуется осторожность.";
-                        Console.WriteLine($"[Sniper-Warning] Weak trend (score={totalScore:F2} < {minScore:F2}) -> downgraded signal: {direction} {probability}%");
+                        if (blockedByLevel)
+                        {
+                            claudeResult.reasoning = $"Внимание: близко {blockReason}. Сигнал сформирован локально, рекомендуется повышенная осторожность.";
+                            Console.WriteLine($"[Sniper-Warning] Level block ({blockReason}) -> downgraded signal: {direction} {probability}%");
+                        }
+                        else if (!momentumOk)
+                        {
+                            claudeResult.reasoning = "Внимание: импульс противоречит общему тренду. Локальный откат, рекомендуется осторожность.";
+                            Console.WriteLine($"[Sniper-Warning] Momentum conflict -> downgraded signal: {direction} {probability}%");
+                        }
+                        else
+                        {
+                            claudeResult.reasoning = "Внимание: слабый тренд. Возможны ложные колебания, рекомендуется осторожность.";
+                            Console.WriteLine($"[Sniper-Warning] Weak trend (score={totalScore:F2} < {minScore:F2}) -> downgraded signal: {direction} {probability}%");
+                        }
                     }
                 }
                 // --- 3. ЗЕЛЕНЫЙ СВЕТ: Сильный тренд с подтверждением ---
@@ -2200,19 +2223,22 @@ public static class MiniAppController
                     double rawProbFloat;
                     if (isSubMinute)
                     {
-                        rawProbFloat = 65.0 + (absScore - minScore) * 8.0 + (Random.Shared.NextDouble() - 0.5) * 3.0;
+                        rawProbFloat = 65.0 + (absScore - minScore) * 8.0;
                         probability = Math.Clamp((int)Math.Round(rawProbFloat), 62, 80);
                     }
                     else
                     {
-                        rawProbFloat = 75.0 + (absScore - minScore) * 15.0 + (Random.Shared.NextDouble() - 0.5) * 4.0;
+                        rawProbFloat = 75.0 + (absScore - minScore) * 15.0;
                         probability = Math.Clamp((int)Math.Round(rawProbFloat), 75, 95);
                     }
 
-                    claudeResult.modelName = "Математический анализ";
-                    claudeResult.direction = direction;
-                    claudeResult.probability = probability;
-                    claudeResult.reasoning = "Сигнал сформирован на основе сильного технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML.";
+                    if (string.IsNullOrEmpty(claudeResult.modelName) || claudeResult.modelName == "Математический анализ")
+                    {
+                        claudeResult.modelName = "Математический анализ";
+                        claudeResult.direction = direction;
+                        claudeResult.probability = probability;
+                        claudeResult.reasoning = "Сигнал сформирован на основе сильного технического консенсуса индикаторов (RSI, EMA, MACD) и локального ML.";
+                    }
 
                     Console.WriteLine($"[Sniper-Strong] Strong signal: {direction} {probability}% (score={totalScore:F2})");
                 }
@@ -2254,11 +2280,14 @@ public static class MiniAppController
             var overallStats = SignalTracker.GetOverallStats();
             var assetStats   = SignalTracker.GetStats(asset, timeframe);
 
+            int totalExpirySec = timeframeSec * expiryCandles;
+            string durationText = isSubMinute ? $"{totalExpirySec} сек (экспирация)" : $"{timeframe.ToUpper()} ({expiryCandles} свечи)";
+
             return new
             {
                 direction,
                 probability,
-                duration = $"{timeframe.ToUpper()} ({expiryCandles} свечи)",
+                duration = durationText,
                 expiryCandles,
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),
@@ -2506,64 +2535,30 @@ public static class MiniAppController
 
     private static object GetMomentumPrediction(string asset, string tf)
     {
-        double startPrice = 1.1000;
-        double volatility = 0.0010;
-
-        if (asset.Contains("BTC")) { startPrice = 64000; volatility = 40.0; }
-        else if (asset.Contains("ETH")) { startPrice = 3500; volatility = 5.0; }
-        else if (asset.Contains("AAPL")) { startPrice = 180.50; volatility = 0.3; }
-        else if (asset.Contains("GOLD")) { startPrice = 2300; volatility = 1.5; }
-        else if (asset.Contains("JPY")) { startPrice = 150.00; volatility = 0.05; }
-        else if (asset.Contains("BRL")) { startPrice = 5.50; volatility = 0.005; }
-        else if (asset.Contains("IDR")) { startPrice = 16000; volatility = 10.0; }
-        else if (asset.Contains("PKR")) { startPrice = 280; volatility = 0.5; }
-        else if (asset.Contains("NGN")) { startPrice = 1500; volatility = 5.0; }
-        else if (asset.Contains("LBP")) { startPrice = 15000; volatility = 20.0; }
-        else if (asset.Contains("TND")) { startPrice = 3.10; volatility = 0.002; }
-        else if (asset.Contains("DZD")) { startPrice = 135; volatility = 0.3; }
-        else if (asset.Contains("JOD") || asset.Contains("OMR") || asset.Contains("SAR")) { startPrice = 10.0; volatility = 0.01; }
-        else if (asset.Contains("CHF")) { startPrice = 0.95; volatility = 0.002; }
-        else if (asset.Contains("CAD")) { startPrice = 1.35; volatility = 0.002; }
-        else if (asset.Contains("NZD")) { startPrice = 0.60; volatility = 0.002; }
-
-        var chartData = new double[15];
-        double currentPrice = startPrice;
-        double mainTrend = (Random.Shared.NextDouble() - 0.5) * volatility;
-
-        for (int i = 0; i < 15; i++)
-        {
-            currentPrice += mainTrend + (Random.Shared.NextDouble() - 0.5) * (volatility / 2);
-            chartData[i] = Math.Round(currentPrice, startPrice > 100 ? 2 : 5);
-        }
-
-        string direction = chartData[14] >= chartData[0] ? "BUY" : "PUT";
-        double diffPercent = Math.Abs((chartData[14] - chartData[0]) / chartData[0]) * 100;
-        int probability = Math.Clamp(82 + (int)(diffPercent * 50), 82, 97);
-
         int expiryCandles = GetExpiryCandles(tf);
 
         return new
         {
-            direction,
-            probability,
+            direction = "NEUTRAL",
+            probability = 50,
             duration = $"{tf.ToUpper()} ({expiryCandles} свечи)",
             expiryCandles,
-            chartData,
-            rsi = Math.Round(50 + (Random.Shared.NextDouble() - 0.5) * 40, 1),
-            ema = Math.Round(startPrice + (Random.Shared.NextDouble() - 0.5) * volatility, 2),
+            chartData = Array.Empty<double>(),
+            rsi = 50.0,
+            ema = 0.0,
             volumeStrength = 0.0,
             tfConflict = false,
-                mlDirection = "NEUTRAL",
-                mlConfidence = 0,
-                newsSentiment = "Нейтральной",
-                newsScore = 0,
-                newsSummary = "Анализ недоступен (режим fallback)",
-                newsHeadlines = Array.Empty<string>(),
-                claudeDirection = "NEUTRAL",
-                claudeProbability = 0,
-                claudeReasoning = "Математический консенсус активен. Запущен локальный анализ индикаторов.",
-                aiModel = "Математический анализ"
-            };
+            mlDirection = "NEUTRAL",
+            mlConfidence = 0,
+            newsSentiment = "Нейтрально",
+            newsScore = 0,
+            newsSummary = "Данные недоступны",
+            newsHeadlines = Array.Empty<string>(),
+            claudeDirection = "NEUTRAL",
+            claudeProbability = 0,
+            claudeReasoning = "Недостаточно рыночных данных для вычисления сигнала.",
+            aiModel = "Нейтральный режим"
+        };
     }
 
     /* ─── Fear & Greed Index ─── */

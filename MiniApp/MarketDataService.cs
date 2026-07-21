@@ -164,20 +164,4 @@ public sealed class MarketDataService : BackgroundService
         var volumes = arr.Select(k => double.Parse(k[5].GetString()!, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
         return (prices, volumes);
     }
-
-    private static double ComputeRsi(double[] data, int period)
-    {
-        if (data.Length < period + 1) return 50;
-        int idx = data.Length - 1;
-        double gain = 0, loss = 0;
-        for (int i = idx - period + 1; i <= idx; i++)
-        {
-            double diff = data[i] - data[i - 1];
-            if (diff > 0) gain += diff; else loss -= diff;
-        }
-        double avgGain = gain / period;
-        double avgLoss = loss / period;
-        if (avgLoss < 1e-12) return 100;
-        return 100 - 100 / (1 + avgGain / avgLoss);
-    }
 }

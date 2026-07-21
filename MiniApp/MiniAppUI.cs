@@ -340,13 +340,7 @@ public static class MiniAppUI
             box-shadow: 0 0 16px rgba(255, 100, 200, 0.35), inset 0 0 16px rgba(255, 100, 200, 0.35);
             animation-duration: 8s;
         }
-            animation-duration: 3.5s;
-        }
-        .sphere-container.analyzing .orbit-ring.r5 {
-            border-color: rgba(179, 136, 255, 0.4);
-            box-shadow: 0 0 12px rgba(179, 136, 255, 0.1), inset 0 0 12px rgba(179, 136, 255, 0.05);
-            animation-duration: 10s;
-        }
+
 
         /* Pedestal — 3-layer hi-tech stand */
         .base-stand {
@@ -860,7 +854,7 @@ public static class MiniAppUI
 
         /* ─── Live Price Display ─── */
         .live-price-container {
-            display: none !important;
+            display: none;
             justify-content: center;
             align-items: center;
             gap: 8px;
@@ -1716,7 +1710,7 @@ public static class MiniAppUI
             } else if(direction === 'PUT') {
                 chart.innerHTML = `<svg viewBox='0 0 80 40'><path d='M10 5 L30 15 L45 10 L70 35' stroke='#ff1744' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='70' cy='35' r='3.5' fill='#ff1744'/></svg>`;
             } else {
-                chart.innerHTML = `<svg viewBox='0 0 80 40'><path d='M10 35 L40 5 L70 35' stroke='var(--dim)' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round' opacity='0.3'/></svg>`;
+                chart.innerHTML = `<svg viewBox='0 0 80 40'><path d='M10 20 L70 20' stroke='var(--dim)' stroke-width='2.5' stroke-dasharray='4 4' fill='none' stroke-linecap='round' opacity='0.5'/><circle cx='40' cy='20' r='3.5' fill='var(--dim)'/></svg>`;
             }
         }
 
@@ -1767,76 +1761,7 @@ public static class MiniAppUI
             return tail.map(p => 0.05 + 0.9 * (p - min) / span);
         }
 
-        function renderPriceChart(canvasId, prices, direction) {
-            const c = document.getElementById(canvasId);
-            if (!c || !prices || prices.length < 2) return;
-            const dpr = window.devicePixelRatio || 1;
-            const cssW = c.clientWidth || c.parentNode.clientWidth || 320;
-            const cssH = c.clientHeight || 140;
-            c.width = Math.round(cssW * dpr);
-            c.height = Math.round(cssH * dpr);
-            const ctx = c.getContext('2d');
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, cssW, cssH);
 
-            const pad = { l: 8, r: 8, t: 10, b: 10 };
-            const w = cssW - pad.l - pad.r;
-            const h = cssH - pad.t - pad.b;
-            const min = Math.min.apply(null, prices);
-            const max = Math.max.apply(null, prices);
-            const span = Math.max(max - min, 1e-12);
-            const x = i => pad.l + (i / (prices.length - 1)) * w;
-            const y = v => pad.t + h - ((v - min) / span) * h;
-
-            ctx.strokeStyle = 'rgba(124,77,255,0.08)';
-            ctx.lineWidth = 1;
-            for (let k = 1; k < 4; k++) {
-                const gy = pad.t + (h / 4) * k;
-                ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(pad.l + w, gy); ctx.stroke();
-            }
-
-            const stroke = direction === 'BUY' ? '#00e676'
-                          : direction === 'PUT' ? '#ff1744'
-                          : '#7c4dff';
-            const fillTop = direction === 'BUY' ? 'rgba(0,230,118,0.35)'
-                          : direction === 'PUT' ? 'rgba(255,23,68,0.35)'
-                          : 'rgba(124,77,255,0.35)';
-
-            const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
-            grad.addColorStop(0, fillTop);
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.beginPath();
-            ctx.moveTo(x(0), pad.t + h);
-            for (let i = 0; i < prices.length; i++) ctx.lineTo(x(i), y(prices[i]));
-            ctx.lineTo(x(prices.length - 1), pad.t + h);
-            ctx.closePath();
-            ctx.fillStyle = grad;
-            ctx.fill();
-
-            ctx.beginPath();
-            ctx.moveTo(x(0), y(prices[0]));
-            for (let i = 1; i < prices.length; i++) ctx.lineTo(x(i), y(prices[i]));
-            ctx.strokeStyle = stroke;
-            ctx.lineWidth = 2;
-            ctx.shadowColor = stroke;
-            ctx.shadowBlur = 8;
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-
-            const lx = x(prices.length - 1), ly = y(prices[prices.length - 1]);
-            ctx.beginPath();
-            ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
-            ctx.fillStyle = stroke;
-            ctx.fill();
-
-            const lastTxt = prices[prices.length - 1].toFixed(prices[0] > 100 ? 2 : 5);
-            ctx.font = '600 11px Inter, sans-serif';
-            ctx.fillStyle = stroke;
-            const tw = ctx.measureText(lastTxt).width;
-            ctx.fillRect(lx - tw - 10, ly - 9, tw + 8, 16);
-            ctx.fillStyle = '#0b0a1f';
-            ctx.fillText(lastTxt, lx - tw - 6, ly + 3);
-        }
 
         function renderError(rawError, debugText) {
             const errDisp = document.getElementById('errorDisplay');
@@ -1886,11 +1811,20 @@ public static class MiniAppUI
                 }
             }
 
+            function escapeHtml(str) {
+                if (!str) return '';
+                return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/""/g, '&quot;').replace(/'/g, '&#039;');
+            }
+
+            const safeTitle = escapeHtml(title);
+            const safeDesc = escapeHtml(desc);
+            const safeDebug = escapeHtml(debugText);
+
             errDisp.innerHTML = `
-                <div class=""error-header"">${title}</div>
-                <div class=""error-desc"">${desc}</div>
+                <div class=""error-header"">${safeTitle}</div>
+                <div class=""error-desc"">${safeDesc}</div>
                 <div class=""error-debug-toggle"" onclick=""toggleErrorDebug(this)"">▸ Детали отладки</div>
-                <div class=""error-debug-content"" id=""errorDebugContent"" style=""display: none;"">${debugText}</div>
+                <div class=""error-debug-content"" id=""errorDebugContent"" style=""display: none;"">${safeDebug}</div>
             `;
             errDisp.style.display = 'block';
         }
@@ -1987,34 +1921,6 @@ public static class MiniAppUI
                     if (data.tfConflict) {
                         document.getElementById('resProb').innerText += ' \u26A0\uFE0F';
                     }
-                    // ML and News cards are disabled/hidden by user request.
-                    /*
-                    if (data.mlDirection && data.mlDirection !== 'NEUTRAL') {
-                        const mc = document.getElementById('mlCard');
-                        mc.style.display = 'flex';
-                        const dirEl = document.getElementById('mlDir');
-                        dirEl.innerText = data.mlDirection === 'BUY' ? '\u2191 ВВЕРХ' : '\u2193 ВНИЗ';
-                        dirEl.style.color = data.mlDirection === 'BUY' ? '#00e676' : '#ff1744';
-                        document.getElementById('mlConf').innerText = data.mlConfidence + '%';
-                    }
-
-                    if (data.newsScore !== undefined) {
-                        const nc = document.getElementById('newsCard');
-                        nc.style.display = 'block';
-                        const senEl = document.getElementById('newsSentiment');
-                        senEl.innerText = data.newsSentiment;
-                        if (data.newsScore > 0.5) { senEl.style.color = '#00e676'; }
-                        else if (data.newsScore < -0.5) { senEl.style.color = '#ff1744'; }
-                        else { senEl.style.color = 'var(--subtext)'; }
-                        document.getElementById('newsSummary').innerText = data.newsSummary;
-                        const nl = document.getElementById('newsList');
-                        if (data.newsHeadlines && data.newsHeadlines.length) {
-                            nl.innerHTML = data.newsHeadlines.map(h => `<div class='news-list-item'>${h}</div>`).join('');
-                        } else {
-                            nl.innerHTML = '';
-                        }
-                    }
-                    */
 
                     if (data.claudeDirection && data.claudeReasoning) {
                         const cc = document.getElementById('claudeCard');
@@ -2054,8 +1960,6 @@ public static class MiniAppUI
                     const durBars = pricesToBars(data.chartData, 8);
                     if (durBars.length) renderMiniChart('durChart', durBars, '');
 
-                    // renderPriceChart('priceChart', data.chartData || [], data.direction);
-
                     if(data.levels) {
                         const L = data.levels;
                         const renderLevel = (id, lv) => {
@@ -2069,7 +1973,7 @@ public static class MiniAppUI
                         document.getElementById('ltotalVotes').innerHTML = `<span style='color:var(--green)'>\u2191 ${data.levels.level1.buy + data.levels.level2.buy + data.levels.level3.buy}</span> / <span style='color:var(--red)'>\u2193 ${data.levels.level1.put + data.levels.level2.put + data.levels.level3.put}</span>`;
                         const td = document.getElementById('ltotalDir');
                         td.className = `dir ${data.direction.toLowerCase()}`;
-                        td.innerText = data.direction === 'BUY' ? '\u2191 ВВЕРХ' : '\u2193 ВНИЗ';
+                        td.innerText = data.direction === 'BUY' ? '\u2191 ВВЕРХ' : data.direction === 'PUT' ? '\u2193 ВНИЗ' : '\u2014 НЕЙТРАЛЬНО';
                         document.getElementById('levelsBar').style.display = 'block';
                     }
 
@@ -2087,15 +1991,6 @@ public static class MiniAppUI
                 renderError(e.message, catchMsg);
             }
         };
-
-        /* ─── News toggle ─── */
-        function toggleNews() {
-            const list = document.getElementById('newsList');
-            const toggle = document.getElementById('newsToggle');
-            const open = list.classList.toggle('open');
-            toggle.innerText = open ? '\u25BD Заголовки' : '\u25B8 Заголовки';
-        }
-
 
     </script>
 </body>

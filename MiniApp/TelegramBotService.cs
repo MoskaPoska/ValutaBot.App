@@ -10,7 +10,6 @@ public class TelegramBotService : BackgroundService
     private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
     private static readonly string AllowedUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_users.json");
     private static readonly string AdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "admins.json");
-    private static readonly string AllowedAdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_admin_usernames.json");
     private static readonly string AllUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "all_users.json");
     private static readonly string RegistrationsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "registrations.json");
     private static readonly ConcurrentDictionary<string, PocketRegistration> PocketRegistrations = new();
@@ -26,10 +25,10 @@ public class TelegramBotService : BackgroundService
 
     private static readonly HashSet<long> AllowedUsers = new();
     private static readonly HashSet<long> AdminChatIds = new();
-    private static readonly HashSet<string> AllowedAdminUsernames = new(StringComparer.OrdinalIgnoreCase) { "Vanchoys06" };
     private static readonly HashSet<long> AllUsers = new();
     private static readonly ConcurrentDictionary<long, DateTime> UserLastActivity = new();
     private static readonly object _lock = new();
+    private static readonly object _saveLock = new();
     private static string _webAppUrl = "https://chowder-dreamland-spotlight.ngrok-free.dev";
 
     public static bool IsUserAllowed(long chatId)
@@ -86,7 +85,6 @@ public class TelegramBotService : BackgroundService
             InitDatabase();
             LoadAllowedUsers();
             LoadAdmins();
-            LoadAllowedAdminUsernames();
             LoadAllUsers();
             LoadRegistrations();
         }
@@ -125,7 +123,11 @@ public class TelegramBotService : BackgroundService
                                 username = fromUser.TryGetProperty("username", out var uProp) ? (uProp.GetString() ?? "") : "";
                             }
 
-                            await HandleMessage(token, chatId, text, username, _webAppUrl);
+                            _ = Task.Run(async () =>
+                            {
+                                try { await HandleMessage(token, chatId, text, username, _webAppUrl); }
+                                catch (Exception ex) { Console.WriteLine($"[TG Bot] HandleMessage error ({chatId}): {ex.Message}"); }
+                            });
                         }
                         else if (update.TryGetProperty("callback_query", out var callbackQuery))
                         {
@@ -140,7 +142,11 @@ public class TelegramBotService : BackgroundService
                                 username = fromUser.TryGetProperty("username", out var uProp) ? (uProp.GetString() ?? "") : "";
                             }
 
-                            await HandleCallback(token, queryId, chatId, data, messageId, username, _webAppUrl);
+                            _ = Task.Run(async () =>
+                            {
+                                try { await HandleCallback(token, queryId, chatId, data, messageId, username, _webAppUrl); }
+                                catch (Exception ex) { Console.WriteLine($"[TG Bot] HandleCallback error ({chatId}): {ex.Message}"); }
+                            });
                         }
                     }
                 }
@@ -476,12 +482,6 @@ public class TelegramBotService : BackgroundService
             // Answer callback query quickly
             await AnswerCallbackQuery(token, queryId, "Проверка депозита...");
             
-            // Send initial status: "Идет проверка данных на сервере брокера. Ожидай."
-            await SendMessage(token, chatId, "⏳ <b>Идет проверка данных на сервере брокера. Ожидай.</b>");
-            
-            // Wait 3 seconds to simulate broker check
-            await Task.Delay(3000);
-            
             bool hasDeposited = false;
             lock (_lock)
             {
@@ -544,7 +544,11 @@ public class TelegramBotService : BackgroundService
                 return;
             }
 
-            long userChatId = long.Parse(data.Replace("approve_", ""));
+            if (!long.TryParse(data.Replace("approve_", ""), out long userChatId))
+            {
+                await AnswerCallbackQuery(token, queryId, "❌ Неверный формат ID.");
+                return;
+            }
             lock (_lock)
             {
                 if (!AllowedUsers.Contains(userChatId))
@@ -554,7 +558,7 @@ public class TelegramBotService : BackgroundService
                 }
             }
 
-            UserSubmittedIds.TryGetValue(userChatId, out var pocketId);
+            UserSubmittedIds.TryRemove(userChatId, out var pocketId);
             await AnswerCallbackQuery(token, queryId, "Заявка одобрена!");
 
             // Notify user
@@ -571,9 +575,26 @@ public class TelegramBotService : BackgroundService
         }
         else if (data.StartsWith("decline_"))
         {
-            long userChatId = long.Parse(data.Replace("decline_", ""));
-            UserStates[userChatId] = UserState.None;
-            UserSubmittedIds.TryGetValue(userChatId, out var pocketId);
+            bool isSenderAdmin;
+            lock (_lock)
+            {
+                isSenderAdmin = AdminChatIds.Contains(chatId);
+            }
+
+            if (!isSenderAdmin)
+            {
+                await AnswerCallbackQuery(token, queryId, "❌ У вас нет прав для отклонения заявок.");
+                return;
+            }
+
+            if (!long.TryParse(data.Replace("decline_", ""), out long userChatId))
+            {
+                await AnswerCallbackQuery(token, queryId, "❌ Неверный формат ID.");
+                return;
+            }
+
+            UserStates.TryRemove(userChatId, out _);
+            UserSubmittedIds.TryRemove(userChatId, out var pocketId);
             await AnswerCallbackQuery(token, queryId, "Заявка отклонена!");
 
             // Notify user
@@ -996,46 +1017,57 @@ public class TelegramBotService : BackgroundService
 
     private static void SaveAllowedUsers()
     {
-        if (!string.IsNullOrEmpty(ConnectionString))
+        Task.Run(() =>
         {
-            try
+            lock (_saveLock)
             {
-                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
-                conn.Open();
-                using var trans = conn.BeginTransaction();
-                
-                using (var cmd = new Npgsql.NpgsqlCommand("DELETE FROM allowed_users", conn, trans))
+                if (!string.IsNullOrEmpty(ConnectionString))
                 {
-                    cmd.ExecuteNonQuery();
-                }
-
-                lock (_lock)
-                {
-                    foreach (var chatId in AllowedUsers)
+                    try
                     {
-                        using var cmd = new Npgsql.NpgsqlCommand("INSERT INTO allowed_users (chat_id) VALUES (@chatId) ON CONFLICT DO NOTHING", conn, trans);
-                        cmd.Parameters.AddWithValue("chatId", chatId);
-                        cmd.ExecuteNonQuery();
+                        using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                        conn.Open();
+                        using var trans = conn.BeginTransaction();
+                        
+                        using (var cmd = new Npgsql.NpgsqlCommand("DELETE FROM allowed_users", conn, trans))
+                        {
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        lock (_lock)
+                        {
+                            foreach (var chatId in AllowedUsers)
+                            {
+                                using var cmd = new Npgsql.NpgsqlCommand("INSERT INTO allowed_users (chat_id) VALUES (@chatId) ON CONFLICT DO NOTHING", conn, trans);
+                                cmd.Parameters.AddWithValue("chatId", chatId);
+                                cmd.ExecuteNonQuery();
+                            }
+                        }
+
+                        trans.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[DB] Error saving allowed users: {ex.Message}");
                     }
                 }
 
-                trans.Commit();
+                try
+                {
+                    List<long> usersToSave;
+                    lock (_lock)
+                    {
+                        usersToSave = AllowedUsers.ToList();
+                    }
+                    var json = JsonSerializer.Serialize(usersToSave);
+                    File.WriteAllText(AllowedUsersFile, json);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TG Bot] Error saving allowed users: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DB] Error saving allowed users: {ex.Message}");
-            }
-        }
-
-        try
-        {
-            var json = JsonSerializer.Serialize(AllowedUsers.ToList());
-            File.WriteAllText(AllowedUsersFile, json);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[TG Bot] Error saving allowed users: {ex.Message}");
-        }
+        });
     }
 
     private static void LoadAdmins()
@@ -1080,53 +1112,7 @@ public class TelegramBotService : BackgroundService
         }
     }
 
-    private static void SaveAdmins()
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(AdminChatIds.ToList());
-            File.WriteAllText(AdminsFile, json);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[TG Bot] Error saving admins: {ex.Message}");
-        }
-    }
 
-    private static void LoadAllowedAdminUsernames()
-    {
-        try
-        {
-            if (File.Exists(AllowedAdminsFile))
-            {
-                var json = File.ReadAllText(AllowedAdminsFile);
-                var list = JsonSerializer.Deserialize<List<string>>(json);
-                if (list != null)
-                {
-                    AllowedAdminUsernames.Clear();
-                    foreach (var username in list) AllowedAdminUsernames.Add(username);
-                    Console.WriteLine($"[TG Bot] Loaded {AllowedAdminUsernames.Count} allowed admin usernames");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[TG Bot] Error loading allowed admin usernames: {ex.Message}");
-        }
-    }
-
-    private static void SaveAllowedAdminUsernames()
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(AllowedAdminUsernames.ToList());
-            File.WriteAllText(AllowedAdminsFile, json);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[TG Bot] Error saving allowed admin usernames: {ex.Message}");
-        }
-    }
 
     private static void LoadAllUsers()
     {
@@ -1177,46 +1163,60 @@ public class TelegramBotService : BackgroundService
 
     private static void SaveAllUsers()
     {
-        if (!string.IsNullOrEmpty(ConnectionString))
+        Task.Run(async () =>
         {
-            try
+            lock (_saveLock)
             {
-                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
-                conn.Open();
-                using var trans = conn.BeginTransaction();
-                
-                using (var cmd = new Npgsql.NpgsqlCommand("DELETE FROM all_users", conn, trans))
+                if (!string.IsNullOrEmpty(ConnectionString))
                 {
-                    cmd.ExecuteNonQuery();
-                }
-
-                lock (_lock)
-                {
-                    foreach (var chatId in AllUsers)
+                    try
                     {
-                        using var cmd = new Npgsql.NpgsqlCommand("INSERT INTO all_users (chat_id) VALUES (@chatId) ON CONFLICT DO NOTHING", conn, trans);
-                        cmd.Parameters.AddWithValue("chatId", chatId);
-                        cmd.ExecuteNonQuery();
+                        long[] userArray;
+                        lock (_lock)
+                        {
+                            userArray = AllUsers.ToArray();
+                        }
+
+                        using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                        conn.Open();
+                        using var trans = conn.BeginTransaction();
+                        
+                        using (var cmd = new Npgsql.NpgsqlCommand("DELETE FROM all_users", conn, trans))
+                        {
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        if (userArray.Length > 0)
+                        {
+                            using var cmd = new Npgsql.NpgsqlCommand("INSERT INTO all_users (chat_id) SELECT * FROM UNNEST(@chatIds) ON CONFLICT DO NOTHING", conn, trans);
+                            cmd.Parameters.AddWithValue("chatIds", userArray);
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        trans.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[DB] Error saving all users: {ex.Message}");
                     }
                 }
 
-                trans.Commit();
+                try
+                {
+                    List<long> usersToSave;
+                    lock (_lock)
+                    {
+                        usersToSave = AllUsers.ToList();
+                    }
+                    var json = JsonSerializer.Serialize(usersToSave);
+                    File.WriteAllText(AllUsersFile, json);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TG Bot] Error saving all users: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DB] Error saving all users: {ex.Message}");
-            }
-        }
-
-        try
-        {
-            var json = JsonSerializer.Serialize(AllUsers.ToList());
-            File.WriteAllText(AllUsersFile, json);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[TG Bot] Error saving all users: {ex.Message}");
-        }
+        });
     }
 
     private static void LoadRegistrations()
@@ -1294,55 +1294,66 @@ public class TelegramBotService : BackgroundService
 
     private static void SaveRegistrations()
     {
-        if (!string.IsNullOrEmpty(ConnectionString))
+        Task.Run(() =>
         {
-            try
+            lock (_saveLock)
             {
-                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
-                conn.Open();
-                using var trans = conn.BeginTransaction();
-                
-                lock (_lock)
+                if (!string.IsNullOrEmpty(ConnectionString))
                 {
-                    foreach (var reg in PocketRegistrations.Values)
+                    try
                     {
-                        using var cmd = new Npgsql.NpgsqlCommand(@"
-                            INSERT INTO registrations (pocket_id, chat_id, has_registered, has_deposited, deposit_amount)
-                            VALUES (@pocketId, @chatId, @hasReg, @hasDep, @depAmt)
-                            ON CONFLICT (pocket_id) 
-                            DO UPDATE SET 
-                                chat_id = EXCLUDED.chat_id,
-                                has_registered = EXCLUDED.has_registered,
-                                has_deposited = EXCLUDED.has_deposited,
-                                deposit_amount = EXCLUDED.deposit_amount", conn, trans);
+                        using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
+                        conn.Open();
+                        using var trans = conn.BeginTransaction();
+                        
+                        lock (_lock)
+                        {
+                            foreach (var reg in PocketRegistrations.Values)
+                            {
+                                using var cmd = new Npgsql.NpgsqlCommand(@"
+                                    INSERT INTO registrations (pocket_id, chat_id, has_registered, has_deposited, deposit_amount)
+                                    VALUES (@pocketId, @chatId, @hasReg, @hasDep, @depAmt)
+                                    ON CONFLICT (pocket_id) 
+                                    DO UPDATE SET 
+                                        chat_id = EXCLUDED.chat_id,
+                                        has_registered = EXCLUDED.has_registered,
+                                        has_deposited = EXCLUDED.has_deposited,
+                                        deposit_amount = EXCLUDED.deposit_amount", conn, trans);
 
-                        cmd.Parameters.AddWithValue("pocketId", reg.PocketId);
-                        cmd.Parameters.AddWithValue("chatId", reg.ChatId);
-                        cmd.Parameters.AddWithValue("hasReg", reg.HasRegistered);
-                        cmd.Parameters.AddWithValue("hasDep", reg.HasDeposited);
-                        cmd.Parameters.AddWithValue("depAmt", reg.DepositAmount);
+                                cmd.Parameters.AddWithValue("pocketId", reg.PocketId);
+                                cmd.Parameters.AddWithValue("chatId", reg.ChatId);
+                                cmd.Parameters.AddWithValue("hasReg", reg.HasRegistered);
+                                cmd.Parameters.AddWithValue("hasDep", reg.HasDeposited);
+                                cmd.Parameters.AddWithValue("depAmt", reg.DepositAmount);
 
-                        cmd.ExecuteNonQuery();
+                                cmd.ExecuteNonQuery();
+                            }
+                        }
+
+                        trans.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[DB] Error saving registrations to PostgreSQL: {ex.Message}");
                     }
                 }
 
-                trans.Commit();
+                try
+                {
+                    List<PocketRegistration> regsToSave;
+                    lock (_lock)
+                    {
+                        regsToSave = PocketRegistrations.Values.ToList();
+                    }
+                    var json = JsonSerializer.Serialize(regsToSave);
+                    File.WriteAllText(RegistrationsFile, json);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TG Bot] Error saving registrations: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DB] Error saving registrations to PostgreSQL: {ex.Message}");
-            }
-        }
-
-        try
-        {
-            var json = JsonSerializer.Serialize(PocketRegistrations.Values.ToList());
-            File.WriteAllText(RegistrationsFile, json);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[TG Bot] Error saving registrations: {ex.Message}");
-        }
+        });
     }
 
     public static async Task ProcessPostback(long chatId, string pocketId, string status, double deposit)
