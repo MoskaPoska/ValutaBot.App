@@ -157,7 +157,7 @@ public class TelegramBotService : BackgroundService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[TG Bot] Error in polling loop: {ex.Message}");
+                BotLogger.Error($"[TG Bot] Error in polling loop: {ex.Message}", ex);
                 await Task.Delay(5000, stoppingToken);
             }
         }
@@ -165,19 +165,20 @@ public class TelegramBotService : BackgroundService
 
     private static async Task HandleMessage(string token, long chatId, string text, string username, string webAppUrl)
     {
-        // Track activity & unique user
-        UserLastActivity[chatId] = DateTime.UtcNow;
-        lock (_lock)
+        try
         {
-            if (!AllUsers.Contains(chatId))
+            UserLastActivity[chatId] = DateTime.UtcNow;
+            lock (_lock)
             {
-                AllUsers.Add(chatId);
-                SaveAllUsers();
+                if (!AllUsers.Contains(chatId))
+                {
+                    AllUsers.Add(chatId);
+                    SaveAllUsers();
+                }
             }
-        }
 
-        string cleanText = text.Trim();
-        string command = cleanText.Split(' ')[0].Replace("@valutaPocket_bot", "").ToLower();
+            string cleanText = text.Trim();
+            string command = cleanText.Split(' ')[0].Replace("@valutaPocket_bot", "").ToLower();
 
         // Check Admin commands first
         bool isAdmin;
@@ -451,6 +452,11 @@ public class TelegramBotService : BackgroundService
         else
         {
             await SendGatedWelcome(token, chatId);
+        }
+        }
+        catch (Exception ex)
+        {
+            BotLogger.Error($"[TG Bot] Error handling message for chatId {chatId}", ex);
         }
     }
 

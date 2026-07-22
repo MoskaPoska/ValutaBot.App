@@ -85,7 +85,7 @@ public static class TwelveDataService
             if (doc.RootElement.TryGetProperty("status", out var status) && status.GetString() == "error")
             {
                 var msg = doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() : "";
-                Console.WriteLine($"[TwelveData] API error: {msg}");
+                BotLogger.Warn($"[TwelveData] API error for {rawAsset}: {msg}");
                 throw new Exception($"TwelveData API error: {msg}");
             }
 
@@ -93,7 +93,7 @@ public static class TwelveDataService
             {
                 if (_cache.TryGetValue(key, out var last))
                 {
-                    Console.WriteLine($"[TwelveData] No values, using last known data for {rawAsset}");
+                    BotLogger.Warn($"[TwelveData] No values in response, serving cache for {rawAsset}");
                     return (last.prices, last.volumes);
                 }
                 return null;
@@ -104,7 +104,7 @@ public static class TwelveDataService
             {
                 if (_cache.TryGetValue(key, out var last))
                 {
-                    Console.WriteLine($"[TwelveData] Too few candles ({arr.Count}), using last known data for {rawAsset}");
+                    BotLogger.Warn($"[TwelveData] Too few candles ({arr.Count}), serving cache for {rawAsset}");
                     return (last.prices, last.volumes);
                 }
                 return null;
@@ -121,7 +121,6 @@ public static class TwelveDataService
                 .Reverse()
                 .ToArray();
 
-            // Cache full OHLC for Claude pattern analysis
             try
             {
                 var ohlc = arr.Select(v => new MiniAppController.OhlcCandle(
@@ -132,25 +131,35 @@ public static class TwelveDataService
                     v.TryGetProperty("volume", out var vl) && double.TryParse(vl.GetString(), System.Globalization.NumberStyles.Any,
                         System.Globalization.CultureInfo.InvariantCulture, out var volVal) ? volVal : 0
                 )).Reverse().ToArray();
-                // Use rawAsset_interval as key (matches what MiniAppController will look up)
                 MiniAppController.SetOhlcCandles($"{rawAsset}_{interval}", ohlc);
             }
             catch (Exception ohlcEx)
             {
-                Console.WriteLine($"[TwelveData] OHLC cache failed: {ohlcEx.Message}");
+                BotLogger.Warn($"[TwelveData] OHLC cache parse warning for {rawAsset}", ohlcEx);
             }
 
             _cache[key] = (prices, volumes, DateTime.UtcNow);
-            Console.WriteLine($"[TwelveData] Fetched {prices.Length} candles for {symbol} ({interval})");
+            BotLogger.Info($"[TwelveData] Successfully fetched {prices.Length} candles for {symbol} ({interval})");
             return (prices, volumes);
         }
-        catch (Exception ex)
+        catch (JsonException jsonEx)
         {
-            Console.WriteLine($"[TwelveData] Fetch failed: {ex.Message}");
+            BotLogger.Warn($"[TwelveData] JSON parse error for {rawAsset}", jsonEx);
 
             if (_cache.TryGetValue(key, out var last))
             {
-                Console.WriteLine($"[TwelveData] Using last known cached data for {rawAsset} (fetched at {last.fetchedAt})");
+                BotLogger.Info($"[TwelveData] Serving cached fallback data for {rawAsset}");
+                return (last.prices, last.volumes);
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            BotLogger.Warn($"[TwelveData] Fetch failed for {rawAsset}: {ex.Message}");
+
+            if (_cache.TryGetValue(key, out var last))
+            {
+                BotLogger.Info($"[TwelveData] Serving cached fallback data for {rawAsset}");
                 return (last.prices, last.volumes);
             }
             return null;

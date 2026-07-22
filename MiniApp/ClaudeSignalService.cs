@@ -331,7 +331,7 @@ public static class ClaudeSignalService
     private static async Task<(string direction, double probability, string reasoning)> SendOpenRouterRequestAsync(
         string model, string apiKey, string systemPrompt, string asset, string indicators)
     {
-        Console.WriteLine($"[Claude] Attempting request to OpenRouter with model: {model}");
+        BotLogger.Info($"[Claude] Sending request to OpenRouter with model: {model}");
 
         for (int retry = 0; retry <= 3; retry++)
         {
