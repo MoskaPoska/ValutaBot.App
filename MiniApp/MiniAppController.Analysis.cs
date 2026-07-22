@@ -80,25 +80,16 @@ public static partial class MiniAppController
                 mainVolumes = mainResultTuple.volumes;
             }
 
-            if (mainPrices != null && mainPrices.Length >= 15)
+            var ohlcCandles = MarketDataFetcher.GetOhlcCandles($"{clean}_{mainInterval}") ?? Array.Empty<OhlcCandle>();
+            var gatekeeper = TechnicalAnalysisEngine.ValidateMarketGatekeeper(mainPrices, ohlcCandles);
+            if (!gatekeeper.IsTradeable)
             {
-                bool isFlat = true;
-                double first = mainPrices[^1];
-                for (int i = 2; i <= 15; i++)
-                {
-                    if (Math.Abs(mainPrices[^i] - first) > 1e-8)
-                    {
-                        isFlat = false;
-                        break;
-                    }
-                }
-
-                if (isFlat)
-                {
-                    Console.WriteLine($"[Market-Flat] Detected flat/static market for {asset} on {timeframe}. Returning neutral fallback.");
-                    return GetMomentumPrediction(asset, timeframe);
-                }
+                BotLogger.Warn($"[Analysis] Gatekeeper aborted trade for {asset} ({timeframe}): {gatekeeper.Reason}");
+                return GetMomentumPrediction(asset, timeframe);
             }
+
+            var smcResult = SmcEngine.AnalyzeSmcStructure(ohlcCandles, mainPrices[^1]);
+            BotLogger.Info($"[SMC Engine] Asset {asset} ({timeframe}): {smcResult.SummaryReasoning}");
 
             var higherTask = higherTf != null ? SafeFetch(higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
             var lowerTask = lowerTf != null ? SafeFetch(lowerTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
@@ -222,7 +213,7 @@ public static partial class MiniAppController
             (macdLine, macdSig) = TechnicalAnalysisEngine.ComputeMacd(mainPrices, mainPrices.Length - 1);
             double bbZscore = TechnicalAnalysisEngine.ComputeBollingerZscore(mainPrices, 20);
 
-            var ohlcCandles = MarketDataFetcher.GetOhlcCandles(mainOhlcKey);
+            ohlcCandles = MarketDataFetcher.GetOhlcCandles(mainOhlcKey) ?? ohlcCandles;
             var ohlcForClaude = ohlcCandles != null && ohlcCandles.Length > 30 ? ohlcCandles[^30..] : ohlcCandles;
             var detectedPatterns = ohlcCandles != null ? PatternDetector.DetectPatterns(ohlcCandles) : new List<string>();
             var (supports, resistances) = PatternDetector.CalculateLevels(mainPrices, isForex);

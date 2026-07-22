@@ -211,6 +211,32 @@ public static class TechnicalAnalysisEngine
         return (score, Math.Clamp(confidence, 50, 95), Math.Round(rsi, 1), Math.Round(hma, 5), Math.Round(volStrength, 2), Math.Round(atrVal, 6));
     }
 
+    public record GatekeeperResult(bool IsTradeable, string Reason, double Atr, double Adx);
+
+    public static GatekeeperResult ValidateMarketGatekeeper(double[] prices, MiniAppController.OhlcCandle[]? candles = null)
+    {
+        if (prices == null || prices.Length < 15)
+        {
+            return new GatekeeperResult(false, "Недостаточно свечей для проверки Gatekeeper", 0, 0);
+        }
+
+        double atr = candles != null ? ComputeAtr(candles) : 0;
+        var (adx, _, _) = candles != null ? ComputeTrueAdx(candles) : (20.0, 0, 0);
+
+        // Check flat / dead market: if prices didn't move
+        double minPrice = prices[^15..].Min();
+        double maxPrice = prices[^15..].Max();
+        double priceRange = maxPrice - minPrice;
+
+        if (priceRange < 1e-7)
+        {
+            BotLogger.Warn("[Gatekeeper] Market is completely flat / frozen. Aborting analysis early in 0ms.");
+            return new GatekeeperResult(false, "⚠️ Рынок в состоянии застоя (нет колебаний цены).", atr, adx);
+        }
+
+        return new GatekeeperResult(true, "Рынок активен", atr, adx);
+    }
+
     public static double CalculateVolatilityRatio(double[] prices)
     {
         if (prices == null || prices.Length < 25) return 1.0;
