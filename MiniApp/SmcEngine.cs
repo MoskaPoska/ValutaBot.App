@@ -2,7 +2,8 @@ namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Smart Money Concepts (SMC) & Institutional Liquidity Engine.
-/// Detects Liquidity Sweeps, Fair Value Gaps (FVG), Unmitigated Order Blocks (OB), and Structural Breaks (BOS / CHOCH).
+/// Detects Liquidity Sweeps, Fair Value Gaps (FVG), Unmitigated Order Blocks (OB), Structural Breaks (BOS / CHOCH),
+/// and enforces Multi-Timeframe (MTF) HTF Structure Validation (m15/m30 alignment).
 /// </summary>
 public static class SmcEngine
 {
@@ -21,6 +22,13 @@ public static class SmcEngine
         bool HasBos,
         string BosDirection, // "BULLISH_BOS" | "BEARISH_BOS" | "NONE"
         string SummaryReasoning
+    );
+
+    public record MtfSmcValidationResult(
+        bool IsAlignedWithHtf,
+        double ConfluenceMultiplier,
+        string AlignmentStatus, // "ALIGNED" | "COUNTER_TREND_CONFLICT" | "NEUTRAL"
+        string Description
     );
 
     public static SmcAnalysisResult AnalyzeSmcStructure(MiniAppController.OhlcCandle[] candles, double currentPrice)
@@ -56,7 +64,6 @@ public static class SmcEngine
             var c2 = candles[^3];
             var c3 = candles[^2];
 
-            // Bullish FVG: Low of c3 is strictly higher than High of c1
             if (c3.Low > c1.High)
             {
                 bullishFvg = true;
@@ -64,7 +71,6 @@ public static class SmcEngine
                 fvgBottom = c1.High;
                 fvgGapSize = fvgTop - fvgBottom;
             }
-            // Bearish FVG: High of c3 is strictly lower than Low of c1
             else if (c3.High < c1.Low)
             {
                 bearishFvg = true;
@@ -88,7 +94,6 @@ public static class SmcEngine
             double body = Math.Abs(candle.Close - candle.Open);
             double range = candle.High - candle.Low;
 
-            // Displacement criteria: Body must be > 60% of candle range
             if (range > 1e-8 && (body / range) >= 0.60)
             {
                 bool isBullishObCandidate = candle.Close < candle.Open && currentPrice > candle.High;
@@ -96,7 +101,6 @@ public static class SmcEngine
 
                 if (isBullishObCandidate || isBearishObCandidate)
                 {
-                    // Check Mitigation Status: Has any candle after 'i' touched this OB range?
                     bool isMitigated = false;
                     for (int j = i + 1; j < n - 1; j++)
                     {
@@ -113,7 +117,6 @@ public static class SmcEngine
                         }
                     }
 
-                    // Only accept UNMITIGATED Order Blocks (fresh institutional liquidity)
                     if (!isMitigated)
                     {
                         if (isBullishObCandidate)
@@ -167,5 +170,55 @@ public static class SmcEngine
             bullishBos || bearishBos, bosDir,
             summaryText
         );
+    }
+
+    /// <summary>
+    /// Validates m1 SMC signals against the m15 / m30 Higher Timeframe (HTF) structure.
+    /// Heavily penalizes or blocks counter-trend SMC trades against HTF structure.
+    /// </summary>
+    public static MtfSmcValidationResult ValidateMtfSmcAlignment(SmcAnalysisResult mainSmc, SmcAnalysisResult htfSmc)
+    {
+        if (htfSmc == null)
+        {
+            return new MtfSmcValidationResult(true, 1.0, "NEUTRAL", "Старший таймфрейм недоступен, проверка сопоставлена нейтрально.");
+        }
+
+        // Determine HTF dominant direction
+        bool htfBullish = htfSmc.BosDirection == "BULLISH_BOS" || htfSmc.OrderBlockType == "BULLISH_OB" || htfSmc.FvgType == "BULLISH_FVG";
+        bool htfBearish = htfSmc.BosDirection == "BEARISH_BOS" || htfSmc.OrderBlockType == "BEARISH_OB" || htfSmc.FvgType == "BEARISH_FVG";
+
+        // Determine main (m1) signal direction
+        bool mainBullish = mainSmc.BosDirection == "BULLISH_BOS" || mainSmc.OrderBlockType == "BULLISH_OB" || mainSmc.FvgType == "BULLISH_FVG";
+        bool mainBearish = mainSmc.BosDirection == "BEARISH_BOS" || mainSmc.OrderBlockType == "BEARISH_OB" || mainSmc.FvgType == "BEARISH_FVG";
+
+        // Counter-trend Conflict: Main signal opposes HTF structure
+        if (mainBullish && htfBearish)
+        {
+            BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local m1 BUY signal opposes HTF (m15) BEARISH structure. Signal penalized.");
+            return new MtfSmcValidationResult(
+                false, 0.30, "COUNTER_TREND_CONFLICT",
+                "⚠️ Конфликт со старшим таймфреймом: бычий сетап на m1 против глобального медвежьего тренда m15."
+            );
+        }
+        if (mainBearish && htfBullish)
+        {
+            BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local m1 PUT signal opposes HTF (m15) BULLISH structure. Signal penalized.");
+            return new MtfSmcValidationResult(
+                false, 0.30, "COUNTER_TREND_CONFLICT",
+                "⚠️ Конфликт со старшим таймфреймом: медвежий сетап на m1 против глобального бычьего тренда m15."
+            );
+        }
+
+        // High Confluence Alignment: Main signal matches HTF structure
+        if ((mainBullish && htfBullish) || (mainBearish && htfBearish))
+        {
+            BotLogger.Info("[MTF SMC Filter] High Confluence Alignment! Local m1 SMC signal perfectly matches HTF m15 structure.");
+            return new MtfSmcValidationResult(
+                true, 1.40, "ALIGNED",
+                "✅ Высокое совпадение: сетап на m1 строго по тренду старшей структуры m15."
+            );
+        }
+
+        return new MtfSmcValidationResult(true, 1.0, "NEUTRAL", "Нейтральное совпадение со старшей структурой.");
     }
 }

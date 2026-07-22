@@ -196,14 +196,21 @@ public static partial class MiniAppController
             {
                 var higherOhlcKey = higherTf != null ? (symbol != null ? $"{symbol}_{MarketDataFetcher.IntervalMap(higherTf)}" : $"{asset}_{MarketDataFetcher.IntervalMap(higherTf)}") : null;
                 var higherOhlc = higherOhlcKey != null ? MarketDataFetcher.GetOhlcCandles(higherOhlcKey) : null;
+                if (higherOhlc != null && higherOhlc.Length >= 10)
+                {
+                    var htfSmcResult = SmcEngine.AnalyzeSmcStructure(higherOhlc, higherResultData.Value.prices[^1]);
+                    var mtfValidation = SmcEngine.ValidateMtfSmcAlignment(smcResult, htfSmcResult);
+                    conflictPenalty *= mtfValidation.ConfluenceMultiplier;
+                    BotLogger.Info($"[MTF SMC Validation] Alignment: {mtfValidation.AlignmentStatus} | Multiplier={mtfValidation.ConfluenceMultiplier:F2}x | {mtfValidation.Description}");
+                }
 
                 var (hAdx, hPdi, hMdi) = higherOhlc != null ? TechnicalAnalysisEngine.ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
                 double hAtr = higherOhlc != null ? TechnicalAnalysisEngine.ComputeAtr(higherOhlc) : 0;
                 higherResult = TechnicalAnalysisEngine.ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: isForex);
-                conflictPenalty = MfConflictPenalty(mainResult, higherResult);
+                conflictPenalty *= MfConflictPenalty(mainResult, higherResult);
 
-                totalScore += higherResult.score;
-                totalConfidence += higherResult.confidence * 2.0;
+                totalScore += higherResult.score * conflictPenalty;
+                totalConfidence += higherResult.confidence * 2.0 * conflictPenalty;
                 totalWeight += 2.0;
             }
 
