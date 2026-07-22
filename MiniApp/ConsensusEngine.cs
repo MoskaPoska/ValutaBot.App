@@ -28,16 +28,16 @@ public static class ConsensusEngine
         double mlConfidence,
         double rsiVal,
         double emaVal,
-        bool isSubMinute)
+        bool isSubMinute,
+        string asset = "EURUSD",
+        string timeframe = "m1")
     {
-        // ─── 1. Base weights ───
-        double weightLgbm = 1.8;
-        double weightMath = 1.0;
-        double weightClaude = 1.5;
+        // ─── 1. Auto-Calibrated Base weights ───
+        double weightLgbm = AutoCalibrationEngine.GetCalibratedWeight("LIGHTGBM", asset, timeframe, 1.8);
+        double weightMath = AutoCalibrationEngine.GetCalibratedWeight("SKENDER_MATH", asset, timeframe, 1.0);
+        double weightClaude = AutoCalibrationEngine.GetCalibratedWeight("CLAUDE_AI", asset, timeframe, 1.5);
 
         // ─── 2. Dynamic RSI Extreme Weight Shift (Meta-Labeling & Suppression) ───
-        // On market extremes (RSI >= 70 or RSI <= 30), technical boundaries dominate.
-        // We boost Skender Math weight by 2.5x and suppress ML weight to 0.4x to prevent ML hallucinations.
         bool isExtremeRsi = rsiVal >= 70.0 || rsiVal <= 30.0;
         if (isExtremeRsi)
         {

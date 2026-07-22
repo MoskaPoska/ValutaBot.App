@@ -251,7 +251,9 @@ public static partial class MiniAppController
                 lgbmDirection, lgbmConfidence, lgbmAccuracy,
                 mlDirection, mlConfidence,
                 mainResult.rsiVal, mainResult.emaVal,
-                isSubMinute
+                isSubMinute,
+                asset,
+                timeframe
             );
 
             var overallStats = SignalTracker.GetOverallStats();
