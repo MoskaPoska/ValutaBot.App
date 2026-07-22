@@ -82,11 +82,13 @@ public class TelegramBotService : BackgroundService
 
         lock (_lock)
         {
-            InitDatabase();
-            LoadAllowedUsers();
-            LoadAdmins();
-            LoadAllUsers();
-            LoadRegistrations();
+            BotDatabase.Initialize();
+            AllowedUsers.Clear();
+            foreach (var id in BotDatabase.LoadAllowedUsers()) AllowedUsers.Add(id);
+            AdminChatIds.Clear();
+            foreach (var id in BotDatabase.LoadAdmins()) AdminChatIds.Add(id);
+            AllUsers.Clear();
+            foreach (var id in BotDatabase.LoadAllUsers()) AllUsers.Add(id);
         }
 
         long offset = 0;
