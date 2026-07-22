@@ -75,7 +75,7 @@ public static partial class MiniAppController
             else
             {
                 int mainCacheTtl = 10;
-                var mainResultTuple = await MarketDataFetcher.FetchBinanceWithFallback(symbol, mainInterval, clean, limit, mainCacheTtl);
+                var mainResultTuple = await ExchangeDataResilience.FetchPricesResilientAsync(symbol, mainInterval, clean, limit, mainCacheTtl);
                 mainPrices = mainResultTuple.prices;
                 mainVolumes = mainResultTuple.volumes;
             }
@@ -297,10 +297,23 @@ public static partial class MiniAppController
                 signalsPending = SignalTracker.GetPendingCount()
             };
         }
+        catch (ExchangeUnavailableException exEx)
+        {
+            LastExceptionMessage = exEx.ToString();
+            BotLogger.Warn($"[Analysis] Exchange unavailable for asset {asset}: {exEx.Message}");
+            return new
+            {
+                error = true,
+                message = exEx.UserFriendlyMessage,
+                direction = "NEUTRAL",
+                probability = 50,
+                claudeReasoning = exEx.UserFriendlyMessage
+            };
+        }
         catch (Exception ex)
         {
             LastExceptionMessage = ex.ToString();
-            Console.WriteLine($"[ERR] Analysis failed: {ex.Message}");
+            BotLogger.Error($"[Analysis] Analysis failed for asset {asset} on {timeframe}", ex);
             return GetMomentumPrediction(asset, timeframe);
         }
     }
