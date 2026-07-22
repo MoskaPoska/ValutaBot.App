@@ -1,13 +1,14 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace ValutaBot.MiniApp;
 
 public static partial class TwelveDataService
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
-    private static readonly ConcurrentDictionary<string, (double[] prices, double[] volumes, DateTime fetchedAt)> _cache = new();
+    private static readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions());
     private static string? _apiKey;
 
     private static readonly ConcurrentQueue<DateTime> _apiCallTimestamps = new();
@@ -42,13 +43,13 @@ public static partial class TwelveDataService
 
     public static async Task<(double[] prices, double[] volumes)?> FetchCandlesAsync(string rawAsset, string interval, int limit = 100, int cacheTtlSeconds = 10)
     {
-        string key = $"{rawAsset}_{interval}";
+        string key = $"TWELVE_DATA_{rawAsset.ToUpper()}_{interval.ToLower()}";
 
-        // 1. Check cache first for fresh data (less than cacheTtlSeconds old)
-        if (cacheTtlSeconds > 0 && _cache.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.fetchedAt).TotalSeconds < cacheTtlSeconds)
+        // 1. Check IMemoryCache first for fresh data
+        if (cacheTtlSeconds > 0 && _memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) cachedData))
         {
-            Console.WriteLine($"[TwelveData] Using cached data for {rawAsset} ({interval}) - fresh");
-            return (cached.prices, cached.volumes);
+            BotLogger.Info($"[TwelveData] Using IMemoryCache data for {rawAsset} ({interval})");
+            return cachedData;
         }
 
         string apiKey = GetApiKey();
@@ -57,15 +58,14 @@ public static partial class TwelveDataService
         // 2. Check rolling rate limiter before making the HTTP API call
         if (!CheckAndRegisterRateLimit())
         {
-            if (_cache.TryGetValue(key, out var last))
+            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
             {
-                Console.WriteLine($"[TwelveData] Rate limit safety triggered (7/8 reached). Serving cache for {rawAsset} ({interval}) immediately to prevent 429.");
-                return (last.prices, last.volumes);
+                BotLogger.Info($"[TwelveData] Rate limit safety triggered. Serving IMemoryCache for {rawAsset} ({interval}).");
+                return lastData;
             }
-            Console.WriteLine($"[TwelveData] Rate limit safety triggered (7/8 reached), but no cache exists for {rawAsset} ({interval})!");
+            BotLogger.Warn($"[TwelveData] Rate limit safety triggered, but no cache exists for {rawAsset} ({interval})!");
             return null;
         }
-
 
         try
         {
@@ -91,10 +91,10 @@ public static partial class TwelveDataService
 
             if (!doc.RootElement.TryGetProperty("values", out var values))
             {
-                if (_cache.TryGetValue(key, out var last))
+                if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
                 {
-                    BotLogger.Warn($"[TwelveData] No values in response, serving cache for {rawAsset}");
-                    return (last.prices, last.volumes);
+                    BotLogger.Warn($"[TwelveData] No values in response, serving IMemoryCache for {rawAsset}");
+                    return lastData;
                 }
                 return null;
             }
@@ -102,10 +102,10 @@ public static partial class TwelveDataService
             var arr = values.EnumerateArray().ToList();
             if (arr.Count < 10)
             {
-                if (_cache.TryGetValue(key, out var last))
+                if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
                 {
-                    BotLogger.Warn($"[TwelveData] Too few candles ({arr.Count}), serving cache for {rawAsset}");
-                    return (last.prices, last.volumes);
+                    BotLogger.Warn($"[TwelveData] Too few candles ({arr.Count}), serving IMemoryCache for {rawAsset}");
+                    return lastData;
                 }
                 return null;
             }
@@ -138,7 +138,10 @@ public static partial class TwelveDataService
                 BotLogger.Warn($"[TwelveData] OHLC cache parse warning for {rawAsset}", ohlcEx);
             }
 
-            _cache[key] = (prices, volumes, DateTime.UtcNow);
+            if (cacheTtlSeconds > 0)
+            {
+                _memoryCache.Set(key, (prices, volumes), TimeSpan.FromSeconds(cacheTtlSeconds));
+            }
             BotLogger.Info($"[TwelveData] Successfully fetched {prices.Length} candles for {symbol} ({interval})");
             return (prices, volumes);
         }
@@ -146,10 +149,10 @@ public static partial class TwelveDataService
         {
             BotLogger.Warn($"[TwelveData] JSON parse error for {rawAsset}", jsonEx);
 
-            if (_cache.TryGetValue(key, out var last))
+            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
             {
-                BotLogger.Info($"[TwelveData] Serving cached fallback data for {rawAsset}");
-                return (last.prices, last.volumes);
+                BotLogger.Info($"[TwelveData] Serving IMemoryCache fallback data for {rawAsset}");
+                return lastData;
             }
             return null;
         }
@@ -157,10 +160,10 @@ public static partial class TwelveDataService
         {
             BotLogger.Warn($"[TwelveData] Fetch failed for {rawAsset}: {ex.Message}");
 
-            if (_cache.TryGetValue(key, out var last))
+            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
             {
-                BotLogger.Info($"[TwelveData] Serving cached fallback data for {rawAsset}");
-                return (last.prices, last.volumes);
+                BotLogger.Info($"[TwelveData] Serving IMemoryCache fallback data for {rawAsset}");
+                return lastData;
             }
             return null;
         }
