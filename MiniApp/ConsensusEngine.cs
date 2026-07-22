@@ -1,8 +1,9 @@
 namespace ValutaBot.MiniApp;
 
 /// <summary>
-/// Decision Consensus Engine: Combines signals from Claude 3.5 Sonnet, LightGBM ML, Holt ML, and Technical Analysis.
-/// Gives high-confidence Local AI priority override over raw indicator disagreement.
+/// Decision Consensus Engine: Implements Soft Voting & Dynamic Extreme Weighting.
+/// Dynamically suppresses ML hallucinations on RSI extreme boundaries (>70 / <30)
+/// and calculates continuous probabilities across LightGBM, Claude AI, and Skender Math.
 /// </summary>
 public static class ConsensusEngine
 {
@@ -28,27 +29,47 @@ public static class ConsensusEngine
         double emaVal,
         bool isSubMinute)
     {
-        // ─── 1. Check Local AI Priority Override ───
+        // ─── 1. Base weights ───
+        double weightLgbm = 1.8;
+        double weightMath = 1.0;
+        double weightClaude = 1.5;
+
+        // ─── 2. Dynamic RSI Extreme Weight Shift (Meta-Labeling & Suppression) ───
+        // On market extremes (RSI >= 70 or RSI <= 30), technical boundaries dominate.
+        // We boost Skender Math weight by 2.5x and suppress ML weight to 0.4x to prevent ML hallucinations.
+        bool isExtremeRsi = rsiVal >= 70.0 || rsiVal <= 30.0;
+        if (isExtremeRsi)
+        {
+            weightMath *= 2.5;
+            weightLgbm *= 0.4;
+            BotLogger.Info($"[Consensus] Extreme RSI ({rsiVal:F1}) detected. Boosting Skender Math weight ({weightMath:F1}x) and suppressing ML weight ({weightLgbm:F1}x).");
+        }
+
+        // ─── 3. Soft Voting Continuous Score Calculation ───
+        double scoreLgbm = lgbmDirection == "BUY" ? lgbmConfidence : lgbmDirection == "PUT" ? -lgbmConfidence : 0;
+        double scoreClaude = claudeDirection == "BUY" ? (claudeProbability / 100.0) : claudeDirection == "PUT" ? -(claudeProbability / 100.0) : 0;
+        double scoreMath = Math.Clamp(totalScore, -1.0, 1.0);
+
+        double totalWeightSum = weightLgbm + weightMath + weightClaude;
+        double weightedScore = (scoreLgbm * weightLgbm + scoreClaude * weightClaude + scoreMath * weightMath) / totalWeightSum;
+
+        // ─── 4. Determine final direction & continuous probability ───
         string candidateDir;
-        if (!string.IsNullOrEmpty(lgbmDirection) && lgbmDirection != "NEUTRAL" && lgbmConfidence >= 0.60)
-        {
-            candidateDir = lgbmDirection;
-            Console.WriteLine($"[Consensus] LightGBM priority override ({lgbmDirection}, conf={lgbmConfidence:F2}) active.");
-        }
-        else if (mlDirection != "NEUTRAL" && mlConfidence >= 68)
-        {
-            candidateDir = mlDirection;
-            Console.WriteLine($"[Consensus] Local Holt ML priority override ({mlDirection}, conf={mlConfidence:F0}%) active.");
-        }
+        if (weightedScore > 0.12)
+            candidateDir = "BUY";
+        else if (weightedScore < -0.12)
+            candidateDir = "PUT";
         else
-        {
-            candidateDir = scoreSign > 0 ? "BUY" : scoreSign < 0 ? "PUT" : "NEUTRAL";
-        }
+            candidateDir = "NEUTRAL";
+
+        double absWeightedScore = Math.Abs(weightedScore);
+        int probability = isSubMinute
+            ? Math.Clamp(62 + (int)Math.Round(absWeightedScore * 25), 60, 88)
+            : Math.Clamp(68 + (int)Math.Round(absWeightedScore * 28), 65, 95);
 
         string finalDirection = candidateDir;
-        int probability = isSubMinute ? 65 : 72;
 
-        // ─── 2. Format Model Accuracy text ───
+        // ─── 5. Format Model Accuracy & Reasoning text ───
         string modelAccText = lgbmAccuracy.HasValue 
             ? $" [обученность: {Math.Round(lgbmAccuracy.Value * 100, 1)}%]" 
             : " [обученность: 68.5%]";
@@ -57,7 +78,7 @@ public static class ConsensusEngine
             ? $"• ⚡ Локальная ИИ (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность){modelAccText}"
             : $"• ⚡ Локальная ИИ: {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность){modelAccText}";
 
-        string mathText = $"• 📊 Матем. анализ: {(totalScore > 0.05 ? "ВВЕРХ ⬆" : totalScore < -0.05 ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} (RSI: {Math.Round(rsiVal, 1)}, EMA: {Math.Round(emaVal, 2)})";
+        string mathText = $"• 📊 Матем. анализ (Skender): {(scoreMath > 0.05 ? "ВВЕРХ ⬆" : scoreMath < -0.05 ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} (RSI: {Math.Round(rsiVal, 1)}, EMA: {Math.Round(emaVal, 2)})";
 
         string baseClaudeReasoning = string.IsNullOrEmpty(claudeReasoningText)
             ? "Анализ структуры цены и технических индикаторов."
