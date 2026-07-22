@@ -13,6 +13,7 @@
     <PackageReference Include="Npgsql" Version="9.0.2" />
     <PackageReference Include="Polly" Version="8.5.2" />
     <PackageReference Include="Skender.Stock.Indicators" Version="2.6.0" />
+    <PackageReference Include="Telegram.Bot" Version="19.0.0" />
   </ItemGroup>
 
 </Project>

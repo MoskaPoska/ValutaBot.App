@@ -1,50 +1,54 @@
-using System.Text.Json;
+using Telegram.Bot;
+using Telegram.Bot.Types.Enums;
 
 namespace ValutaBot.MiniApp;
 
+/// <summary>
+/// Refactored Telegram Notifier using official Telegram.Bot SDK.
+/// Replaces manual HttpClient JSON string manipulation with strongly-typed TelegramBotClient API.
+/// </summary>
 public static class TelegramNotifier
 {
-    private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    private static TelegramBotClient? _botClient;
     private static string? _botToken;
     private static long _defaultChatId;
 
     public static void SetDefaultChatId(long chatId) => _defaultChatId = chatId;
     public static long GetDefaultChatId() => _defaultChatId;
     public static string? GetToken() => _botToken;
+    public static TelegramBotClient? GetBotClient() => _botClient;
 
     public static void Init(string? token)
     {
         _botToken = token;
         if (!string.IsNullOrEmpty(token))
-            Console.WriteLine("[TG] TelegramNotifier initialized");
+        {
+            _botClient = new TelegramBotClient(token);
+            BotLogger.Info("[TG Notifier] TelegramBotClient SDK initialized successfully.");
+        }
     }
 
     public static async Task SendMessage(long chatId, string text)
     {
-        if (string.IsNullOrEmpty(_botToken)) return;
+        if (_botClient == null) return;
 
         try
         {
-            var payload = new { chat_id = chatId, text, parse_mode = "HTML" };
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-            var resp = await _http.PostAsync($"https://api.telegram.org/bot{_botToken}/sendMessage", content);
-
-            if (!resp.IsSuccessStatusCode)
-            {
-                var err = await resp.Content.ReadAsStringAsync();
-                Console.WriteLine($"[TG] sendMessage error: {err}");
-            }
+            await _botClient.SendTextMessageAsync(
+                chatId: chatId,
+                text: text,
+                parseMode: ParseMode.Html
+            );
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TG] sendMessage exception: {ex.Message}");
+            BotLogger.Error($"[TG Notifier] SendMessage SDK exception to chatId={chatId}: {ex.Message}", ex);
         }
     }
 
     public static async Task SendAlert(long chatId, string title, string body, string color = "#b388ff")
     {
-        var msg = $"<b>{title}</b>\n{body}";
-        await SendMessage(chatId, msg);
+        string message = $"🚨 <b>{title}</b>\n\n{body}";
+        await SendMessage(chatId, message);
     }
 }
