@@ -11,7 +11,8 @@ public static class ConsensusEngine
         string CandidateDirection,
         string FinalDirection,
         int Probability,
-        string CombinedReasoningText
+        string CombinedReasoningText,
+        string RecommendedExpiryText = ""
     );
 
     public static DecisionResult EvaluateConsensus(

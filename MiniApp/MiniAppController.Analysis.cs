@@ -253,16 +253,17 @@ public static partial class MiniAppController
 
             var overallStats = SignalTracker.GetOverallStats();
             var assetStats   = SignalTracker.GetStats(asset, timeframe);
-            int expiryCandles = MarketDataFetcher.GetExpiryCandles(timeframe);
-            int totalExpirySec = timeframeSec * expiryCandles;
-            string durationText = isSubMinute ? $"{totalExpirySec} сек (экспирация)" : $"{timeframe.ToUpper()} ({expiryCandles} свечи)";
+            double volRatio = TechnicalAnalysisEngine.CalculateVolatilityRatio(mainPrices);
+            var adaptiveExpiry = AdaptiveExpiryEngine.CalculateOptimalExpiry(asset, timeframe, mainAtr, volRatio, smcResult, isSubMinute);
+            string durationText = adaptiveExpiry.ExpiryText;
 
             return new
             {
                 direction = consensus.FinalDirection,
                 probability = consensus.Probability,
                 duration = durationText,
-                expiryCandles,
+                adaptiveReasoning = adaptiveExpiry.Reasoning,
+                expiryCandles = Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),
                 ema = Math.Round(mainResult.emaVal, 2),
