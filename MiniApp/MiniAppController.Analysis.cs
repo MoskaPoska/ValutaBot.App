@@ -91,6 +91,9 @@ public static partial class MiniAppController
             var smcResult = SmcEngine.AnalyzeSmcStructure(ohlcCandles, mainPrices[^1]);
             BotLogger.Info($"[SMC Engine] Asset {asset} ({timeframe}): {smcResult.SummaryReasoning}");
 
+            var orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(mainPrices, mainVolumes, ohlcCandles);
+            BotLogger.Info($"[Order Flow] Asset {asset} ({timeframe}): {orderFlowResult.Description}");
+
             var higherTask = higherTf != null ? SafeFetch(higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
             var lowerTask = lowerTf != null ? SafeFetch(lowerTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
 
@@ -205,7 +208,7 @@ public static partial class MiniAppController
             }
 
             double indicatorWeight = SignalTracker.GetSignalWeight("Индикаторы", 1.0);
-            totalScore += mainResult.score * indicatorWeight;
+            totalScore += (mainResult.score + orderFlowResult.ScoreContribution) * indicatorWeight;
             totalConfidence += mainResult.confidence * indicatorWeight;
             totalWeight += indicatorWeight;
 
