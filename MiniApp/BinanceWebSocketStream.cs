@@ -2,12 +2,27 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 
 namespace ValutaBot.MiniApp;
 
+/// <summary>
+/// High-throughput Producer-Consumer WebSocket Client for Binance Tick Streams.
+/// Uses System.Threading.Channels to decouple network socket reading (Producer)
+/// from JSON parsing and SMC/OrderFlow processing (Consumer).
+/// </summary>
 public static class BinanceWebSocketStream
 {
     private static readonly ConcurrentDictionary<string, (double[] prices, double[] volumes, DateTime updatedAt)> _liveCandles = new();
+    
+    // High-performance Bounded Channel for Producer-Consumer decoupling
+    private static readonly Channel<string> _jsonChannel = Channel.CreateBounded<string>(new BoundedChannelOptions(2000)
+    {
+        SingleWriter = true,
+        SingleReader = true,
+        FullMode = BoundedChannelFullMode.DropOldest
+    });
+
     private static CancellationTokenSource? _cts;
     private static bool _isRunning = false;
 
@@ -35,15 +50,22 @@ public static class BinanceWebSocketStream
         string streamNames = string.Join("/", symbols.Select(s => $"{s.ToLower()}@kline_{interval}"));
         string wsUrl = $"wss://stream.binance.com:9443/ws/{streamNames}";
 
-        _ = Task.Run(() => ConnectAndListenAsync(wsUrl, interval, _cts.Token));
+        // 1. Launch Consumer Background Loop (Processes Channel Queue)
+        _ = Task.Run(() => BackgroundConsumerLoopAsync(interval, _cts.Token));
+
+        // 2. Launch Producer Network Socket Loop (Reads Network & Writes to Channel)
+        _ = Task.Run(() => ProducerNetworkLoopAsync(wsUrl, _cts.Token));
     }
 
-    private static async Task ConnectAndListenAsync(string url, string interval, CancellationToken token)
+    /// <summary>
+    /// Producer: Reads raw socket frames from WebSocket network thread and pushes immediately to Channel.
+    /// Zero JSON parsing or processing on the network thread.
+    /// </summary>
+    private static async Task ProducerNetworkLoopAsync(string url, CancellationToken token)
     {
         byte[] buffer = new byte[8192];
         int reconnectAttempts = 0;
 
-        // ─── Unbreakable Infinite Socket Loop ───
         while (!token.IsCancellationRequested)
         {
             ClientWebSocket? client = null;
@@ -52,12 +74,11 @@ public static class BinanceWebSocketStream
                 client = new ClientWebSocket();
                 client.Options.SetRequestHeader("User-Agent", "ValutaBot/1.0");
 
-                BotLogger.Info($"[WebSocket] Connecting to Binance real-time stream: {url}");
+                BotLogger.Info($"[WebSocket Producer] Connecting to Binance real-time stream: {url}");
                 await client.ConnectAsync(new Uri(url), token);
-                reconnectAttempts = 0; // Reset reconnect attempts counter on successful connection
-                BotLogger.Info("[WebSocket] Connected successfully to Binance WebSocket stream!");
+                reconnectAttempts = 0;
+                BotLogger.Info("[WebSocket Producer] Connected successfully to Binance WebSocket stream!");
 
-                // ─── Inner Frame Reading Loop ───
                 while (client.State == WebSocketState.Open && !token.IsCancellationRequested)
                 {
                     using var ms = new MemoryStream();
@@ -74,19 +95,19 @@ public static class BinanceWebSocketStream
                     }
                     catch (WebSocketException wsEx)
                     {
-                        BotLogger.Warn($"[WebSocket] Network frame receive error: {wsEx.Message}. Socket will reconnect.");
-                        break; // Exit inner loop to force socket recreation
+                        BotLogger.Warn($"[WebSocket Producer] Network frame receive error: {wsEx.Message}. Socket will reconnect.");
+                        break;
                     }
 
                     if (token.IsCancellationRequested || client.State == WebSocketState.Aborted || client.State == WebSocketState.Closed)
                     {
-                        BotLogger.Warn($"[WebSocket] Socket state changed to {client.State}. Reconnecting...");
+                        BotLogger.Warn($"[WebSocket Producer] Socket state changed to {client.State}. Reconnecting...");
                         break;
                     }
 
                     if (result != null && result.MessageType == WebSocketMessageType.Close)
                     {
-                        BotLogger.Warn("[WebSocket] Received close frame from Binance. Reconnecting...");
+                        BotLogger.Warn("[WebSocket Producer] Received close frame from Binance. Reconnecting...");
                         try
                         {
                             await client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Reconnecting", token);
@@ -97,18 +118,20 @@ public static class BinanceWebSocketStream
 
                     ms.Seek(0, SeekOrigin.Begin);
                     string json = Encoding.UTF8.GetString(ms.ToArray());
-                    ProcessKlineMessage(json, interval);
+
+                    // Fast non-blocking push to Channel queue
+                    _jsonChannel.Writer.TryWrite(json);
                 }
             }
             catch (WebSocketException wsEx)
             {
                 reconnectAttempts++;
-                BotLogger.Warn($"[WebSocket] Connection exception (Attempt #{reconnectAttempts}): {wsEx.Message}");
+                BotLogger.Warn($"[WebSocket Producer] Connection exception (Attempt #{reconnectAttempts}): {wsEx.Message}");
             }
             catch (Exception ex)
             {
                 reconnectAttempts++;
-                BotLogger.Error($"[WebSocket] Unexpected error (Attempt #{reconnectAttempts}): {ex.Message}", ex);
+                BotLogger.Error($"[WebSocket Producer] Unexpected error (Attempt #{reconnectAttempts}): {ex.Message}", ex);
             }
             finally
             {
@@ -119,13 +142,37 @@ public static class BinanceWebSocketStream
                 catch { /* Ensure clean disposal */ }
             }
 
-            // Exponential backoff before reconnecting (between 2s and 10s)
             if (!token.IsCancellationRequested)
             {
                 int delayMs = Math.Min(10000, 2000 + (reconnectAttempts * 1000));
-                BotLogger.Info($"[WebSocket] Waiting {delayMs}ms before instantiating new ClientWebSocket...");
+                BotLogger.Info($"[WebSocket Producer] Waiting {delayMs}ms before instantiating new ClientWebSocket...");
                 await Task.Delay(delayMs, token);
             }
+        }
+    }
+
+    /// <summary>
+    /// Consumer: Background worker processing JSON frames from Channel queue.
+    /// Updates live price/volume state and feeds SMC & OrderFlow processing.
+    /// </summary>
+    private static async Task BackgroundConsumerLoopAsync(string interval, CancellationToken token)
+    {
+        BotLogger.Info("[WebSocket Consumer] Started background processing loop for Channel queue.");
+
+        try
+        {
+            await foreach (string jsonMessage in _jsonChannel.Reader.ReadAllAsync(token))
+            {
+                ProcessKlineMessage(jsonMessage, interval);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            BotLogger.Info("[WebSocket Consumer] Channel reader loop cancelled.");
+        }
+        catch (Exception ex)
+        {
+            BotLogger.Error("[WebSocket Consumer] Error processing frame in consumer loop", ex);
         }
     }
 
@@ -158,14 +205,15 @@ public static class BinanceWebSocketStream
         }
         catch (Exception ex)
         {
-            BotLogger.Warn("[WebSocket] Error processing kline frame", ex);
+            BotLogger.Warn("[WebSocket Consumer] Error parsing kline JSON frame", ex);
         }
     }
 
     public static void StopStream()
     {
         _cts?.Cancel();
+        _jsonChannel.Writer.TryComplete();
         _isRunning = false;
-        BotLogger.Info("[WebSocket] Stream stopped.");
+        BotLogger.Info("[WebSocket] Stream and Channel consumer stopped.");
     }
 }
