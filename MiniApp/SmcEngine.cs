@@ -2,7 +2,7 @@ namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Smart Money Concepts (SMC) & Institutional Liquidity Engine.
-/// Detects Liquidity Sweeps, Fair Value Gaps (FVG), Order Blocks (OB), and Structural Breaks (BOS / CHOCH).
+/// Detects Liquidity Sweeps, Fair Value Gaps (FVG), Unmitigated Order Blocks (OB), and Structural Breaks (BOS / CHOCH).
 /// </summary>
 public static class SmcEngine
 {
@@ -17,6 +17,7 @@ public static class SmcEngine
         bool HasOrderBlock,
         string OrderBlockType, // "BULLISH_OB" | "BEARISH_OB" | "NONE"
         double OrderBlockLevel,
+        bool IsUnmitigatedOb, // True if the OB has NOT been tested/mitigated by subsequent candles
         bool HasBos,
         string BosDirection, // "BULLISH_BOS" | "BEARISH_BOS" | "NONE"
         string SummaryReasoning
@@ -27,7 +28,7 @@ public static class SmcEngine
         if (candles == null || candles.Length < 10)
         {
             return new SmcAnalysisResult(
-                false, "NONE", false, "NONE", 0, 0, 0, false, "NONE", 0, false, "NONE", "Недостаточно свечей для SMC-анализа."
+                false, "NONE", false, "NONE", 0, 0, 0, false, "NONE", 0, false, false, "NONE", "Недостаточно свечей для SMC-анализа."
             );
         }
 
@@ -75,30 +76,61 @@ public static class SmcEngine
 
         string fvgType = bullishFvg ? "BULLISH_FVG" : bearishFvg ? "BEARISH_FVG" : "NONE";
 
-        // ─── 3. Order Block (OB / Институциональный блок ордеров) ───
+        // ─── 3. Unmitigated Order Block (Свежий, несмягченный блок ордеров) ───
         bool bullishOb = false;
         bool bearishOb = false;
         double obLevel = 0;
+        bool isUnmitigatedOb = false;
 
-        for (int i = n - 3; i >= Math.Max(0, n - 8); i--)
+        for (int i = n - 3; i >= Math.Max(0, n - 15); i--)
         {
             var candle = candles[i];
             double body = Math.Abs(candle.Close - candle.Open);
             double range = candle.High - candle.Low;
 
-            if (range > 0 && (body / range) > 0.6)
+            // Displacement criteria: Body must be > 60% of candle range
+            if (range > 1e-8 && (body / range) >= 0.60)
             {
-                if (candle.Close < candle.Open && currentPrice > candle.High)
+                bool isBullishObCandidate = candle.Close < candle.Open && currentPrice > candle.High;
+                bool isBearishObCandidate = candle.Close > candle.Open && currentPrice < candle.Low;
+
+                if (isBullishObCandidate || isBearishObCandidate)
                 {
-                    bullishOb = true;
-                    obLevel = candle.High;
-                    break;
-                }
-                else if (candle.Close > candle.Open && currentPrice < candle.Low)
-                {
-                    bearishOb = true;
-                    obLevel = candle.Low;
-                    break;
+                    // Check Mitigation Status: Has any candle after 'i' touched this OB range?
+                    bool isMitigated = false;
+                    for (int j = i + 1; j < n - 1; j++)
+                    {
+                        var futureCandle = candles[j];
+                        if (isBullishObCandidate && futureCandle.Low <= candle.High)
+                        {
+                            isMitigated = true;
+                            break;
+                        }
+                        else if (isBearishObCandidate && futureCandle.High >= candle.Low)
+                        {
+                            isMitigated = true;
+                            break;
+                        }
+                    }
+
+                    // Only accept UNMITIGATED Order Blocks (fresh institutional liquidity)
+                    if (!isMitigated)
+                    {
+                        if (isBullishObCandidate)
+                        {
+                            bullishOb = true;
+                            obLevel = candle.High;
+                            isUnmitigatedOb = true;
+                            break;
+                        }
+                        else if (isBearishObCandidate)
+                        {
+                            bearishOb = true;
+                            obLevel = candle.Low;
+                            isUnmitigatedOb = true;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -118,8 +150,8 @@ public static class SmcEngine
         if (bullishFvg) summaryParts.Add($"Бычий FVG имбаланс [{fvgBottom:F5} - {fvgTop:F5}]");
         else if (bearishFvg) summaryParts.Add($"Медвежий FVG имбаланс [{fvgBottom:F5} - {fvgTop:F5}]");
 
-        if (bullishOb) summaryParts.Add($"Опора на бычий Order Block ({obLevel:F5})");
-        else if (bearishOb) summaryParts.Add($"Опора на медвежий Order Block ({obLevel:F5})");
+        if (bullishOb) summaryParts.Add($"Свежий бычий Order Block ({obLevel:F5}) [Unmitigated]");
+        else if (bearishOb) summaryParts.Add($"Свежий медвежий Order Block ({obLevel:F5}) [Unmitigated]");
 
         if (bullishBos) summaryParts.Add("Пробой структуры ВВЕРХ (BOS)");
         else if (bearishBos) summaryParts.Add("Пробой структуры ВНИЗ (BOS)");
@@ -131,7 +163,7 @@ public static class SmcEngine
         return new SmcAnalysisResult(
             bullishSweep || bearishSweep, sweepDir,
             bullishFvg || bearishFvg, fvgType, fvgTop, fvgBottom, fvgGapSize,
-            bullishOb || bearishOb, obType, obLevel,
+            bullishOb || bearishOb, obType, obLevel, isUnmitigatedOb,
             bullishBos || bearishBos, bosDir,
             summaryText
         );
