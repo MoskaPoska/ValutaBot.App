@@ -4,7 +4,8 @@ namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Technical analysis engine using the industry-standard Skender.Stock.Indicators library.
-/// Provides SIMD-optimized, verified calculations for RSI, EMA, MACD, ADX, ATR, and Bollinger Bands.
+/// Provides SIMD-optimized, zero-lag adaptive calculations for HMA (Hull Moving Average),
+/// KAMA (Kaufman Adaptive Moving Average), Connors RSI, MACD, True ADX, ATR, and Bollinger Bands.
 /// </summary>
 public static class TechnicalAnalysisEngine
 {
@@ -59,6 +60,40 @@ public static class TechnicalAnalysisEngine
         var results = quotes.GetRsi(period);
         var last = results.LastOrDefault();
         return last?.Rsi.HasValue == true ? (double)last.Rsi.Value : 50.0;
+    }
+
+    public static double ComputeConnorsRsi(double[] data)
+    {
+        var quotes = ConvertToQuotes(data);
+        if (quotes.Count < 20) return ComputeRsi(data, 14);
+
+        try
+        {
+            var results = quotes.GetConnorsRsi(3, 2, 10);
+            var last = results.LastOrDefault();
+            return last?.ConnorsRsi.HasValue == true ? (double)last.ConnorsRsi.Value : ComputeRsi(data, 14);
+        }
+        catch
+        {
+            return ComputeRsi(data, 14);
+        }
+    }
+
+    public static double ComputeHma(double[] data, int period = 9)
+    {
+        var quotes = ConvertToQuotes(data);
+        if (quotes.Count < period) return data.Length > 0 ? data[^1] : 0.0;
+
+        try
+        {
+            var results = quotes.GetHma(period);
+            var last = results.LastOrDefault();
+            return last?.Hma.HasValue == true ? (double)last.Hma.Value : ComputeEma(data, period);
+        }
+        catch
+        {
+            return ComputeEma(data, period);
+        }
     }
 
     public static double ComputeEma(double[] data, int period = 9)
@@ -127,8 +162,8 @@ public static class TechnicalAnalysisEngine
     {
         if (prices.Length < 14) return (0.0, 50.0, 50.0, 0.0, 0.0, 0.0);
 
-        double rsi = ComputeRsi(prices, 14);
-        double ema = ComputeEma(prices, 9);
+        double rsi = ComputeConnorsRsi(prices);
+        double hma = ComputeHma(prices, 9);
         double lastPrice = prices[^1];
 
         var (adxVal, pdiVal, mdiVal) = adxOverride.HasValue
@@ -142,14 +177,14 @@ public static class TechnicalAnalysisEngine
         double score = 0;
         double confidence = 60.0;
 
-        // Proportional RSI scoring
+        // Proportional Connors RSI scoring
         if (rsi > 70) score -= (rsi - 70) / 15.0;
         else if (rsi < 30) score += (30 - rsi) / 15.0;
         else score += (rsi - 50) / 20.0;
 
-        // EMA scoring
-        if (lastPrice > ema) score += 0.3;
-        else if (lastPrice < ema) score -= 0.3;
+        // HMA (Hull Moving Average zero-lag) scoring
+        if (lastPrice > hma) score += 0.35;
+        else if (lastPrice < hma) score -= 0.35;
 
         // ADX scoring
         if (adxVal > 25)
@@ -173,7 +208,7 @@ public static class TechnicalAnalysisEngine
             }
         }
 
-        return (score, Math.Clamp(confidence, 50, 95), Math.Round(rsi, 1), Math.Round(ema, 5), Math.Round(volStrength, 2), Math.Round(atrVal, 6));
+        return (score, Math.Clamp(confidence, 50, 95), Math.Round(rsi, 1), Math.Round(hma, 5), Math.Round(volStrength, 2), Math.Round(atrVal, 6));
     }
 
     public static double CalculateVolatilityRatio(double[] prices)
