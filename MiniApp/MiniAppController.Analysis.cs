@@ -1,0 +1,307 @@
+using System.Globalization;
+using Microsoft.Extensions.Caching.Memory;
+
+namespace ValutaBot.MiniApp;
+
+public static partial class MiniAppController
+{
+    /* ─── Multi-TF conflict penalty ─── */
+
+    private static double MfConflictPenalty((double score, double conf, double rsi, double ema, double vol, double atr) main,
+                                             (double score, double conf, double rsi, double ema, double vol, double atr) higher)
+    {
+        int mainDir = main.score >= 0 ? 1 : -1;
+        int higherDir = higher.score >= 0 ? 1 : -1;
+        if (mainDir != higherDir)
+            return 0.7; // 30% penalty
+        return 1.0;
+    }
+
+    /* ─── Main analysis ─── */
+
+    internal static async Task<object> ExecuteBinanceAnalysis(string asset, string timeframe)
+    {
+        try
+        {
+            string clean = AssetSanitizer.Sanitize(asset);
+            DayOfWeek day = DateTime.UtcNow.DayOfWeek;
+            string? symbol = AssetSanitizer.MapSymbolByDayOfWeek(clean, day);
+
+            bool isForex = symbol == null || symbol == "EURUSDT" || symbol == "GBPUSDT" || symbol == "AUDUSDT";
+            bool isMajor = symbol == "BTCUSDT" || symbol == "ETHUSDT" || symbol == "SOLUSDT";
+            int limit = 100;
+            string tfLower = timeframe.ToLower().Trim();
+            if (tfLower == "s10" || tfLower == "s15" || tfLower == "s30")
+            {
+                limit = 130;
+            }
+            else if (tfLower == "m1" || tfLower == "m2" || tfLower == "m3" || tfLower == "m5")
+            {
+                limit = 150;
+            }
+            else if (tfLower == "m15" || tfLower == "m30" || tfLower == "h1")
+            {
+                limit = 200;
+            }
+
+            bool useMultiTf = true;
+
+            string mainInterval = MarketDataFetcher.IntervalMap(timeframe);
+            string? higherTf = useMultiTf ? MarketDataFetcher.HigherTf(timeframe) : null;
+            string? lowerTf = useMultiTf ? MarketDataFetcher.LowerTf(timeframe) : null;
+
+            async Task<(double[] prices, double[] volumes)?> SafeFetch(string tf)
+            {
+                try
+                {
+                    return await MarketDataFetcher.FetchBinanceWithFallback(symbol, tf, asset, limit);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Fetch Warning] TF {tf} failed to fetch: {ex.Message}");
+                    return null;
+                }
+            }
+
+            double[] mainPrices;
+            double[] mainVolumes;
+
+            if (timeframe.ToLower().StartsWith("s"))
+            {
+                var subMinuteResult = await GetSubMinuteCandles(symbol, clean, timeframe, limit);
+                mainPrices = subMinuteResult.prices;
+                mainVolumes = subMinuteResult.volumes;
+            }
+            else
+            {
+                int mainCacheTtl = 10;
+                var mainResultTuple = await MarketDataFetcher.FetchBinanceWithFallback(symbol, mainInterval, clean, limit, mainCacheTtl);
+                mainPrices = mainResultTuple.prices;
+                mainVolumes = mainResultTuple.volumes;
+            }
+
+            if (mainPrices != null && mainPrices.Length >= 15)
+            {
+                bool isFlat = true;
+                double first = mainPrices[^1];
+                for (int i = 2; i <= 15; i++)
+                {
+                    if (Math.Abs(mainPrices[^i] - first) > 1e-8)
+                    {
+                        isFlat = false;
+                        break;
+                    }
+                }
+
+                if (isFlat)
+                {
+                    Console.WriteLine($"[Market-Flat] Detected flat/static market for {asset} on {timeframe}. Returning neutral fallback.");
+                    return GetMomentumPrediction(asset, timeframe);
+                }
+            }
+
+            var higherTask = higherTf != null ? SafeFetch(higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
+            var lowerTask = lowerTf != null ? SafeFetch(lowerTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
+
+            var extraTasks = new List<Task<(double[] prices, double[] volumes)?>>();
+            if (isMajor)
+            {
+                string[] checkTfs = { "m1", "m5", "m15", "h1" };
+                foreach (var cTf in checkTfs)
+                {
+                    if (cTf != timeframe && cTf != higherTf && cTf != lowerTf)
+                    {
+                        extraTasks.Add(SafeFetch(cTf));
+                    }
+                }
+            }
+
+            await Task.WhenAll(higherTask, lowerTask);
+            if (extraTasks.Count > 0)
+                await Task.WhenAll(extraTasks);
+
+            var higherResultData = await higherTask;
+            var lowerResultData = await lowerTask;
+
+            var extraResults = new List<(double[] prices, double[] volumes)>();
+            foreach (var t in extraTasks)
+            {
+                var r = await t;
+                if (r != null) extraResults.Add(r.Value);
+            }
+
+            double totalScore = 0;
+            double totalConfidence = 0;
+            double totalWeight = 0;
+
+            var (mlDirection, mlConfidence, _) = MLForecastService.PredictNextCandles(mainPrices, isForex);
+            if (mlDirection != "NEUTRAL")
+            {
+                double mlSign = mlDirection == "BUY" ? 1.0 : -1.0;
+                double mlWeight = SignalTracker.GetSignalWeight("ML прогноз", 1.0);
+                totalScore += mlSign * (mlConfidence / 100.0) * mlWeight;
+                totalConfidence += mlConfidence * mlWeight;
+                totalWeight += mlWeight;
+            }
+
+            string lgbmDirection = "NEUTRAL";
+            double lgbmConfidence = 0.5;
+            string lgbmModelVersion = "disabled";
+            double? lgbmAccuracy = null;
+
+            string mainOhlcKey = symbol != null ? $"{symbol}_{mainInterval}" : $"{asset}_{mainInterval}";
+            var mainOhlc = MarketDataFetcher.GetOhlcCandles(mainOhlcKey);
+
+            if (mainOhlc != null && mainOhlc.Length >= 60)
+            {
+                try
+                {
+                    var lgbmResult = await MLPythonService.PredictAsync(asset, timeframe, mainOhlc, isForex);
+                    if (lgbmResult != null && lgbmResult.Direction != "NEUTRAL")
+                    {
+                        lgbmDirection = lgbmResult.Direction;
+                        lgbmConfidence = lgbmResult.Confidence;
+                        lgbmModelVersion = lgbmResult.ModelVersion;
+                        lgbmAccuracy = lgbmResult.Accuracy;
+
+                        double lgbmSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
+                        double baseLgbmWeight = lgbmConfidence >= 0.65 ? 2.8 : 1.5;
+                        double lgbmWeight = SignalTracker.GetSignalWeight("LightGBM", baseLgbmWeight);
+                        totalScore += lgbmSign * (lgbmConfidence * 2.0) * lgbmWeight;
+                        totalConfidence += lgbmConfidence * 100.0 * lgbmWeight;
+                        totalWeight += lgbmWeight;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[LGBM Warning] {ex.Message}");
+                }
+            }
+
+            var newsResult = NewsAnalysisService.Analyze(asset);
+            if (Math.Abs(newsResult.score) > 0.1)
+            {
+                double newsWeight = SignalTracker.GetSignalWeight("Новости", 0.8);
+                double newsScoreNormalized = Math.Clamp(newsResult.score / 2.0, -1, 1);
+                totalScore += newsScoreNormalized * newsWeight;
+                totalConfidence += Math.Clamp(Math.Abs(newsResult.score) / 2.0 * 100, 50, 98) * newsWeight;
+                totalWeight += newsWeight;
+            }
+
+            string imbalanceKey = symbol != null && symbol.EndsWith("USDT") ? symbol.Replace("USDT", "/USDT") : "";
+            double imbalance = MarketDataService.GetBookImbalance(imbalanceKey);
+
+            var (mainAdx, mainPdi, mainMdi) = mainOhlc != null ? TechnicalAnalysisEngine.ComputeTrueAdx(mainOhlc) : (20.0, 0.0, 0.0);
+            double mainAtr = mainOhlc != null ? TechnicalAnalysisEngine.ComputeAtr(mainOhlc) : 0;
+
+            var mainResult = TechnicalAnalysisEngine.ScoreTimeframe(mainPrices, mainVolumes, candles: mainOhlc, adxOverride: mainAdx, atrOverride: mainAtr, isForex: isForex);
+            (double score, double confidence, double rsiVal, double emaVal, double volumeStrength, double atrVal) higherResult = default;
+            double conflictPenalty = 1.0;
+
+            if (higherResultData != null)
+            {
+                var higherOhlcKey = higherTf != null ? (symbol != null ? $"{symbol}_{MarketDataFetcher.IntervalMap(higherTf)}" : $"{asset}_{MarketDataFetcher.IntervalMap(higherTf)}") : null;
+                var higherOhlc = higherOhlcKey != null ? MarketDataFetcher.GetOhlcCandles(higherOhlcKey) : null;
+
+                var (hAdx, hPdi, hMdi) = higherOhlc != null ? TechnicalAnalysisEngine.ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
+                double hAtr = higherOhlc != null ? TechnicalAnalysisEngine.ComputeAtr(higherOhlc) : 0;
+                higherResult = TechnicalAnalysisEngine.ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: isForex);
+                conflictPenalty = MfConflictPenalty(mainResult, higherResult);
+
+                totalScore += higherResult.score;
+                totalConfidence += higherResult.confidence * 2.0;
+                totalWeight += 2.0;
+            }
+
+            double indicatorWeight = SignalTracker.GetSignalWeight("Индикаторы", 1.0);
+            totalScore += mainResult.score * indicatorWeight;
+            totalConfidence += mainResult.confidence * indicatorWeight;
+            totalWeight += indicatorWeight;
+
+            double macdLine = 0, macdSig = 0;
+            (macdLine, macdSig) = TechnicalAnalysisEngine.ComputeMacd(mainPrices, mainPrices.Length - 1);
+            double bbZscore = TechnicalAnalysisEngine.ComputeBollingerZscore(mainPrices, 20);
+
+            var ohlcCandles = MarketDataFetcher.GetOhlcCandles(mainOhlcKey);
+            var ohlcForClaude = ohlcCandles != null && ohlcCandles.Length > 30 ? ohlcCandles[^30..] : ohlcCandles;
+            var detectedPatterns = ohlcCandles != null ? PatternDetector.DetectPatterns(ohlcCandles) : new List<string>();
+            var (supports, resistances) = PatternDetector.CalculateLevels(mainPrices, isForex);
+
+            int timeframeSec = MarketDataFetcher.TimeframeSeconds(timeframe);
+            int candleSecondsRemaining = timeframeSec;
+
+            string cacheKey = $"claude_signal_{asset}_{timeframe}";
+            (string direction, double probability, string reasoning, string modelName) claudeResult;
+
+            if (_cache.TryGetValue(cacheKey, out object? cached) && cached is ValueTuple<string, double, string, string> cachedTuple)
+            {
+                claudeResult = cachedTuple;
+            }
+            else
+            {
+                claudeResult = await ClaudeSignalService.AnalyzeSignal(
+                    asset, mainPrices, mainVolumes,
+                    mainResult.rsiVal, mainResult.emaVal, macdLine, macdSig,
+                    mainAdx, bbZscore, mainResult.volStrengthVal, imbalance,
+                    null, ohlcForClaude, detectedPatterns, supports, resistances,
+                    timeframe, candleSecondsRemaining, timeframeSec, mainAtr, mainPdi, mainMdi);
+                _cache.Set(cacheKey, claudeResult, TimeSpan.FromSeconds(5));
+            }
+
+            int scoreSign = totalScore > 0.02 ? 1 : totalScore < -0.02 ? -1 : 0;
+            bool isSubMinute = timeframe.ToLower().StartsWith("s");
+
+            var consensus = ConsensusEngine.EvaluateConsensus(
+                totalScore, scoreSign,
+                claudeResult.direction, (int)claudeResult.probability, claudeResult.reasoning,
+                lgbmDirection, lgbmConfidence, lgbmAccuracy,
+                mlDirection, mlConfidence,
+                mainResult.rsiVal, mainResult.emaVal,
+                isSubMinute
+            );
+
+            var overallStats = SignalTracker.GetOverallStats();
+            var assetStats   = SignalTracker.GetStats(asset, timeframe);
+            int expiryCandles = MarketDataFetcher.GetExpiryCandles(timeframe);
+            int totalExpirySec = timeframeSec * expiryCandles;
+            string durationText = isSubMinute ? $"{totalExpirySec} сек (экспирация)" : $"{timeframe.ToUpper()} ({expiryCandles} свечи)";
+
+            return new
+            {
+                direction = consensus.FinalDirection,
+                probability = consensus.Probability,
+                duration = durationText,
+                expiryCandles,
+                chartData = mainPrices,
+                rsi = Math.Round(mainResult.rsiVal, 1),
+                ema = Math.Round(mainResult.emaVal, 2),
+                volumeStrength = Math.Round(mainResult.volStrengthVal, 2),
+                tfConflict = conflictPenalty < 1.0,
+                mlDirection,
+                mlConfidence = Math.Round(mlConfidence, 0),
+                lgbmDirection,
+                lgbmConfidence = Math.Round(lgbmConfidence * 100, 0),
+                lgbmAccuracy = lgbmAccuracy.HasValue ? Math.Round(lgbmAccuracy.Value * 100, 1) : (double?)null,
+                lgbmModelVersion,
+                newsSentiment = newsResult.sentiment,
+                newsScore = Math.Round(newsResult.score, 1),
+                newsSummary = newsResult.summary,
+                newsHeadlines = newsResult.headlines,
+                claudeDirection = claudeResult.direction,
+                claudeProbability = Math.Round(claudeResult.probability, 0),
+                claudeReasoning = consensus.CombinedReasoningText,
+                aiModel = claudeResult.modelName,
+                winRateOverall = overallStats.HasData ? overallStats.WinRate : (double?)null,
+                winRateAsset = assetStats.HasData ? assetStats.WinRate : (double?)null,
+                signalsVerified = overallStats.Verified,
+                signalsPending = SignalTracker.GetPendingCount()
+            };
+        }
+        catch (Exception ex)
+        {
+            LastExceptionMessage = ex.ToString();
+            Console.WriteLine($"[ERR] Analysis failed: {ex.Message}");
+            return GetMomentumPrediction(asset, timeframe);
+        }
+    }
+}
