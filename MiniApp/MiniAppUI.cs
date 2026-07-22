@@ -1,6 +1,6 @@
 namespace ValutaBot.MiniApp;
 
-public static class MiniAppUI
+public static partial class MiniAppUI
 {
     public static string GetHtml()
     {
