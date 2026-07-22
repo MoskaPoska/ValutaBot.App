@@ -41,30 +41,57 @@ public static class BinanceWebSocketStream
     private static async Task ConnectAndListenAsync(string url, string interval, CancellationToken token)
     {
         byte[] buffer = new byte[8192];
+        int reconnectAttempts = 0;
 
+        // ─── Unbreakable Infinite Socket Loop ───
         while (!token.IsCancellationRequested)
         {
-            using var client = new ClientWebSocket();
+            ClientWebSocket? client = null;
             try
             {
+                client = new ClientWebSocket();
+                client.Options.SetRequestHeader("User-Agent", "ValutaBot/1.0");
+
                 BotLogger.Info($"[WebSocket] Connecting to Binance real-time stream: {url}");
                 await client.ConnectAsync(new Uri(url), token);
-                BotLogger.Info("[WebSocket] Connected successfully to Binance WebSocket!");
+                reconnectAttempts = 0; // Reset reconnect attempts counter on successful connection
+                BotLogger.Info("[WebSocket] Connected successfully to Binance WebSocket stream!");
 
+                // ─── Inner Frame Reading Loop ───
                 while (client.State == WebSocketState.Open && !token.IsCancellationRequested)
                 {
                     using var ms = new MemoryStream();
-                    WebSocketReceiveResult result;
-                    do
-                    {
-                        result = await client.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-                        ms.Write(buffer, 0, result.Count);
-                    }
-                    while (!result.EndOfMessage);
+                    WebSocketReceiveResult? result = null;
 
-                    if (result.MessageType == WebSocketMessageType.Close)
+                    try
                     {
-                        await client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", token);
+                        do
+                        {
+                            result = await client.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                            ms.Write(buffer, 0, result.Count);
+                        }
+                        while (!result.EndOfMessage && !token.IsCancellationRequested);
+                    }
+                    catch (WebSocketException wsEx)
+                    {
+                        BotLogger.Warn($"[WebSocket] Network frame receive error: {wsEx.Message}. Socket will reconnect.");
+                        break; // Exit inner loop to force socket recreation
+                    }
+
+                    if (token.IsCancellationRequested || client.State == WebSocketState.Aborted || client.State == WebSocketState.Closed)
+                    {
+                        BotLogger.Warn($"[WebSocket] Socket state changed to {client.State}. Reconnecting...");
+                        break;
+                    }
+
+                    if (result != null && result.MessageType == WebSocketMessageType.Close)
+                    {
+                        BotLogger.Warn("[WebSocket] Received close frame from Binance. Reconnecting...");
+                        try
+                        {
+                            await client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Reconnecting", token);
+                        }
+                        catch { /* Ignore close handshake error */ }
                         break;
                     }
 
@@ -73,13 +100,31 @@ public static class BinanceWebSocketStream
                     ProcessKlineMessage(json, interval);
                 }
             }
+            catch (WebSocketException wsEx)
+            {
+                reconnectAttempts++;
+                BotLogger.Warn($"[WebSocket] Connection exception (Attempt #{reconnectAttempts}): {wsEx.Message}");
+            }
             catch (Exception ex)
             {
-                if (!token.IsCancellationRequested)
+                reconnectAttempts++;
+                BotLogger.Error($"[WebSocket] Unexpected error (Attempt #{reconnectAttempts}): {ex.Message}", ex);
+            }
+            finally
+            {
+                try
                 {
-                    BotLogger.Warn($"[WebSocket] Connection dropped ({ex.Message}), reconnecting in 3s...");
-                    await Task.Delay(3000, token);
+                    client?.Dispose();
                 }
+                catch { /* Ensure clean disposal */ }
+            }
+
+            // Exponential backoff before reconnecting (between 2s and 10s)
+            if (!token.IsCancellationRequested)
+            {
+                int delayMs = Math.Min(10000, 2000 + (reconnectAttempts * 1000));
+                BotLogger.Info($"[WebSocket] Waiting {delayMs}ms before instantiating new ClientWebSocket...");
+                await Task.Delay(delayMs, token);
             }
         }
     }
