@@ -48,6 +48,10 @@ public static partial class MiniAppController
         builder.Services.AddHostedService<LiquidationHeatmapService>();
         builder.Services.AddHostedService<TelegramBotService>();
 
+        // Launch Real-Time WebSocket stream for major CME proxy forex streams (0ms latency)
+        string[] topStreamSymbols = { "BTCUSDT", "ETHUSDT", "EURUSDT", "GBPUSDT", "AUDUSDT" };
+        BinanceWebSocketStream.StartStream(topStreamSymbols, "1m");
+
         // Init Telegram notifier from config or env (set in Railway dashboard)
         TelegramNotifier.Init(builder.Configuration["TelegramBotToken"] ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
 
