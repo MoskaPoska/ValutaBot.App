@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace ValutaBot.MiniApp;
 
-public static class ClaudeSignalService
+public static partial class ClaudeSignalService
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(60) };
     private static string? _lastRawResponse;

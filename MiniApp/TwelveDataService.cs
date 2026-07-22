@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace ValutaBot.MiniApp;
 
-public static class TwelveDataService
+public static partial class TwelveDataService
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
     private static readonly ConcurrentDictionary<string, (double[] prices, double[] volumes, DateTime fetchedAt)> _cache = new();
