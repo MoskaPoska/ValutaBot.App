@@ -249,6 +249,10 @@ public static partial class MiniAppController
                 _cache.Set(cacheKey, claudeResult, TimeSpan.FromSeconds(5));
             }
 
+            // ─── Strategy Pattern Router ───
+            ITimeframeAnalyzer timeframeAnalyzer = GetAnalyzer(timeframe);
+            var coreResult = await timeframeAnalyzer.AnalyzeAsync(asset, timeframe, mainPrices, mainVolumes, ohlcCandles, mainAdx, mainAtr, isForex, higherResultData);
+
             int scoreSign = totalScore > 0.02 ? 1 : totalScore < -0.02 ? -1 : 0;
             bool isSubMinute = timeframe.ToLower().StartsWith("s");
 
@@ -265,6 +269,15 @@ public static partial class MiniAppController
                 mainResult.volStrengthVal
             );
 
+            // ─── High-Confidence Threshold Enforcement (>= 75%) ───
+            string finalDirection = coreResult.IsActionableSignal ? (coreResult.Direction != "WAIT" ? coreResult.Direction : consensus.FinalDirection) : "WAIT";
+            int finalProbability = coreResult.IsActionableSignal ? Math.Max(consensus.Probability, (int)(coreResult.Confidence * 100)) : (int)(coreResult.Confidence * 100);
+
+            if (!coreResult.IsActionableSignal)
+            {
+                BotLogger.Warn($"[Analysis Router] Low Confidence ({coreResult.Confidence * 100:F0}% < 75%). Trade Signal Suppressed to WAIT.");
+            }
+
             var overallStats = SignalTracker.GetOverallStats();
             var assetStats   = SignalTracker.GetStats(asset, timeframe);
             double volRatio = TechnicalAnalysisEngine.CalculateVolatilityRatio(mainPrices);
@@ -273,10 +286,12 @@ public static partial class MiniAppController
 
             return new
             {
-                direction = consensus.FinalDirection,
-                probability = consensus.Probability,
+                direction = finalDirection,
+                probability = finalProbability,
                 duration = durationText,
-                adaptiveReasoning = adaptiveExpiry.Reasoning,
+                adaptiveReasoning = coreResult.IsActionableSignal
+                    ? $"{coreResult.Reasoning} | {adaptiveExpiry.Reasoning}"
+                    : "⚠️ Рынок находится в фазе нерешительности (Уверенность < 75%). Четкого направления нет. Рекомендую оставаться вне рынка.",
                 expiryCandles = Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),
@@ -322,5 +337,17 @@ public static partial class MiniAppController
             BotLogger.Error($"[Analysis] Analysis failed for asset {asset} on {timeframe}", ex);
             return GetMomentumPrediction(asset, timeframe);
         }
+    }
+
+    public static ITimeframeAnalyzer GetAnalyzer(string timeframe)
+    {
+        string tf = timeframe.ToLower().Trim();
+        return tf switch
+        {
+            "5s" or "10s" or "15s" or "30s" or "s5" or "s10" or "s15" or "s30" => new SubMinuteMicrostructureAnalyzer(),
+            "1m" or "m1" => new OneMinuteEnsembleAnalyzer(),
+            "5m" or "15m" or "30m" or "1h" or "m5" or "m15" or "m30" or "h1" => new FiveMinutesStructuralAnalyzer(),
+            _ => new OneMinuteEnsembleAnalyzer()
+        };
     }
 }
