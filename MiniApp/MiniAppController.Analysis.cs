@@ -260,7 +260,9 @@ public static partial class MiniAppController
                 mainResult.rsiVal, mainResult.emaVal,
                 isSubMinute,
                 asset,
-                timeframe
+                timeframe,
+                mainAdx,
+                mainResult.volStrengthVal
             );
 
             var overallStats = SignalTracker.GetOverallStats();

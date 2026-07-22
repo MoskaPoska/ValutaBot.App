@@ -30,12 +30,14 @@ public static class ConsensusEngine
         double emaVal,
         bool isSubMinute,
         string asset = "EURUSD",
-        string timeframe = "m1")
+        string timeframe = "m1",
+        double adxVal = 20.0,
+        double volRatioVal = 1.0)
     {
-        // ─── 1. Auto-Calibrated Base weights ───
-        double weightLgbm = AutoCalibrationEngine.GetCalibratedWeight("LIGHTGBM", asset, timeframe, 1.8);
-        double weightMath = AutoCalibrationEngine.GetCalibratedWeight("SKENDER_MATH", asset, timeframe, 1.0);
-        double weightClaude = AutoCalibrationEngine.GetCalibratedWeight("CLAUDE_AI", asset, timeframe, 1.5);
+        // ─── 1. Market-Regime Aware Auto-Calibrated Weights ───
+        double weightLgbm = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.8);
+        double weightMath = AutoCalibrationEngine.GetCalibratedRegimeWeight("SKENDER_MATH", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.0);
+        double weightClaude = AutoCalibrationEngine.GetCalibratedRegimeWeight("CLAUDE_AI", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.5);
 
         // ─── 2. Dynamic RSI Extreme Weight Shift (Meta-Labeling & Suppression) ───
         bool isExtremeRsi = rsiVal >= 70.0 || rsiVal <= 30.0;
