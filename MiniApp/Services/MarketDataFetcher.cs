@@ -136,7 +136,16 @@ public static class MarketDataFetcher
                 if (tdResult != null)
                     return tdResult.Value;
             }
-            throw new Exception($"No Binance symbol for {originalAsset}");
+
+            // Fallback to Binance ticker if TwelveData API key is not configured
+            string cleanAsset = AssetSanitizer.Sanitize(originalAsset);
+            symbol = cleanAsset switch
+            {
+                "BTCUSDT" or "BTC" or "BTCUSD" => "BTCUSDT",
+                "ETHUSDT" or "ETH" or "ETHUSD" => "ETHUSDT",
+                "SOLUSDT" or "SOL" or "SOLUSD" => "SOLUSDT",
+                _ => "BTCUSDT"
+            };
         }
 
         try

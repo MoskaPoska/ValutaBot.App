@@ -169,6 +169,25 @@ internal static class Program
             // Check details of the result for NaNs or Infinities
             bool containsNaN = resJson.Contains("NaN") || resJson.Contains("Infinity");
             Assert("No NaN or Infinity in outputs", !containsNaN, "Verify output serialization contains valid numeric values");
+
+            // ─── 7. TEST SOCKET CRASH & DISCONNECT RECOVERY ───
+            Console.WriteLine("\n[7] Testing WebSocket crash & ticket disconnect recovery...");
+            try
+            {
+                // Simulate abrupt socket connection abort
+                BinanceWebSocketStream.Stop();
+                BotLogger.Info("[Crash Test] Forced WebSocket socket disconnection executed successfully.");
+
+                // Request market analysis immediately after forced disconnect
+                var fallbackRes = await MiniAppController.ExecuteBinanceAnalysis("BTC/USDT OTC", "m1");
+                string fallbackJson = JsonSerializer.Serialize(fallbackRes, options);
+
+                Assert("Post-Disconnect Fallback Resilience", fallbackJson.Contains("direction") && !fallbackJson.Contains("error"), "System seamlessly switched to REST fallback upon socket disconnect");
+            }
+            catch (Exception crashEx)
+            {
+                Assert("Post-Disconnect Fallback Resilience", false, $"Failed handling socket disconnect: {crashEx.Message}");
+            }
         }
         catch (Exception ex)
         {

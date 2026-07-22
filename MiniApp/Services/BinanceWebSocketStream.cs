@@ -57,6 +57,13 @@ public static class BinanceWebSocketStream
         _ = Task.Run(() => ProducerNetworkLoopAsync(wsUrl, _cts.Token));
     }
 
+    public static void Stop()
+    {
+        _cts?.Cancel();
+        _isRunning = false;
+        BotLogger.Info("[WebSocket Producer] WebSocket stream stopped and disconnected.");
+    }
+
     /// <summary>
     /// Producer: Reads raw socket frames from WebSocket network thread and pushes immediately to Channel.
     /// Zero JSON parsing or processing on the network thread.
