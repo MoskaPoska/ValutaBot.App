@@ -7,7 +7,11 @@ namespace ValutaBot.MiniApp;
 
 public static partial class TwelveDataService
 {
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly HttpClient _http = new(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+        EnableMultipleHttp2Connections = true
+    }) { Timeout = TimeSpan.FromSeconds(10) };
     private static readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions());
     private static string? _apiKey;
 

@@ -12,7 +12,11 @@ namespace ValutaBot.MiniApp;
 /// </summary>
 public static class MarketDataFetcher
 {
-    private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+    private static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+        EnableMultipleHttp2Connections = true
+    }) { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
     private static readonly AsyncRetryPolicy _retryPolicy = Policy
         .Handle<HttpRequestException>()

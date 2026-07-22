@@ -5,9 +5,13 @@ using System.Text.RegularExpressions;
 
 namespace ValutaBot.MiniApp;
 
-public class TelegramBotService : BackgroundService
+public partial class TelegramBotService : BackgroundService
 {
-    private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
+    private static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+        EnableMultipleHttp2Connections = true
+    }) { Timeout = TimeSpan.FromSeconds(35) };
     private static readonly string AllowedUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_users.json");
     private static readonly string AdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "admins.json");
     private static readonly string AllUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "all_users.json");
