@@ -115,6 +115,12 @@ public static class MarketDataFetcher
     {
         if (symbol != null)
         {
+            if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes) && wsPrices.Length >= 15)
+            {
+                BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
+                return (wsPrices, wsVolumes);
+            }
+
             string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
             if (cacheTtlSeconds > 0 && _cache.TryGetValue(binanceCacheKey, out object? cachedVal) && cachedVal is ValueTuple<double[], double[]> cachedTuple)
             {
