@@ -41,13 +41,40 @@ public static class BinanceWebSocketStream
         return false;
     }
 
+    public record OrderbookDepthSnapshot(
+        double TotalBidVolume,
+        double TotalAskVolume,
+        double ImbalanceRatio, // Range -1.0 to +1.0
+        DateTime UpdatedAt
+    );
+
+    private static readonly ConcurrentDictionary<string, OrderbookDepthSnapshot> _liveOrderbooks = new();
+
+    public static bool TryGetLiveOrderbookImbalance(string symbol, out OrderbookDepthSnapshot? snapshot)
+    {
+        string key = symbol.ToUpper();
+        if (_liveOrderbooks.TryGetValue(key, out var data) && (DateTime.UtcNow - data.UpdatedAt).TotalSeconds < 5)
+        {
+            snapshot = data;
+            return true;
+        }
+        snapshot = null;
+        return false;
+    }
+
     public static void StartStream(IEnumerable<string> symbols, string interval = "1m")
     {
         if (_isRunning) return;
         _isRunning = true;
         _cts = new CancellationTokenSource();
 
-        string streamNames = string.Join("/", symbols.Select(s => $"{s.ToLower()}@kline_{interval}"));
+        var streams = new List<string>();
+        foreach (var s in symbols)
+        {
+            streams.Add($"{s.ToLower()}@kline_{interval}");
+            streams.Add($"{s.ToLower()}@depth20@100ms");
+        }
+        string streamNames = string.Join("/", streams);
         string wsUrl = $"wss://stream.binance.com:9443/ws/{streamNames}";
 
         // 1. Launch Consumer Background Loop (Processes Channel Queue)
@@ -189,6 +216,45 @@ public static class BinanceWebSocketStream
         {
             using var doc = JsonDocument.Parse(jsonMessage);
             var root = doc.RootElement;
+
+            if (root.TryGetProperty("data", out var dataProp))
+            {
+                root = dataProp;
+            }
+
+            // Real-Time Orderbook Depth Stream (@depth20@100ms)
+            if (root.TryGetProperty("bids", out var bidsProp) && root.TryGetProperty("asks", out var asksProp))
+            {
+                string symbol = root.TryGetProperty("s", out var sProp) ? (sProp.GetString() ?? "") : "";
+                double totalBidVol = 0;
+                double totalAskVol = 0;
+
+                foreach (var bid in bidsProp.EnumerateArray())
+                {
+                    if (double.TryParse(bid[1].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double qty))
+                        totalBidVol += qty;
+                }
+
+                foreach (var ask in asksProp.EnumerateArray())
+                {
+                    if (double.TryParse(ask[1].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double qty))
+                        totalAskVol += qty;
+                }
+
+                double sum = totalBidVol + totalAskVol;
+                double imbalance = sum > 0 ? (totalBidVol - totalAskVol) / sum : 0.0;
+
+                if (!string.IsNullOrEmpty(symbol))
+                {
+                    _liveOrderbooks[symbol.ToUpper()] = new OrderbookDepthSnapshot(
+                        TotalBidVolume: Math.Round(totalBidVol, 2),
+                        TotalAskVolume: Math.Round(totalAskVol, 2),
+                        ImbalanceRatio: Math.Round(imbalance, 3),
+                        UpdatedAt: DateTime.UtcNow
+                    );
+                }
+                return;
+            }
 
             if (root.TryGetProperty("s", out var symbolProp) && root.TryGetProperty("k", out var klineProp))
             {

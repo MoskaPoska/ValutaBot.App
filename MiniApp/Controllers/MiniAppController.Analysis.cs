@@ -105,7 +105,12 @@ public static partial class MiniAppController
             var smcResult = SmcEngine.AnalyzeSmcStructure(ohlcCandles, mainPrices[^1]);
             BotLogger.Info($"[SMC Engine] Asset {asset} ({timeframe}): {smcResult.SummaryReasoning}");
 
-            var orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(mainPrices, mainVolumes, ohlcCandles);
+            BinanceWebSocketStream.OrderbookDepthSnapshot? liveDepth = null;
+            if (symbol != null)
+            {
+                BinanceWebSocketStream.TryGetLiveOrderbookImbalance(symbol, out liveDepth);
+            }
+            var orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(mainPrices, mainVolumes, ohlcCandles, liveDepth);
             BotLogger.Info($"[Order Flow] Asset {asset} ({timeframe}): {orderFlowResult.Description}");
 
             var higherTask = higherTf != null ? SafeFetch(higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);

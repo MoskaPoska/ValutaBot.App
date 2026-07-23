@@ -17,7 +17,11 @@ public static class OrderFlowEngine
         string Description
     );
 
-    public static OrderFlowResult AnalyzeOrderFlow(double[] prices, double[] volumes, MiniAppController.OhlcCandle[]? candles = null)
+    public static OrderFlowResult AnalyzeOrderFlow(
+        double[] prices,
+        double[] volumes,
+        MiniAppController.OhlcCandle[]? candles = null,
+        BinanceWebSocketStream.OrderbookDepthSnapshot? liveDepth = null)
     {
         if (prices == null || prices.Length < 5 || volumes == null || volumes.Length < 5)
         {
@@ -141,6 +145,21 @@ public static class OrderFlowEngine
             state = "BALANCED";
             scoreContribution = 0;
             desc = "Поток ордеров очищен от шума и находится в балансе.";
+        }
+
+        // ─── 4. Live Real-Time Orderbook Depth Imbalance (@depth20@100ms) ───
+        if (liveDepth != null)
+        {
+            if (liveDepth.ImbalanceRatio > 0.25)
+            {
+                scoreContribution += 0.25;
+                desc += $" | Живой стакан ордеров: Преобладание лимитных покупок (+{liveDepth.ImbalanceRatio * 100:F0}% Imbalance).";
+            }
+            else if (liveDepth.ImbalanceRatio < -0.25)
+            {
+                scoreContribution -= 0.25;
+                desc += $" | Живой стакан ордеров: Преобладание лимитных продаж ({liveDepth.ImbalanceRatio * 100:F0}% Imbalance).";
+            }
         }
 
         return new OrderFlowResult(
