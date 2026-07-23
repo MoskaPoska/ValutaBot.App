@@ -53,7 +53,7 @@ public static class AdaptiveExpiryEngine
         }
 
         // ─── 2. Standard timeframes (m1, m2, m5, m15) ───
-        int multiplier = 2; // Default: 2 candles expiry
+        int multiplier = (tfLower is "m1" or "1m") ? 1 : 2; // M1 defaults to 1 candle (1m), M5 defaults to 2 candles
 
         // Volatility Adjustment (ATR / Volatility Ratio)
         if (volRatio > 1.4)

@@ -595,12 +595,13 @@ public static partial class MiniAppUI
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid var(--panel-border);
             border-radius: 14px;
-            padding: 8px 4px 6px;
+            padding: 10px 4px 8px;
             text-align: center;
-            min-height: 90px;
+            min-height: 95px;
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: space-between;
             box-shadow: 0 4px 24px rgba(124, 77, 255, 0.04), inset 0 1px 0 rgba(255,255,255,0.04);
             transition: border-color 0.3s;
             position: relative;
@@ -614,9 +615,9 @@ public static partial class MiniAppUI
             background: linear-gradient(90deg, transparent, rgba(124,77,255,0.15), transparent);
         }
         .res-card:hover { border-color: rgba(124,77,255,0.2); }
-        .res-label { font-size: 8px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; margin-bottom: 4px; }
-        .res-value { font-size: clamp(10px, 3.2vw, 14px); font-weight: 800; font-family: 'Unbounded', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-        .res-chart { margin-top: 4px; width: 100%; height: 26px; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
+        .res-label { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; margin-bottom: 2px; }
+        .res-value { font-size: 15px; font-weight: 800; font-family: 'Unbounded', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin: 2px 0; }
+        .res-chart { margin-top: auto; width: 100%; height: 22px; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
         .res-chart-bar {
             width: 4px;
             border-radius: 2px 2px 0 0;
@@ -625,7 +626,7 @@ public static partial class MiniAppUI
         }
         .res-chart-bar.green { background: var(--green); }
         .res-chart-bar.red { background: var(--red); }
-        .res-dir-chart { margin-top: 2px; width: 100%; height: 24px; }
+        .res-dir-chart { margin-top: auto; width: 100%; height: 22px; }
         .res-dir-chart svg { width: 100%; height: 100%; }
 
         /* ─── Levels ─── */

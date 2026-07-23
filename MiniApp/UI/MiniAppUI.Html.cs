@@ -125,7 +125,7 @@ public static partial class MiniAppUI
 
 
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
-            <div id='errorDisplay' class=""""error-box"""" style=""""display:none""""></div>
+            <div id='errorDisplay' class='error-box' style='display:none'></div>
 
             <div class='status-bar' id='statusBar'>
                 <div class='sb-text'>
@@ -158,11 +158,11 @@ public static partial class MiniAppUI
 
         <!-- Tab Bar -->
         <div class='tab-bar' id='resultsTabBar' style='display:none'>
-            <div class='tab-btn active' id='tabBtnChart' onclick=""""switchResultTab('chart')"""">
+            <div class='tab-btn active' id='tabBtnChart' onclick='switchResultTab(""chart"")'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/><polyline points='22 4 12 14.01 9 11.01'/></svg>
                 Прогноз
             </div>
-            <div class='tab-btn' id='tabBtnAI' onclick=""""switchResultTab('ai')"""">
+            <div class='tab-btn' id='tabBtnAI' onclick='switchResultTab(""ai"")'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/><polyline points='3.27 6.96 12 12.01 20.73 6.96'/><line x1='12' y1='22.08' x2='12' y2='12'/></svg>
                 ИИ Аналитика
             </div>
