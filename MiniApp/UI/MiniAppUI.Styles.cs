@@ -615,7 +615,7 @@ public static partial class MiniAppUI
         }
         .res-card:hover { border-color: rgba(124,77,255,0.2); }
         .res-label { font-size: 8px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; margin-bottom: 4px; }
-        .res-value { font-size: 16px; font-weight: 800; font-family: 'Unbounded', sans-serif; }
+        .res-value { font-size: clamp(10px, 3.2vw, 14px); font-weight: 800; font-family: 'Unbounded', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .res-chart { margin-top: 4px; width: 100%; height: 26px; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
         .res-chart-bar {
             width: 4px;
