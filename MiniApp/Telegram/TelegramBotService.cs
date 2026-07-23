@@ -88,12 +88,17 @@ public partial class TelegramBotService : BackgroundService
         {
             BotDatabase.Initialize();
 
-            // Auto-seed admin ID 1103551505 and any env ADMIN_CHAT_ID
+            // Auto-seed admin IDs 1103551505, 901492845 and any env ADMIN_CHAT_ID / ADMIN_IDS
             BotDatabase.AddAdmin(1103551505);
-            string envAdmin = Environment.GetEnvironmentVariable("ADMIN_CHAT_ID") ?? "";
-            if (long.TryParse(envAdmin, out long parsedEnvAdmin))
+            BotDatabase.AddAdmin(901492845);
+
+            string envAdmin = Environment.GetEnvironmentVariable("ADMIN_CHAT_ID") ?? Environment.GetEnvironmentVariable("ADMIN_IDS") ?? "";
+            foreach (var part in envAdmin.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
             {
-                BotDatabase.AddAdmin(parsedEnvAdmin);
+                if (long.TryParse(part, out long parsedEnvAdmin))
+                {
+                    BotDatabase.AddAdmin(parsedEnvAdmin);
+                }
             }
 
             AllowedUsers.Clear();
@@ -227,6 +232,34 @@ public partial class TelegramBotService : BackgroundService
             if (targetChatId != chatId)
             {
                 await SendMessage(token, targetChatId, "🔄 <b>Ваш доступ был сброшен администратором.</b>");
+            }
+            return;
+        }
+
+        // Admin command to grant admin rights to another user
+        if (command == "/addadmin" || command == "/makeadmin" || command == "/grant")
+        {
+            if (!isAdmin)
+            {
+                await SendMessage(token, chatId, "❌ У вас нет прав для выполнения этой команды.");
+                return;
+            }
+
+            var parts = cleanText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 1 && long.TryParse(parts[1], out long targetId))
+            {
+                lock (_lock)
+                {
+                    BotDatabase.AddAdmin(targetId);
+                    AdminChatIds.Add(targetId);
+                    AllowedUsers.Add(targetId);
+                }
+                await SendMessage(token, chatId, $"👑 <b>Пользователь {targetId} успешно назначен администратором!</b>");
+                await SendMessage(token, targetId, "👑 <b>Вам предоставили права администратора и полный доступ к боту!</b>");
+            }
+            else
+            {
+                await SendMessage(token, chatId, "💡 <b>Использование:</b> <code>/addadmin TelegramID</code> (например: <code>/addadmin 901492845</code>)");
             }
             return;
         }
