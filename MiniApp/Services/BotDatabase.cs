@@ -44,9 +44,25 @@ public static class BotDatabase
                 has_deposited INTEGER NOT NULL DEFAULT 0,
                 deposit_amount REAL NOT NULL DEFAULT 0.0
             );
+
+            CREATE TABLE IF NOT EXISTS trade_outcomes (
+                id TEXT PRIMARY KEY,
+                asset TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL NOT NULL,
+                pnl_bps REAL NOT NULL,
+                was_win INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                verified_at TEXT NOT NULL
+            );
         ");
 
         BotLogger.Info("[SQLite DB] Database tables initialized successfully.");
+
+        // Initialize Trade Outcome Online Learning Engine
+        TradeOutcomeTracker.Initialize();
 
         // ─── 2. Auto-Migrate Legacy JSON Files if Present ───
         MigrateLegacyJsonFiles(conn);
@@ -143,6 +159,70 @@ public static class BotDatabase
         conn.Execute("DELETE FROM admins WHERE chat_id = @chatId", new { chatId });
     }
 
+    public static void SaveTradeOutcome(TradeOutcomeRecord outcome)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            conn.Execute(@"
+                INSERT OR REPLACE INTO trade_outcomes 
+                (id, asset, timeframe, direction, entry_price, exit_price, pnl_bps, was_win, created_at, verified_at)
+                VALUES (@Id, @Asset, @Timeframe, @Direction, @EntryPrice, @ExitPrice, @PnlBps, @WasWinInt, @CreatedAt, @VerifiedAt)
+            ", new
+            {
+                outcome.Id,
+                outcome.Asset,
+                outcome.Timeframe,
+                outcome.Direction,
+                outcome.EntryPrice,
+                outcome.ExitPrice,
+                outcome.PnlBps,
+                WasWinInt = outcome.WasWin ? 1 : 0,
+                outcome.CreatedAt,
+                outcome.VerifiedAt
+            });
+        }
+        catch (Exception ex)
+        {
+            BotLogger.Error("[SQLite DB] Failed to save trade outcome record", ex);
+        }
+    }
+
+    public static List<TradeOutcomeRecord> LoadTradeOutcomes(int limit = 1000)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            var rows = conn.Query(@"
+                SELECT id as Id, asset as Asset, timeframe as Timeframe, direction as Direction,
+                       entry_price as EntryPrice, exit_price as ExitPrice, pnl_bps as PnlBps,
+                       was_win as WasWin, created_at as CreatedAt, verified_at as VerifiedAt
+                FROM trade_outcomes
+                ORDER BY verified_at DESC
+                LIMIT @limit
+            ", new { limit });
+
+            return rows.Select(r => new TradeOutcomeRecord
+            {
+                Id = r.Id,
+                Asset = r.Asset,
+                Timeframe = r.Timeframe,
+                Direction = r.Direction,
+                EntryPrice = (double)r.EntryPrice,
+                ExitPrice = (double)r.ExitPrice,
+                PnlBps = (double)r.PnlBps,
+                WasWin = Convert.ToInt64(r.WasWin) == 1,
+                CreatedAt = r.CreatedAt ?? "",
+                VerifiedAt = r.VerifiedAt ?? ""
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            BotLogger.Error("[SQLite DB] Failed to load trade outcomes", ex);
+            return new List<TradeOutcomeRecord>();
+        }
+    }
+
     public static void RemoveAllowedUser(long chatId)
     {
         using var conn = GetConnection();
@@ -154,4 +234,18 @@ public static class BotDatabase
         using var conn = GetConnection();
         conn.Execute("INSERT OR IGNORE INTO all_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
     }
+}
+
+public class TradeOutcomeRecord
+{
+    public string Id { get; set; } = "";
+    public string Asset { get; set; } = "";
+    public string Timeframe { get; set; } = "";
+    public string Direction { get; set; } = "";
+    public double EntryPrice { get; set; }
+    public double ExitPrice { get; set; }
+    public double PnlBps { get; set; }
+    public bool WasWin { get; set; }
+    public string CreatedAt { get; set; } = "";
+    public string VerifiedAt { get; set; } = "";
 }

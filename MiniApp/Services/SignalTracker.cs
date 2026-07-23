@@ -209,6 +209,9 @@ public static class SignalTracker
             GetOrCreate("ALL").Record(correct);
             GetOrCreate($"{record.Asset}_{record.Timeframe}").Record(correct);
 
+            // Notify TradeOutcomeTracker for Online Reinforcement Learning and SQLite storage
+            TradeOutcomeTracker.OnTradeVerified(record);
+
             // Archive
             _pending.TryRemove(record.Id, out _);
             _archive.Enqueue(record);

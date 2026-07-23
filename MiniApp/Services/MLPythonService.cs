@@ -196,6 +196,48 @@ public static class MLPythonService
         }
     }
 
+    /// <summary>
+    /// Sends real verified trade outcome (Win/Loss) to Python ML service for online reinforcement learning.
+    /// </summary>
+    public static async Task RecordOnlineTradeOutcomeAsync(
+        string asset,
+        string timeframe,
+        double entryPrice,
+        double exitPrice,
+        string direction,
+        bool wasWin)
+    {
+        if (string.IsNullOrWhiteSpace(_baseUrl)) return;
+        if (!_available && DateTime.UtcNow < _nextRetry) return;
+
+        try
+        {
+            var payload = new
+            {
+                asset,
+                timeframe,
+                entry_price = entryPrice,
+                exit_price = exitPrice,
+                direction,
+                was_win = wasWin,
+                timestamp = DateTime.UtcNow.ToString("o")
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _client.PostAsync($"{_baseUrl}/feedback", content);
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"[MLPython] Online RL feedback registered for {asset}/{timeframe} -> {(wasWin ? "WIN" : "LOSS")}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[MLPython] Online RL feedback notice: {ex.Message}");
+        }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private static void OpenCircuit()
