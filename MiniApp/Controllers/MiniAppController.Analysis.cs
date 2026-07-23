@@ -333,6 +333,11 @@ public static partial class MiniAppController
                 finalProbability = Math.Clamp(finalProbability + matrixResult.ProbabilityBoost, 75, 95);
             }
 
+            if (finalProbability >= 70)
+            {
+                MultiRegionGatewayEngine.PreWarmSocketForSignal(asset);
+            }
+
             var overallStats = SignalTracker.GetOverallStats();
             var assetStats   = SignalTracker.GetStats(asset, timeframe);
             var adaptiveExpiry = AdaptiveExpiryEngine.CalculateOptimalExpiry(asset, timeframe, mainAtr, volRatio, smcResult, isSubMinute);
