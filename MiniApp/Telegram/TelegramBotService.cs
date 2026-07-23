@@ -87,6 +87,15 @@ public partial class TelegramBotService : BackgroundService
         lock (_lock)
         {
             BotDatabase.Initialize();
+
+            // Auto-seed admin ID 1103551505 and any env ADMIN_CHAT_ID
+            BotDatabase.AddAdmin(1103551505);
+            string envAdmin = Environment.GetEnvironmentVariable("ADMIN_CHAT_ID") ?? "";
+            if (long.TryParse(envAdmin, out long parsedEnvAdmin))
+            {
+                BotDatabase.AddAdmin(parsedEnvAdmin);
+            }
+
             AllowedUsers.Clear();
             foreach (var id in BotDatabase.LoadAllowedUsers()) AllowedUsers.Add(id);
             AdminChatIds.Clear();

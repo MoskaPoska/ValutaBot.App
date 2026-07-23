@@ -130,6 +130,19 @@ public static class BotDatabase
         conn.Execute("INSERT OR IGNORE INTO allowed_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
     }
 
+    public static void AddAdmin(long chatId)
+    {
+        using var conn = GetConnection();
+        conn.Execute("INSERT OR IGNORE INTO admins (chat_id) VALUES (@chatId)", new { chatId });
+        conn.Execute("INSERT OR IGNORE INTO allowed_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
+    }
+
+    public static void RemoveAdmin(long chatId)
+    {
+        using var conn = GetConnection();
+        conn.Execute("DELETE FROM admins WHERE chat_id = @chatId", new { chatId });
+    }
+
     public static void RemoveAllowedUser(long chatId)
     {
         using var conn = GetConnection();
