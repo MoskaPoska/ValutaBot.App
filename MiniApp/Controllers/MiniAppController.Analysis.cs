@@ -314,6 +314,20 @@ public static partial class MiniAppController
                 1000
             );
 
+            SignalTracker.RecordPrediction(
+                finalDirection, asset, timeframe, mainPrices[^1],
+                expiryCandles: Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
+                timeframeSecs: timeframeSec,
+                isForex: isForex,
+                binanceSymbol: symbol,
+                sourceDirections: new Dictionary<string, string>
+                {
+                    ["LIGHTGBM"] = lgbmDirection,
+                    ["SKENDER_MATH"] = consensus.CandidateDirection,
+                    ["CLAUDE_AI"] = claudeResult.direction
+                }
+            );
+
             return new
             {
                 direction = finalDirection,
