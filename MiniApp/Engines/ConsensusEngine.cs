@@ -34,7 +34,8 @@ public static class ConsensusEngine
         double adxVal = 20.0,
         double volRatioVal = 1.0,
         string smcReasoning = "",
-        string orderFlowReasoning = "")
+        string orderFlowReasoning = "",
+        string aiModelName = "ИИ Анализ")
     {
         // ─── 1. Market-Regime Aware Auto-Calibrated Weights ───
         double weightLgbm = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.8);
@@ -85,11 +86,13 @@ public static class ConsensusEngine
             ? $"• ⚡ Нейросеть (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность){modelAccText}"
             : $"• ⚡ Нейросеть (LightGBM): {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность){modelAccText}";
 
+        string effectiveModelName = string.IsNullOrEmpty(aiModelName) ? "Математический ИИ" : aiModelName;
+
         string baseClaudeReasoning = string.IsNullOrEmpty(claudeReasoningText)
             ? $"Матем. анализ Skender (RSI: {Math.Round(rsiVal, 1)}, EMA: {Math.Round(emaVal, 2)})"
             : claudeReasoningText;
 
-        string claudeText = $"• 🧠 Claude 3.5 / ИИ: {baseClaudeReasoning}";
+        string claudeText = $"• 🧠 {effectiveModelName}: {baseClaudeReasoning}";
 
         string combinedReasoning = $"{smcText}\n{flowText}\n{lgbmText}\n{claudeText}";
 

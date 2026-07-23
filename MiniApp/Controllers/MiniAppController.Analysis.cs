@@ -282,7 +282,8 @@ public static partial class MiniAppController
                 mainAdx,
                 mainResult.volStrengthVal,
                 smcResult.SummaryReasoning,
-                orderFlowResult.Description
+                orderFlowResult.Description,
+                claudeResult.modelName
             );
 
             // ─── Direct Directional Output (Always BUY or PUT) ───

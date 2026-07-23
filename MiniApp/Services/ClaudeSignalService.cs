@@ -251,10 +251,6 @@ public static partial class ClaudeSignalService
                 + "ТОЛЬКО JSON:\n"
                 + "{\"direction\": \"BUY\"|\"PUT\"|\"NEUTRAL\", \"probability\": 55-90, \"reasoning\": \"1-2 предложения на русском\"}";
 
-            string primaryModel = "anthropic/claude-3.5-sonnet";
-            string primaryLabel = "Claude 3.5 Sonnet";
-            string fallbackLabel = "Gemini 2.0 Flash (Google)";
-
             string regimeLabel = marketRegime switch
             {
                 "BULL_TREND" => "BULL_TREND (+DI > -DI)",
@@ -267,50 +263,45 @@ public static partial class ClaudeSignalService
 
             string geminiApiKey = GetGeminiApiKey();
 
-            try
+            // 1. Try Direct Google Gemini 2.0 Flash (Free & Ultra Fast ~250ms)
+            if (!string.IsNullOrEmpty(geminiApiKey))
             {
-                _lastPrimaryError = null;
-                var result = await SendOpenRouterRequestAsync(primaryModel, apiKey, finalClaudePrompt, asset, indicators);
-                return (result.direction, result.probability, result.reasoning, primaryLabel);
-            }
-            catch (Exception ex)
-            {
-                _lastPrimaryError = ex.ToString();
-                
-                string errorStr = ex.Message.ToLower();
-                bool isOpenRouterCreditError = errorStr.Contains("402") || errorStr.Contains("credits") || errorStr.Contains("payment") || errorStr.Contains("depleted") || errorStr.Contains("resource_exhausted") || errorStr.Contains("404");
-                
-                if (isOpenRouterCreditError)
+                try
                 {
-                    _aiDisabled = true;
-                    _nextAiCheck = DateTime.UtcNow.AddMinutes(15);
-                    BotLogger.Warn("[AI CircuitBreaker] OpenRouter/Gemini quota depleted or unavailable. Circuit breaker tripped for 15m.");
+                    string userContent = $"Technical indicators for {asset}:\n{indicators}";
+                    var geminiRes = await SendGeminiRequestAsync(geminiApiKey, finalGeminiPrompt, userContent);
+                    return (geminiRes.direction, geminiRes.probability, geminiRes.reasoning, "Gemini 2.0 Flash");
                 }
-                
-                Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {fallbackLabel}...");
+                catch (Exception gemEx)
+                {
+                    Console.WriteLine($"[AI] Direct Gemini 2.0 Flash failed: {gemEx.Message}. Trying OpenRouter models...");
+                }
+            }
 
-                if (!string.IsNullOrEmpty(geminiApiKey))
+            // 2. Try OpenRouter Models (DeepSeek V3 / Claude 3.5 Sonnet)
+            if (!string.IsNullOrEmpty(apiKey))
+            {
+                // Try DeepSeek V3 first (ultra-fast & 20x cheaper), then Claude 3.5 Sonnet
+                string[] openRouterModels = { "deepseek/deepseek-chat", "anthropic/claude-3.5-sonnet" };
+                foreach (var modelId in openRouterModels)
                 {
                     try
                     {
-                        string userContent = $"Technical indicators for {asset}:\n{indicators}";
-                        var fallbackResult = await SendGeminiRequestAsync(geminiApiKey, finalGeminiPrompt, userContent);
-                        return (fallbackResult.direction, fallbackResult.probability, fallbackResult.reasoning, fallbackLabel);
+                        _lastPrimaryError = null;
+                        var result = await SendOpenRouterRequestAsync(modelId, apiKey, finalClaudePrompt, asset, indicators);
+                        string modelLabel = modelId.Contains("deepseek") ? "DeepSeek V3" : "Claude 3.5 Sonnet";
+                        return (result.direction, result.probability, result.reasoning, modelLabel);
                     }
-                    catch (Exception fallbackEx)
+                    catch (Exception ex)
                     {
-                        Console.WriteLine($"[AI] {fallbackLabel} failed: {fallbackEx.Message}");
-                        _lastRawResponse = $"ERROR: Both AI models failed. Claude: {ex.Message}. Gemini: {fallbackEx.Message}";
-                        return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
+                        _lastPrimaryError = ex.ToString();
+                        Console.WriteLine($"[AI] OpenRouter model {modelId} failed: {ex.Message}");
                     }
-                }
-                else
-                {
-                    Console.WriteLine($"[AI] Gemini API key not configured, no fallback available");
-                    _lastRawResponse = $"ERROR: Claude failed and Gemini not configured. Claude: {ex.Message}";
-                    return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
                 }
             }
+
+            // 3. Fallback to Local Quantitative Math Engine
+            return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический ИИ");
         }
         catch (Exception ex)
         {
