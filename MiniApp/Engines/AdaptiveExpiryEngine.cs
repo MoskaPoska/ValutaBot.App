@@ -21,87 +21,24 @@ public static class AdaptiveExpiryEngine
         SmcEngine.SmcAnalysisResult smc,
         bool isSubMinute)
     {
-        int baseSeconds = MarketDataFetcher.TimeframeSeconds(timeframe);
         string tfLower = timeframe.ToLower().Trim();
-
-        // ─── 1. Sub-minute timeframes (s5, s10, s15, s30) ───
-        if (isSubMinute)
+        int totalSeconds = tfLower switch
         {
-            int subSec = tfLower switch
-            {
-                "s3" => 10,
-                "s5" => 15,
-                "s10" => 30,
-                "s15" => 45,
-                "s30" => 60,
-                _ => 30
-            };
-
-            if (smc.HasLiquiditySweep)
-            {
-                // Quick impulse reversal -> short expiry to capture quick spike
-                subSec = (int)(subSec * 0.8);
-                return new OptimalExpiryResult(subSec, $"{subSec} сек", "Импульсный отскок от снятия ликвидности (быстрый вход).");
-            }
-            if (smc.HasFvg)
-            {
-                // FVG rebalance filling -> medium expiry
-                return new OptimalExpiryResult(subSec, $"{subSec} сек", "Заполнение FVG имбаланса в реальном времени.");
-            }
-
-            return new OptimalExpiryResult(subSec, $"{subSec} сек", "Базовая субминутная экспирация под текущий спред.");
-        }
-
-        // ─── 2. Standard timeframes (m1, m2, m5, m15) ───
-        int multiplier = (tfLower is "m1" or "1m") ? 1 : 2; // M1 defaults to 1 candle (1m), M5 defaults to 2 candles
-
-        // Volatility Adjustment (ATR / Volatility Ratio)
-        if (volRatio > 1.4)
-        {
-            // High volatility -> Shorter duration to avoid sudden reversals
-            multiplier = 1;
-        }
-        else if (volRatio < 0.7)
-        {
-            // Low volatility -> Longer duration to give price time to hit target
-            multiplier = 3;
-        }
-
-        // SMC Pattern Specific Adjustments
-        string smcNote = "";
-        if (smc.HasLiquiditySweep)
-        {
-            multiplier = Math.Max(1, multiplier - 1);
-            smcNote = "Снятие ликвидности (быстрый импульсный разворот).";
-        }
-        else if (smc.HasOrderBlock)
-        {
-            multiplier += 1;
-            smcNote = "Тест институционального Order Block (требуется время на ретест).";
-        }
-        else if (smc.HasFvg)
-        {
-            smcNote = "Перекрытие FVG имбаланса.";
-        }
-
-        // Active Forex Session Adjustment (UTC Time)
-        int currentHourUtc = DateTime.UtcNow.Hour;
-        bool isAsianSession = currentHourUtc >= 22 || currentHourUtc < 7; // Quiet Asian session
-        if (isAsianSession && !asset.Contains("JPY") && !asset.Contains("AUD") && !asset.Contains("NZD"))
-        {
-            // Low liquidity during Asian session for EUR/USD, GBP/USD -> add time
-            multiplier += 1;
-        }
-
-        int totalSeconds = baseSeconds * multiplier;
-        if (tfLower is "m1" or "1m")
-        {
-            totalSeconds = Math.Clamp(totalSeconds, 60, 120); // Strict 1m-2m cap for M1
-        }
-        else
-        {
-            totalSeconds = Math.Clamp(totalSeconds, 30, 900); // Between 30s and 15m
-        }
+            "s3" => 3,
+            "s5" => 5,
+            "s10" => 10,
+            "s15" => 15,
+            "s30" => 30,
+            "m1" or "1m" => 60,
+            "m2" or "2m" => 120,
+            "m3" or "3m" => 180,
+            "m5" or "5m" => 300,
+            "m15" or "15m" => 900,
+            "m30" or "30m" => 1800,
+            "h1" or "1h" => 3600,
+            "h4" or "4h" => 14400,
+            _ => 60
+        };
 
         string expiryText = totalSeconds switch
         {
@@ -111,13 +48,13 @@ public static class AdaptiveExpiryEngine
             180 => "3 минуты",
             240 => "4 минуты",
             300 => "5 минут",
+            900 => "15 минут",
+            1800 => "30 минут",
+            3600 => "1 час",
             _ => $"{totalSeconds / 60} мин"
         };
 
-        string fullReasoning = !string.IsNullOrEmpty(smcNote)
-            ? $"Рекомендация: {expiryText}. {smcNote}"
-            : $"Рекомендация: {expiryText}. Оптимальная длительность под текущую волатильность (VolRatio: {volRatio:F1}).";
-
-        return new OptimalExpiryResult(totalSeconds, expiryText, fullReasoning);
+        string reasoning = $"Экспирация {expiryText} под выбранный таймфрейм {timeframe.ToUpper()}.";
+        return new OptimalExpiryResult(totalSeconds, expiryText, reasoning);
     }
 }
