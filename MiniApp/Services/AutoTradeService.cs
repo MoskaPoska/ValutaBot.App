@@ -56,6 +56,20 @@ public static class AutoTradeService
     {
         try
         {
+            // Check Daily Max Drawdown Guard (15% Daily Loss Guard)
+            var riskStatus = DailyRiskCircuitBreaker.EvaluateRiskStatus(req.ChatId);
+            if (!riskStatus.IsTradeAllowed)
+            {
+                BotLogger.Warn($"[AutoTrade 1-Click] Blocked order for ChatId {req.ChatId}: {riskStatus.StatusReasoning}");
+                return new AutoTradeExecutionResult(
+                    Success: false,
+                    OrderId: "",
+                    ExecutionTimeMs: 0.1,
+                    Message: riskStatus.StatusReasoning,
+                    Timestamp: DateTime.UtcNow.ToString("HH:mm:ss")
+                );
+            }
+
             string ssid = !string.IsNullOrEmpty(req.PocketSsid) ? req.PocketSsid : (GetUserSsid(req.ChatId) ?? "");
             string poAsset = MapToPocketOptionAsset(req.Asset);
             int durationSecs = Math.Max(5, req.DurationSeconds);
