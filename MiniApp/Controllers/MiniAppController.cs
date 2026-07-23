@@ -127,61 +127,10 @@ public static partial class MiniAppController
             }
         });
 
-        app.MapGet("/api/stats", (HttpContext context) =>
-        {
-            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            var overall = SignalTracker.GetOverallStats();
-            var allStats = SignalTracker.GetAllStats()
-                .Where(s => s.Key != "ALL" && s.Verified > 0)
-                .OrderByDescending(s => s.Verified)
-                .Select(s => new
-                {
-                    key       = s.Key,
-                    verified  = s.Verified,
-                    correct   = s.Correct,
-                    incorrect = s.Incorrect,
-                    winRate   = s.WinRate,
-                    pending   = s.Pending
-                });
-
-            var signalSources = SignalTracker.GetSignalStats()
-                .Select(s => new
-                {
-                    name      = s.name,
-                    agreeRate = s.agreeRatePct,
-                    weight    = s.weight,
-                    count     = s.count
-                });
-
-            var recent = SignalTracker.GetRecentArchive(20)
-                .Select(r => new
-                {
-                    asset     = r.Asset,
-                    tf        = r.Timeframe,
-                    direction = r.Direction,
-                    entry     = Math.Round(r.EntryPrice, 5),
-                    exit      = r.ExitPrice.HasValue ? Math.Round(r.ExitPrice.Value, 5) : (double?)null,
-                    pnlBps    = r.PnlBps,
-                    correct   = r.WasCorrect,
-                    at        = r.CreatedAt.ToString("HH:mm:ss")
-                });
-
-            return Results.Json(new
-            {
-                overall = new
-                {
-                    winRate   = overall.HasData ? overall.WinRate : (double?)null,
-                    verified  = overall.Verified,
-                    correct   = overall.Correct,
-                    incorrect = overall.Incorrect,
-                    pending   = SignalTracker.GetPendingCount(),
-                    hasData   = overall.HasData
-                },
-                byAsset       = allStats,
-                signalSources,
-                recentSignals = recent
-            });
-        });
+        app.MapGet("/api/stats", HandleGetStats);
+        app.MapGet("/api/signal-stats", HandleGetSignalStats);
+        app.MapPost("/api/autotrade/execute", HandleAutoTradeExecuteAsync);
+        app.MapPost("/api/autotrade/ssid", HandleSaveSsid);
 
         app.MapGet("/api/fear-greed", async (HttpContext context) =>
         {
@@ -211,19 +160,6 @@ public static partial class MiniAppController
                 return Results.Json(new { error = authError }, statusCode: 401);
 
             return Results.Json(LiquidationHeatmapService.GetHeatmapData());
-        });
-
-        app.MapGet("/api/signal-stats", (HttpContext context) =>
-        {
-            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!IsRequestAuthorized(context, out string? authError))
-                return Results.Json(new { error = authError }, statusCode: 401);
-
-            return Results.Json(new
-            {
-                accuracy = SignalTracker.GetOverallStats().WinRate,
-                signals = SignalTracker.GetSignalStats()
-            });
         });
 
         app.MapGet("/api/time", (HttpContext context) =>
@@ -1454,14 +1390,6 @@ public static partial class MiniAppController
         return (score, confidence, rsi, emaS, volStrength, atr);
     }
 
-
-
-
-    public static string SanitizeAsset(string raw)
-    {
-        return AssetSanitizer.Sanitize(raw);
-    }
-
     private static double CalculateHurstExponent(double[] prices)
     {
         int n = prices.Length;
@@ -1714,96 +1642,5 @@ public static partial class MiniAppController
         {
             return new { value = 50, classification = "Neutral" };
         }
-    }
-
-    private static readonly ConcurrentDictionary<long, DateTime> UserLastRequestTime = new();
-
-    private static bool IsRequestAuthorized(HttpContext context, out string? errorMessage)
-    {
-        errorMessage = null;
-
-        string? botToken = TelegramNotifier.GetToken();
-        if (string.IsNullOrEmpty(botToken))
-        {
-            return true; // Bypass validation in local dev environment
-        }
-
-        if (!context.Request.Headers.TryGetValue("X-Telegram-Init-Data", out var initDataValues))
-        {
-            errorMessage = "Missing authorization header";
-            return false;
-        }
-
-        string initData = initDataValues.ToString();
-        if (string.IsNullOrEmpty(initData))
-        {
-            errorMessage = "Empty authorization token";
-            return false;
-        }
-
-        // ─── Custom Signed URL Validation ───
-        if (initData.Contains("custom_user_id=") && initData.Contains("custom_user_sign="))
-        {
-            var query = HttpUtility.ParseQueryString(initData);
-            string? customIdStr = query["custom_user_id"];
-            string? customSign = query["custom_user_sign"];
-
-            if (long.TryParse(customIdStr, out long userId))
-            {
-                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(botToken));
-                byte[] hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(userId.ToString()));
-                string expectedSign = Convert.ToHexString(hashBytes).ToLowerInvariant();
-
-                if (string.Equals(customSign, expectedSign, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!TelegramBotService.IsUserAllowed(userId))
-                    {
-                        errorMessage = "Access Denied: Pocket Option registration and deposit required";
-                        return false;
-                    }
-                    context.Items["userId"] = userId;
-                    return true;
-                }
-            }
-
-            errorMessage = "Invalid custom authorization signature";
-            return false;
-        }
-
-        // ─── Standard Telegram InitData Validation ───
-        if (!TelegramInitDataValidator.Validate(initData, botToken, out long tgUserId, out _))
-        {
-            errorMessage = "Invalid Telegram authorization signature";
-            return false;
-        }
-
-        if (!TelegramBotService.IsUserAllowed(tgUserId))
-        {
-            errorMessage = "Access Denied: Pocket Option registration and deposit required";
-            return false;
-        }
-
-        context.Items["userId"] = tgUserId;
-        return true;
-    }
-
-    private static bool IsRateLimited(HttpContext context, out string? errorMessage)
-    {
-        errorMessage = null;
-        if (context.Items.TryGetValue("userId", out var obj) && obj is long userId && userId > 0)
-        {
-            DateTime now = DateTime.UtcNow;
-            if (UserLastRequestTime.TryGetValue(userId, out DateTime lastTime))
-            {
-                double secondsSince = (now - lastTime).TotalSeconds;
-                if (secondsSince < 4) // 4 seconds rate limit
-                {
-                    errorMessage = $"Too many requests. Please wait {Math.Ceiling(4 - secondsSince)}s.";
-                    return true;
-                }
-            }
-            UserLastRequestTime[userId] = now;
-        }
-        return false;
     }
 }
