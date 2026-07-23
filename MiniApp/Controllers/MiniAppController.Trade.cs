@@ -20,7 +20,11 @@ public static partial class MiniAppController
             return Results.Json(new { success = false, error = "Invalid trade payload" }, statusCode: 400);
         }
 
-        var result = await AutoTradeService.Execute1ClickTradeAsync(req);
+        // 🔒 Security Enforcement: Ensure trade is executed strictly for the authenticated User ID
+        long authUserId = context.Items.TryGetValue("userId", out var u) && u is long id ? id : req.ChatId;
+        var securedReq = req with { ChatId = authUserId };
+
+        var result = await AutoTradeService.Execute1ClickTradeAsync(securedReq);
         return Results.Json(result);
     }
 
@@ -29,12 +33,15 @@ public static partial class MiniAppController
         if (!IsRequestAuthorized(context, out string? authError))
             return Results.Json(new { success = false, error = authError }, statusCode: 401);
 
-        if (chatId <= 0 || string.IsNullOrWhiteSpace(ssid))
+        // 🔒 Security Enforcement: Ensure SSID token is stored strictly for the authenticated User ID
+        long authUserId = context.Items.TryGetValue("userId", out var u) && u is long id ? id : chatId;
+
+        if (authUserId <= 0 || string.IsNullOrWhiteSpace(ssid))
         {
-            return Results.Json(new { success = false, error = "Invalid chatId or SSID" }, statusCode: 400);
+            return Results.Json(new { success = false, error = "Invalid user session or SSID" }, statusCode: 400);
         }
 
-        AutoTradeService.SaveUserSsid(chatId, ssid);
+        AutoTradeService.SaveUserSsid(authUserId, ssid);
         return Results.Json(new { success = true, message = "Pocket Option session token saved securely." });
     }
 }
