@@ -82,6 +82,11 @@ public static partial class ClaudeSignalService
     {
 
 
+        if (_aiDisabled && DateTime.UtcNow < _nextAiCheck)
+        {
+            return ("NEUTRAL", 0, "Математический консенсус активен. Запущен локальный анализ индикаторов.", "Математический анализ");
+        }
+
         try
         {
             string apiKey = GetOpenRouterApiKey();
@@ -273,7 +278,14 @@ public static partial class ClaudeSignalService
                 _lastPrimaryError = ex.ToString();
                 
                 string errorStr = ex.Message.ToLower();
-                bool isOpenRouterCreditError = errorStr.Contains("402") || errorStr.Contains("credits") || errorStr.Contains("payment") || errorStr.Contains("depleted");
+                bool isOpenRouterCreditError = errorStr.Contains("402") || errorStr.Contains("credits") || errorStr.Contains("payment") || errorStr.Contains("depleted") || errorStr.Contains("resource_exhausted") || errorStr.Contains("404");
+                
+                if (isOpenRouterCreditError)
+                {
+                    _aiDisabled = true;
+                    _nextAiCheck = DateTime.UtcNow.AddMinutes(15);
+                    BotLogger.Warn("[AI CircuitBreaker] OpenRouter/Gemini quota depleted or unavailable. Circuit breaker tripped for 15m.");
+                }
                 
                 Console.WriteLine($"[AI] {primaryLabel} failed: {ex.Message}. → fallback {fallbackLabel}...");
 
