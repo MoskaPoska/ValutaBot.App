@@ -270,6 +270,8 @@ public static partial class MiniAppController
             int scoreSign = totalScore > 0.02 ? 1 : totalScore < -0.02 ? -1 : 0;
             bool isSubMinute = timeframe.ToLower().StartsWith("s");
 
+            var matrixResult = await ConfluenceMatrixEngine.Evaluate4DMatrixAsync(asset, timeframe, isForex, symbol);
+
             var consensus = ConsensusEngine.EvaluateConsensus(
                 totalScore, scoreSign,
                 claudeResult.direction, (int)claudeResult.probability, claudeResult.reasoning,
@@ -292,6 +294,10 @@ public static partial class MiniAppController
                 : (consensus.FinalDirection != "NEUTRAL" ? consensus.FinalDirection : (totalScore >= 0 ? "BUY" : "PUT"));
 
             int finalProbability = Math.Max(75, Math.Max(consensus.Probability, (int)(coreResult.Confidence * 100)));
+            if (matrixResult.ProbabilityBoost > 0)
+            {
+                finalProbability = Math.Clamp(finalProbability + matrixResult.ProbabilityBoost, 75, 95);
+            }
 
             var overallStats = SignalTracker.GetOverallStats();
             var assetStats   = SignalTracker.GetStats(asset, timeframe);
@@ -313,7 +319,10 @@ public static partial class MiniAppController
                 direction = finalDirection,
                 probability = finalProbability,
                 duration = durationText,
-                adaptiveReasoning = $"{coreResult.Reasoning} | {adaptiveExpiry.Reasoning}",
+                adaptiveReasoning = $"{coreResult.Reasoning} | {adaptiveExpiry.Reasoning} | {matrixResult.SummaryReasoning}",
+                goldenSetup = matrixResult.IsGoldenSetup,
+                confluenceLabel = matrixResult.ConfluenceLabel,
+                confluenceRatio = matrixResult.ConfluenceRatio,
                 expiryCandles = Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),
