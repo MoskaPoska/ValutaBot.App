@@ -2,6 +2,10 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Telegram.Bot;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using File = System.IO.File;
 
 namespace ValutaBot.MiniApp;
 
@@ -907,16 +911,14 @@ public partial class TelegramBotService : BackgroundService
 
     private static async Task SendMessage(string token, long chatId, string text)
     {
+        var client = TelegramNotifier.GetBotClient() ?? new TelegramBotClient(token);
         try
         {
-            var payload = new { chat_id = chatId, text, parse_mode = "HTML" };
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+            await client.SendTextMessageAsync(chatId, text, parseMode: ParseMode.Html);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TG Bot] sendMessage exception: {ex.Message}");
+            Console.WriteLine($"[TG Bot] sendMessage SDK exception: {ex.Message}");
         }
     }
 
@@ -942,31 +944,27 @@ public partial class TelegramBotService : BackgroundService
 
     private static async Task EditMessageText(string token, long chatId, int messageId, string text)
     {
+        var client = TelegramNotifier.GetBotClient() ?? new TelegramBotClient(token);
         try
         {
-            var payload = new { chat_id = chatId, message_id = messageId, text = text, parse_mode = "HTML" };
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/editMessageText", content);
+            await client.EditMessageTextAsync(chatId, messageId, text, parseMode: ParseMode.Html);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TG Bot] editMessageText exception: {ex.Message}");
+            Console.WriteLine($"[TG Bot] editMessageText SDK exception: {ex.Message}");
         }
     }
 
     private static async Task AnswerCallbackQuery(string token, string callbackQueryId, string text)
     {
+        var client = TelegramNotifier.GetBotClient() ?? new TelegramBotClient(token);
         try
         {
-            var payload = new { callback_query_id = callbackQueryId, text = text };
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/answerCallbackQuery", content);
+            await client.AnswerCallbackQueryAsync(callbackQueryId, text);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TG Bot] answerCallbackQuery exception: {ex.Message}");
+            Console.WriteLine($"[TG Bot] answerCallbackQuery SDK exception: {ex.Message}");
         }
     }
 
