@@ -61,6 +61,7 @@ public static partial class MiniAppController
 
         var app = builder.Build();
         app.UseCors("AllowMiniApp");
+        app.UseMiddleware<TokenBucketRateLimiterMiddleware>();
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
         app.MapGet("/", async (HttpContext context) =>
