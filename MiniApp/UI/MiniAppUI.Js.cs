@@ -193,11 +193,11 @@ public static partial class MiniAppUI
             var p = new URLSearchParams(window.location.search);
             var a = p.get('asset'), t = p.get('tf');
             if (a) {
-                var el = document.querySelector('.asset-item[data-asset=""""' + a.toUpperCase() + '""""]');
+                var el = document.querySelector('.asset-item[data-asset=""' + a.toUpperCase() + '""]');
                 if (el) { setAsset(el); el.scrollIntoView && el.scrollIntoView({ block: 'nearest' }); }
             }
             if (t) {
-                var el = document.querySelector('.tf-btn[data-tf=""""' + t.toUpperCase() + '""""]');
+                var el = document.querySelector('.tf-btn[data-tf=""' + t.toUpperCase() + '""]');
                 if (el) setTf(el);
             }
         })();
@@ -419,7 +419,7 @@ public static partial class MiniAppUI
 
             function escapeHtml(str) {
                 if (!str) return '';
-                return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/""""/g, '&quot;').replace(/'/g, '&#039;');
+                return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/""/g, '&quot;').replace(/'/g, '&#039;');
             }
 
             const safeTitle = escapeHtml(title);
@@ -427,10 +427,10 @@ public static partial class MiniAppUI
             const safeDebug = escapeHtml(debugText);
 
             errDisp.innerHTML = `
-                <div class=""""error-header"""">${safeTitle}</div>
-                <div class=""""error-desc"""">${safeDesc}</div>
-                <div class=""""error-debug-toggle"""" onclick=""""toggleErrorDebug(this)"""">▸ Детали отладки</div>
-                <div class=""""error-debug-content"""" id=""""errorDebugContent"""" style=""""display: none;"""">${safeDebug}</div>
+                <div class=""error-header"">${safeTitle}</div>
+                <div class=""error-desc"">${safeDesc}</div>
+                <div class=""error-debug-toggle"" onclick=""toggleErrorDebug(this)"">▸ Детали отладки</div>
+                <div class=""error-debug-content"" id=""errorDebugContent"" style=""display: none;"">${safeDebug}</div>
             `;
             errDisp.style.display = 'block';
         }
@@ -646,7 +646,6 @@ public static partial class MiniAppUI
                 renderError(e.message, catchMsg);
             }
         };
-
-    ";
+        ";
     }
 }

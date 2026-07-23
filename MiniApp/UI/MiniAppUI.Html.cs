@@ -83,14 +83,14 @@ public static partial class MiniAppUI
             <div class='sel-grid'>
                 <div class='sel-group'>
                     <span class='sel-label'>Актив</span>
-                    <div class='dropdown-trigger' id='assetBtn' onclick='toggleMenu(`assetMenu`, `assetBtn`)'>
+                    <div class='dropdown-trigger' id='assetBtn' onclick='toggleMenu(""assetMenu"", ""assetBtn"")'>
                         <span class='dropdown-val' id='selectedAsset'>EUR/USD OTC</span>
                         <span class='dropdown-arrow'>▼</span>
                     </div>
                 </div>
                 <div class='sel-group'>
                     <span class='sel-label'>Таймфрейм</span>
-                    <div class='dropdown-trigger' id='tfBtn' onclick='toggleMenu(`tfMenu`, `tfBtn`)'>
+                    <div class='dropdown-trigger' id='tfBtn' onclick='toggleMenu(""tfMenu"", ""tfBtn"")'>
                         <span class='dropdown-val' id='selectedTf'>M1</span>
                         <span class='dropdown-arrow'>▼</span>
                     </div>
@@ -121,8 +121,6 @@ public static partial class MiniAppUI
                 <span class='time' id='candleTime'>--</span>
             </div>
             </div>
-
-
 
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
             <div id='errorDisplay' class='error-box' style='display:none'></div>
@@ -243,7 +241,6 @@ public static partial class MiniAppUI
             </div>
         </div>
     </div>
-
     ";
     }
 }
