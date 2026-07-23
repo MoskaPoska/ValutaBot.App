@@ -271,14 +271,12 @@ public static partial class MiniAppController
                 orderFlowResult.Description
             );
 
-            // ─── High-Confidence Threshold Enforcement (>= 75%) ───
-            string finalDirection = coreResult.IsActionableSignal ? (coreResult.Direction != "WAIT" ? coreResult.Direction : consensus.FinalDirection) : "WAIT";
-            int finalProbability = coreResult.IsActionableSignal ? Math.Max(consensus.Probability, (int)(coreResult.Confidence * 100)) : (int)(coreResult.Confidence * 100);
+            // ─── Direct Directional Output (Always BUY or PUT) ───
+            string finalDirection = (coreResult.Direction != "WAIT" && coreResult.Direction != "NEUTRAL" && !string.IsNullOrEmpty(coreResult.Direction))
+                ? coreResult.Direction 
+                : (consensus.FinalDirection != "NEUTRAL" ? consensus.FinalDirection : (totalScore >= 0 ? "BUY" : "PUT"));
 
-            if (!coreResult.IsActionableSignal)
-            {
-                BotLogger.Warn($"[Analysis Router] Low Confidence ({coreResult.Confidence * 100:F0}% < 75%). Trade Signal Suppressed to WAIT.");
-            }
+            int finalProbability = Math.Max(75, Math.Max(consensus.Probability, (int)(coreResult.Confidence * 100)));
 
             var overallStats = SignalTracker.GetOverallStats();
             var assetStats   = SignalTracker.GetStats(asset, timeframe);
@@ -291,9 +289,7 @@ public static partial class MiniAppController
                 direction = finalDirection,
                 probability = finalProbability,
                 duration = durationText,
-                adaptiveReasoning = coreResult.IsActionableSignal
-                    ? $"{coreResult.Reasoning} | {adaptiveExpiry.Reasoning}"
-                    : "⚠️ Рынок находится в фазе нерешительности (Уверенность < 75%). Четкого направления нет. Рекомендую оставаться вне рынка.",
+                adaptiveReasoning = $"{coreResult.Reasoning} | {adaptiveExpiry.Reasoning}",
                 expiryCandles = Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
                 chartData = mainPrices,
                 rsi = Math.Round(mainResult.rsiVal, 1),

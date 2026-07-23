@@ -94,7 +94,14 @@ public static class AdaptiveExpiryEngine
         }
 
         int totalSeconds = baseSeconds * multiplier;
-        totalSeconds = Math.Clamp(totalSeconds, 30, 900); // Between 30s and 15m
+        if (tfLower is "m1" or "1m")
+        {
+            totalSeconds = Math.Clamp(totalSeconds, 60, 120); // Strict 1m-2m cap for M1
+        }
+        else
+        {
+            totalSeconds = Math.Clamp(totalSeconds, 30, 900); // Between 30s and 15m
+        }
 
         string expiryText = totalSeconds switch
         {

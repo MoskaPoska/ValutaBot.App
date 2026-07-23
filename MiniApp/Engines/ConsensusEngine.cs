@@ -58,19 +58,13 @@ public static class ConsensusEngine
         double totalWeightSum = weightLgbm + weightMath + weightClaude;
         double weightedScore = (scoreLgbm * weightLgbm + scoreClaude * weightClaude + scoreMath * weightMath) / totalWeightSum;
 
-        // ─── 4. Determine final direction & continuous probability ───
-        string candidateDir;
-        if (weightedScore > 0.12)
-            candidateDir = "BUY";
-        else if (weightedScore < -0.12)
-            candidateDir = "PUT";
-        else
-            candidateDir = "NEUTRAL";
+        // ─── 4. Determine final direction & continuous probability (No NEUTRAL) ───
+        string candidateDir = weightedScore >= 0 ? "BUY" : "PUT";
 
         double absWeightedScore = Math.Abs(weightedScore);
         int probability = isSubMinute
-            ? Math.Clamp(62 + (int)Math.Round(absWeightedScore * 25), 60, 88)
-            : Math.Clamp(68 + (int)Math.Round(absWeightedScore * 28), 65, 95);
+            ? Math.Clamp(75 + (int)Math.Round(absWeightedScore * 18), 75, 91)
+            : Math.Clamp(76 + (int)Math.Round(absWeightedScore * 18), 75, 95);
 
         string finalDirection = candidateDir;
 
