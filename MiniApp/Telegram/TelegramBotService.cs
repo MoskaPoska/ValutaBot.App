@@ -64,7 +64,8 @@ public partial class TelegramBotService : BackgroundService
     {
         None,
         AwaitingId,
-        AwaitingDeleteId
+        AwaitingDeleteId,
+        AwaitingAddAdminId
     }
 
     private static readonly ConcurrentDictionary<long, UserState> UserStates = new();
@@ -363,6 +364,40 @@ public partial class TelegramBotService : BackgroundService
             return;
         }
 
+        if (cleanText == "👑 Добавить админа" || cleanText == "➕ Добавить админа")
+        {
+            if (!isAdmin) return;
+            UserStates[chatId] = UserState.AwaitingAddAdminId;
+            await SendMessage(token, chatId, "👑 <b>Пожалуйста, введите Telegram Chat ID пользователя, которому нужно предоставить права администратора:</b>\n\n(Вы можете скопировать Chat ID из логов регистраций в 👥 Всего юзеров)");
+            return;
+        }
+
+        if (UserStates.TryGetValue(chatId, out var state) && state == UserState.AwaitingAddAdminId && isAdmin)
+        {
+            UserStates[chatId] = UserState.None;
+            if (long.TryParse(cleanText.Trim(), out long targetChatId))
+            {
+                lock (_lock)
+                {
+                    BotDatabase.AddAdmin(targetChatId);
+                    AdminChatIds.Add(targetChatId);
+                    AllowedUsers.Add(targetChatId);
+                }
+
+                await SendMessage(token, chatId, $"👑 <b>Пользователь <code>{targetChatId}</code> успешно назначен администратором!</b>");
+                try
+                {
+                    await SendMessage(token, targetChatId, "👑 <b>Вам предоставили права администратора и полный доступ к боту!</b>");
+                }
+                catch { /* ignore if blocked */ }
+            }
+            else
+            {
+                await SendMessage(token, chatId, "❌ <b>Неверный формат Chat ID. Действие отменено.</b>\n\nChat ID должен состоять только из цифр.");
+            }
+            return;
+        }
+
         if (cleanText == "🚫 Удалить доступ")
         {
             if (!isAdmin) return;
@@ -371,7 +406,7 @@ public partial class TelegramBotService : BackgroundService
             return;
         }
 
-        if (UserStates.TryGetValue(chatId, out var state) && state == UserState.AwaitingDeleteId && isAdmin)
+        if (UserStates.TryGetValue(chatId, out state) && state == UserState.AwaitingDeleteId && isAdmin)
         {
             UserStates[chatId] = UserState.None;
             if (long.TryParse(cleanText.Trim(), out long targetChatId))
@@ -818,6 +853,7 @@ public partial class TelegramBotService : BackgroundService
                 new object[]
                 {
                     new { text = "👥 Всего юзеров" },
+                    new { text = "👑 Добавить админа" },
                     new { text = "🚫 Удалить доступ" }
                 }
             },
