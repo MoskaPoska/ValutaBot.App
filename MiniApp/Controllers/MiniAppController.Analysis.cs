@@ -298,6 +298,15 @@ public static partial class MiniAppController
             double volRatio = TechnicalAnalysisEngine.CalculateVolatilityRatio(mainPrices);
             var adaptiveExpiry = AdaptiveExpiryEngine.CalculateOptimalExpiry(asset, timeframe, mainAtr, volRatio, smcResult, isSubMinute);
             string durationText = adaptiveExpiry.ExpiryText;
+            var mcResult = MonteCarloEngine.Simulate(
+                mainPrices[^1],
+                finalProbability / 100.0,
+                finalDirection,
+                mainAtr,
+                adaptiveExpiry.ExpirySeconds,
+                0.85,
+                1000
+            );
 
             return new
             {
@@ -328,7 +337,14 @@ public static partial class MiniAppController
                 winRateOverall = overallStats.HasData ? overallStats.WinRate : (double?)null,
                 winRateAsset = assetStats.HasData ? assetStats.WinRate : (double?)null,
                 signalsVerified = overallStats.Verified,
-                signalsPending = SignalTracker.GetPendingCount()
+                signalsPending = SignalTracker.GetPendingCount(),
+                monteCarloIterations = mcResult.Iterations,
+                monteCarloSuccess = mcResult.SuccessCount,
+                evPct = mcResult.ExpectedValuePct,
+                evLabel = mcResult.EvLabel,
+                kellyRiskPct = mcResult.KellyRiskPct,
+                kellyLabel = mcResult.KellyLabel,
+                monteCarloSummary = mcResult.SummaryReasoning
             };
         }
         catch (ExchangeUnavailableException exEx)

@@ -576,6 +576,22 @@ public static partial class MiniAppUI
                             accEl.innerText = 'Точность модели: ' + data.lgbmAccuracy + '%';
                             accEl.style.color = data.lgbmAccuracy >= 55 ? '#a78bfa' : 'var(--subtext)';
                         }
+                    if (data.evLabel || data.kellyLabel) {
+                        const mcCard = document.getElementById('mcCard');
+                        if (mcCard) mcCard.style.display = 'block';
+                        const mcSimEl = document.getElementById('mcSimCount');
+                        if (mcSimEl && data.monteCarloIterations) {
+                            mcSimEl.innerText = (data.monteCarloSuccess || 0) + ' / ' + data.monteCarloIterations + ' успехов';
+                        }
+                        const evEl = document.getElementById('mcEv');
+                        if (evEl) {
+                            evEl.innerText = data.evLabel || '--';
+                            evEl.style.color = (data.evPct && data.evPct > 0) ? '#10b981' : '#f43f5e';
+                        }
+                        const kellyEl = document.getElementById('mcKelly');
+                        if (kellyEl) {
+                            kellyEl.innerText = data.kellyLabel || '--';
+                        }
                     }
 
                     const probBars = pricesToBars(data.chartData, 16);

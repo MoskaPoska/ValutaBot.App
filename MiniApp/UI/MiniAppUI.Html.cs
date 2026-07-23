@@ -189,6 +189,24 @@ public static partial class MiniAppUI
                 <div style='font-size:9px;color:var(--subtext);text-align:center;margin-top:2px;padding-bottom:4px' id='lgbmAcc'></div>
             </div>
 
+            <!-- Monte Carlo & Risk Management Card -->
+            <div class='ml-card' id='mcCard' style='display:none;margin-bottom:8px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.25)'>
+                <div class='ml-header' style='display:flex;justify-content:space-between;align-items:center'>
+                    <div><span class='ml-badge' style='background:linear-gradient(135deg,#10b981,#059669)'>🎰 Монте-Карло</span><span class='ml-label'>Риск &amp; Матожидание</span></div>
+                    <span style='font-size:9px;color:#10b981;font-weight:700' id='mcSimCount'>1,000 прогонов</span>
+                </div>
+                <div style='display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;padding:4px 0'>
+                    <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
+                        <div style='font-size:9px;color:var(--subtext)'>Матожидание (EV)</div>
+                        <div style='font-size:11.5px;font-weight:700;color:#10b981;margin-top:2px' id='mcEv'>--</div>
+                    </div>
+                    <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
+                        <div style='font-size:9px;color:var(--subtext)'>Риск по Келли</div>
+                        <div style='font-size:11.5px;font-weight:700;color:#f59e0b;margin-top:2px' id='mcKelly'>--</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Indicators Grid -->
             <div class='results-grid' style='margin-bottom:12px;margin-top:4px'>
                 <div class='res-card'>
