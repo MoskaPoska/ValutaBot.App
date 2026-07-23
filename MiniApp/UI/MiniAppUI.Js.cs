@@ -528,8 +528,13 @@ public static partial class MiniAppUI
                         const volEl = document.getElementById('resVol');
                         if (volEl) {
                             const vs = data.volumeStrength;
-                            volEl.innerText = vs > 0 ? '\u2B06 ' + vs.toFixed(1) : vs < 0 ? '\u2B07 ' + Math.abs(vs).toFixed(1) : '\u2014';
-                            volEl.style.color = vs > 0.5 ? '#00e676' : vs < -0.5 ? '#ff1744' : 'var(--subtext)';
+                            if (Math.abs(vs) > 0.1) {
+                                volEl.innerText = vs > 0 ? '↑ ' + vs.toFixed(1) + 'x' : '↓ ' + Math.abs(vs).toFixed(1) + 'x';
+                                volEl.style.color = vs > 0.5 ? '#00e676' : vs < -0.5 ? '#ff1744' : 'var(--subtext)';
+                            } else {
+                                volEl.innerText = 'Баланс';
+                                volEl.style.color = 'var(--subtext)';
+                            }
                         }
                     }
                     if (data.tfConflict) {

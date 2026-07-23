@@ -202,8 +202,8 @@ public static partial class MiniAppUI
                     <div class='res-chart' id='emaChart'></div>
                 </div>
                 <div class='res-card'>
-                    <div class='res-label'>Объём</div>
-                    <div class='res-value' id='resVol' style='color:var(--subtext);font-size:16px'>--</div>
+                    <div class='res-label'>Order Flow</div>
+                    <div class='res-value' id='resVol' style='color:var(--subtext);font-size:14px'>--</div>
                     <div class='res-chart' id='volChart'></div>
                 </div>
             </div>

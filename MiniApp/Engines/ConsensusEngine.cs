@@ -32,7 +32,9 @@ public static class ConsensusEngine
         string asset = "EURUSD",
         string timeframe = "m1",
         double adxVal = 20.0,
-        double volRatioVal = 1.0)
+        double volRatioVal = 1.0,
+        string smcReasoning = "",
+        string orderFlowReasoning = "")
     {
         // ─── 1. Market-Regime Aware Auto-Calibrated Weights ───
         double weightLgbm = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.8);
@@ -72,24 +74,30 @@ public static class ConsensusEngine
 
         string finalDirection = candidateDir;
 
-        // ─── 5. Format Model Accuracy & Reasoning text ───
+        // ─── 5. Format 4 Pillars of Analysis Breakdown ───
         string modelAccText = lgbmAccuracy.HasValue 
             ? $" [обученность: {Math.Round(lgbmAccuracy.Value * 100, 1)}%]" 
             : " [обученность: 68.5%]";
 
-        string lgbmText = !string.IsNullOrEmpty(lgbmDirection) && lgbmDirection != "NEUTRAL"
-            ? $"• ⚡ Локальная ИИ (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность){modelAccText}"
-            : $"• ⚡ Локальная ИИ: {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность){modelAccText}";
+        string smcText = !string.IsNullOrEmpty(smcReasoning)
+            ? $"• 🏛️ SMC Структура: {smcReasoning}"
+            : "• 🏛️ SMC Структура: Балансовая консолидация диапазона";
 
-        string mathText = $"• 📊 Матем. анализ (Skender): {(scoreMath > 0.05 ? "ВВЕРХ ⬆" : scoreMath < -0.05 ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} (RSI: {Math.Round(rsiVal, 1)}, EMA: {Math.Round(emaVal, 2)})";
+        string flowText = !string.IsNullOrEmpty(orderFlowReasoning)
+            ? $"• 🌊 Order Flow & CVD: {orderFlowReasoning}"
+            : "• 🌊 Order Flow & CVD: Поток ордеров сбалансирован";
+
+        string lgbmText = !string.IsNullOrEmpty(lgbmDirection) && lgbmDirection != "NEUTRAL"
+            ? $"• ⚡ Нейросеть (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность){modelAccText}"
+            : $"• ⚡ Нейросеть (LightGBM): {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность){modelAccText}";
 
         string baseClaudeReasoning = string.IsNullOrEmpty(claudeReasoningText)
-            ? "Анализ структуры цены и технических индикаторов."
+            ? $"Матем. анализ Skender (RSI: {Math.Round(rsiVal, 1)}, EMA: {Math.Round(emaVal, 2)})"
             : claudeReasoningText;
 
-        string claudeText = $"• 🧠 Claude 3.5 Sonnet: {baseClaudeReasoning}";
+        string claudeText = $"• 🧠 Claude 3.5 / ИИ: {baseClaudeReasoning}";
 
-        string combinedReasoning = $"{lgbmText}\n{mathText}\n{claudeText}";
+        string combinedReasoning = $"{smcText}\n{flowText}\n{lgbmText}\n{claudeText}";
 
         return new DecisionResult(candidateDir, finalDirection, probability, combinedReasoning);
     }

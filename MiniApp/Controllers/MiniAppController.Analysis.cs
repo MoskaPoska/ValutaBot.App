@@ -266,7 +266,9 @@ public static partial class MiniAppController
                 asset,
                 timeframe,
                 mainAdx,
-                mainResult.volStrengthVal
+                mainResult.volStrengthVal,
+                smcResult.SummaryReasoning,
+                orderFlowResult.Description
             );
 
             // ─── High-Confidence Threshold Enforcement (>= 75%) ───
