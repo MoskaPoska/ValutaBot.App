@@ -111,7 +111,10 @@ public static class TradeOutcomeTracker
                 }
             });
 
-            BotLogger.Info($"[TradeOutcomeTracker] Verified trade {record.Id} ({record.Asset} {record.Timeframe}) -> {(wasCorrect ? "WIN ✅" : "LOSS ❌")}. Online RL weights updated.");
+            // 4. Update Walk-Forward Anti-Overfitting Drawdown Protection
+            WalkForwardValidationEngine.RecordTradeOutcome(record.Asset, record.Timeframe, wasCorrect);
+
+            BotLogger.Info($"[TradeOutcomeTracker] Verified trade {record.Id} ({record.Asset} {record.Timeframe}) -> {(wasCorrect ? "WIN ✅" : "LOSS ❌")}. Online RL weights & Walk-Forward state updated.");
         }
         catch (Exception ex)
         {

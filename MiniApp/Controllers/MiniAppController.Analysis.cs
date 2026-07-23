@@ -192,6 +192,15 @@ public static partial class MiniAppController
             }
 
             var newsResult = NewsAnalysisService.Analyze(asset);
+            bool isNewsActive = newsResult.sentiment == "High Impact Volatility" || Math.Abs(newsResult.score) > 1.5;
+
+            // ─── Walk-Forward Out-of-Sample Anti-Overfitting Check ───
+            var wfResult = WalkForwardValidationEngine.ValidateWalkForward(asset, timeframe, mainPrices, isNewsActive);
+            if (wfResult.IsOverfitted || wfResult.IsCooloffActive)
+            {
+                BotLogger.Warn($"[Anti-Overfitting] {asset} ({timeframe}): {wfResult.StatusReasoning} ML weight multiplier set to {wfResult.WeightMultiplier}x.");
+            }
+
             if (Math.Abs(newsResult.score) > 0.1)
             {
                 double newsWeight = SignalTracker.GetSignalWeight("Новости", 0.8);
