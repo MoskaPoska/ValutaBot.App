@@ -80,7 +80,21 @@ public static partial class MiniAppController
                 mainVolumes = mainResultTuple.volumes;
             }
 
-            var ohlcCandles = MarketDataFetcher.GetOhlcCandles($"{clean}_{mainInterval}") ?? Array.Empty<OhlcCandle>();
+            var ohlcCandles = MarketDataFetcher.GetOhlcCandles($"{clean}_{mainInterval}");
+            if (ohlcCandles == null || ohlcCandles.Length < 10)
+            {
+                var syntheticList = new List<OhlcCandle>();
+                for (int i = 1; i < mainPrices.Length; i++)
+                {
+                    double open = mainPrices[i - 1];
+                    double close = mainPrices[i];
+                    double high = Math.Max(open, close);
+                    double low = Math.Min(open, close);
+                    double vol = (mainVolumes != null && i < mainVolumes.Length) ? mainVolumes[i] : 1.0;
+                    syntheticList.Add(new OhlcCandle(open, high, low, close, vol));
+                }
+                ohlcCandles = syntheticList.ToArray();
+            }
             var gatekeeper = TechnicalAnalysisEngine.ValidateMarketGatekeeper(mainPrices, ohlcCandles);
             if (!gatekeeper.IsTradeable)
             {
