@@ -278,25 +278,19 @@ public static partial class ClaudeSignalService
                 }
             }
 
-            // 2. Try OpenRouter Models (DeepSeek V3 / Claude 3.5 Sonnet)
+            // 2. Try OpenRouter DeepSeek V3 (World-class #1 quant reasoning model, 20x cheaper)
             if (!string.IsNullOrEmpty(apiKey))
             {
-                // Try DeepSeek V3 first (ultra-fast & 20x cheaper), then Claude 3.5 Sonnet
-                string[] openRouterModels = { "deepseek/deepseek-chat", "anthropic/claude-3.5-sonnet" };
-                foreach (var modelId in openRouterModels)
+                try
                 {
-                    try
-                    {
-                        _lastPrimaryError = null;
-                        var result = await SendOpenRouterRequestAsync(modelId, apiKey, finalClaudePrompt, asset, indicators);
-                        string modelLabel = modelId.Contains("deepseek") ? "DeepSeek V3" : "Claude 3.5 Sonnet";
-                        return (result.direction, result.probability, result.reasoning, modelLabel);
-                    }
-                    catch (Exception ex)
-                    {
-                        _lastPrimaryError = ex.ToString();
-                        Console.WriteLine($"[AI] OpenRouter model {modelId} failed: {ex.Message}");
-                    }
+                    _lastPrimaryError = null;
+                    var result = await SendOpenRouterRequestAsync("deepseek/deepseek-chat", apiKey, finalClaudePrompt, asset, indicators);
+                    return (result.direction, result.probability, result.reasoning, "DeepSeek V3");
+                }
+                catch (Exception ex)
+                {
+                    _lastPrimaryError = ex.ToString();
+                    Console.WriteLine($"[AI] DeepSeek V3 failed: {ex.Message}");
                 }
             }
 
