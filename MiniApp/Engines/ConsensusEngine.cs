@@ -39,8 +39,7 @@ public static class ConsensusEngine
     {
         // ─── 1. Market-Regime Aware Auto-Calibrated Weights ───
         double weightLgbm = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.8);
-        double weightMath = AutoCalibrationEngine.GetCalibratedRegimeWeight("SKENDER_MATH", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.0);
-        double weightClaude = AutoCalibrationEngine.GetCalibratedRegimeWeight("CLAUDE_AI", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.5);
+        double weightMath = AutoCalibrationEngine.GetCalibratedRegimeWeight("SKENDER_MATH", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.2);
 
         // ─── 2. Dynamic RSI Extreme Weight Shift (Meta-Labeling & Suppression) ───
         bool isExtremeRsi = rsiVal >= 70.0 || rsiVal <= 30.0;
@@ -51,13 +50,12 @@ public static class ConsensusEngine
             BotLogger.Info($"[Consensus] Extreme RSI ({rsiVal:F1}) detected. Boosting Skender Math weight ({weightMath:F1}x) and suppressing ML weight ({weightLgbm:F1}x).");
         }
 
-        // ─── 3. Soft Voting Continuous Score Calculation ───
+        // ─── 3. HFT Soft Voting Vector Calculation (0% LLM Weight in Decision Pipeline) ───
         double scoreLgbm = lgbmDirection == "BUY" ? lgbmConfidence : lgbmDirection == "PUT" ? -lgbmConfidence : 0;
-        double scoreClaude = claudeDirection == "BUY" ? (claudeProbability / 100.0) : claudeDirection == "PUT" ? -(claudeProbability / 100.0) : 0;
         double scoreMath = Math.Clamp(totalScore, -1.0, 1.0);
 
-        double totalWeightSum = weightLgbm + weightMath + weightClaude;
-        double weightedScore = (scoreLgbm * weightLgbm + scoreClaude * weightClaude + scoreMath * weightMath) / totalWeightSum;
+        double totalWeightSum = weightLgbm + weightMath;
+        double weightedScore = (scoreLgbm * weightLgbm + scoreMath * weightMath) / totalWeightSum;
 
         // ─── 4. Determine final direction & continuous probability (No NEUTRAL) ───
         string candidateDir = weightedScore >= 0 ? "BUY" : "PUT";

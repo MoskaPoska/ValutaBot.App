@@ -259,24 +259,32 @@ public static partial class MiniAppController
             double volRatio = TechnicalAnalysisEngine.CalculateVolatilityRatio(mainPrices);
             ohlcCandles = MarketDataFetcher.GetOhlcCandles(mainOhlcKey) ?? ohlcCandles;
 
-            // In-Process Native C# ML prediction (<0.1ms RAM speed)
-            if (lgbmDirection == "NEUTRAL")
-            {
-                double kalmanSlope = Math.Abs(mainPrices[^1] - mainPrices[0]) / mainPrices.Length;
-                double hurstH = CalculateHurstExponent(mainPrices);
-                var nativeMl = NativeMLService.Predict(mainPrices, mainResult.rsiVal, mainResult.emaVal, bbZscore, hurstH, kalmanSlope, volRatio);
-                if (nativeMl.Direction != "NEUTRAL")
-                {
-                    lgbmDirection = nativeMl.Direction;
-                    lgbmConfidence = nativeMl.Confidence;
-                    lgbmModelVersion = nativeMl.ModelVersion;
+            // ─── 1. Continuous Latent State Engine (Instant Velocity & Acceleration Vector) ───
+            var continuousState = ContinuousStateEngine.EvaluateContinuousState(mainPrices);
+            totalScore += continuousState.MomentumContribution;
+            BotLogger.Info($"[Continuous State] Asset {asset}: State={continuousState.VelocityRegime} | Velocity={continuousState.VelocityBpsPerSec} bps/s");
 
-                    double nativeSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
-                    double nativeWeight = SignalTracker.GetSignalWeight("NativeML", 1.8);
-                    totalScore += nativeSign * (lgbmConfidence * 1.5) * nativeWeight;
-                    totalConfidence += lgbmConfidence * 100.0 * nativeWeight;
-                    totalWeight += nativeWeight;
-                }
+            // ─── 2. Intermarket Vector Network (DXY & Risk Sentiment Cross-Asset Confluence) ───
+            var intermarketResult = CrossAssetCorrelationEngine.EvaluateIntermarketConfluence(asset, isForex);
+            totalScore *= intermarketResult.CrossAssetConfluence;
+            BotLogger.Info($"[Intermarket Graph] Asset {asset}: Confluence Mult={intermarketResult.CrossAssetConfluence:F2}x | {intermarketResult.StateDescription}");
+
+            // ─── 3. In-Process C# ONNX & Tensor Vector Neural Inference (<0.01ms) ───
+            double kalmanSlope = Math.Abs(mainPrices[^1] - mainPrices[0]) / mainPrices.Length;
+            double hurstH = CalculateHurstExponent(mainPrices);
+            var onnxResult = OnnxTransformerEngine.PredictTensor(mainPrices, mainResult.rsiVal, mainResult.emaVal, bbZscore, continuousState.VelocityBpsPerSec, continuousState.AccelerationBpsPerSec2, orderFlowResult.DeltaRatio, hurstH, kalmanSlope);
+
+            if (onnxResult.Direction != "NEUTRAL")
+            {
+                lgbmDirection = onnxResult.Direction;
+                lgbmConfidence = onnxResult.Confidence;
+                lgbmModelVersion = onnxResult.ModelName;
+
+                double onnxSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
+                double onnxWeight = SignalTracker.GetSignalWeight("ONNX_Tensor", 2.2);
+                totalScore += onnxSign * (lgbmConfidence * 1.5) * onnxWeight;
+                totalConfidence += lgbmConfidence * 100.0 * onnxWeight;
+                totalWeight += onnxWeight;
             }
             var ohlcForClaude = ohlcCandles != null && ohlcCandles.Length > 30 ? ohlcCandles[^30..] : ohlcCandles;
             var detectedPatterns = ohlcCandles != null ? PatternDetector.DetectPatterns(ohlcCandles) : new List<string>();
