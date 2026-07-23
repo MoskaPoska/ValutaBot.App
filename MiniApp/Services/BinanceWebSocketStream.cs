@@ -264,6 +264,8 @@ public static class BinanceWebSocketStream
 
                 string key = $"{symbol.ToUpper()}_{interval.ToLower()}";
 
+                ForexMarketProxyEngine.RecordTapeTrade(symbol, closePrice, volume, volume > 0);
+
                 _liveCandles.AddOrUpdate(
                     key,
                     (new[] { closePrice }, new[] { volume }, DateTime.UtcNow),

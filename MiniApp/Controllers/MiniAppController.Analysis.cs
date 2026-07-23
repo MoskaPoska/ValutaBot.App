@@ -113,6 +113,12 @@ public static partial class MiniAppController
             var orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(mainPrices, mainVolumes, ohlcCandles, liveDepth);
             BotLogger.Info($"[Order Flow] Asset {asset} ({timeframe}): {orderFlowResult.Description}");
 
+            var forexTape = ForexMarketProxyEngine.AnalyzeForexTape(asset);
+            if (Math.Abs(forexTape.ScoreContribution) > 0.1)
+            {
+                BotLogger.Info($"[CME Forex Tape] Asset {asset}: Proxy={forexTape.MappedFuturesSymbol} Delta CVD={forexTape.CumulativeDeltaVolume} | State={forexTape.MarketState}");
+            }
+
             var higherTask = higherTf != null ? SafeFetch(higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
             var lowerTask = lowerTf != null ? SafeFetch(lowerTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
 
