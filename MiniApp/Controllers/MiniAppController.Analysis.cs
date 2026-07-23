@@ -236,8 +236,28 @@ public static partial class MiniAppController
             double macdLine = 0, macdSig = 0;
             (macdLine, macdSig) = TechnicalAnalysisEngine.ComputeMacd(mainPrices, mainPrices.Length - 1);
             double bbZscore = TechnicalAnalysisEngine.ComputeBollingerZscore(mainPrices, 20);
-
+            double volRatio = TechnicalAnalysisEngine.CalculateVolatilityRatio(mainPrices);
             ohlcCandles = MarketDataFetcher.GetOhlcCandles(mainOhlcKey) ?? ohlcCandles;
+
+            // In-Process Native C# ML prediction (<0.1ms RAM speed)
+            if (lgbmDirection == "NEUTRAL")
+            {
+                double kalmanSlope = Math.Abs(mainPrices[^1] - mainPrices[0]) / mainPrices.Length;
+                double hurstH = CalculateHurstExponent(mainPrices);
+                var nativeMl = NativeMLService.Predict(mainPrices, mainResult.rsiVal, mainResult.emaVal, bbZscore, hurstH, kalmanSlope, volRatio);
+                if (nativeMl.Direction != "NEUTRAL")
+                {
+                    lgbmDirection = nativeMl.Direction;
+                    lgbmConfidence = nativeMl.Confidence;
+                    lgbmModelVersion = nativeMl.ModelVersion;
+
+                    double nativeSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
+                    double nativeWeight = SignalTracker.GetSignalWeight("NativeML", 1.8);
+                    totalScore += nativeSign * (lgbmConfidence * 1.5) * nativeWeight;
+                    totalConfidence += lgbmConfidence * 100.0 * nativeWeight;
+                    totalWeight += nativeWeight;
+                }
+            }
             var ohlcForClaude = ohlcCandles != null && ohlcCandles.Length > 30 ? ohlcCandles[^30..] : ohlcCandles;
             var detectedPatterns = ohlcCandles != null ? PatternDetector.DetectPatterns(ohlcCandles) : new List<string>();
             var (supports, resistances) = PatternDetector.CalculateLevels(mainPrices, isForex);
@@ -301,7 +321,6 @@ public static partial class MiniAppController
 
             var overallStats = SignalTracker.GetOverallStats();
             var assetStats   = SignalTracker.GetStats(asset, timeframe);
-            double volRatio = TechnicalAnalysisEngine.CalculateVolatilityRatio(mainPrices);
             var adaptiveExpiry = AdaptiveExpiryEngine.CalculateOptimalExpiry(asset, timeframe, mainAtr, volRatio, smcResult, isSubMinute);
             string durationText = adaptiveExpiry.ExpiryText;
             var mcResult = MonteCarloEngine.Simulate(
