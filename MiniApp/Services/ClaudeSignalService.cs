@@ -423,8 +423,8 @@ public static partial class ClaudeSignalService
     private static async Task<(string direction, double probability, string reasoning)> SendGeminiRequestAsync(
         string apiKey, string systemPrompt, string userContent)
     {
-        string url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={apiKey}";
-        Console.WriteLine("[Gemini] Direct API request to Google Gemini 2.0 Flash");
+        string url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={apiKey}";
+        Console.WriteLine("[Gemini] Direct API request to Google Gemini Flash");
 
         var body = new Dictionary<string, object>
         {
