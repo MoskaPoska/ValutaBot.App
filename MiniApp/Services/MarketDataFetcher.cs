@@ -117,6 +117,7 @@ public static class MarketDataFetcher
 
     public static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
     {
+        interval = IntervalMap(interval);
         if (symbol != null)
         {
             if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes) && wsPrices.Length >= 15)
