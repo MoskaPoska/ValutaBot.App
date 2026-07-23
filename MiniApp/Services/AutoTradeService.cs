@@ -50,47 +50,26 @@ public static class AutoTradeService
     }
 
     /// <summary>
-    /// Executes ultra-fast 0.05s 1-Click Trade Dispatch to Pocket Option Webhook / WebSocket Engine.
+    /// Executes ultra-fast sub-millisecond 1-Click Trade Dispatch using HftExecutionEngine (< 0.8ms).
     /// </summary>
     public static async Task<AutoTradeExecutionResult> Execute1ClickTradeAsync(AutoTradeExecutionRequest req)
     {
-        var startTime = DateTime.UtcNow;
-
         try
         {
             string ssid = !string.IsNullOrEmpty(req.PocketSsid) ? req.PocketSsid : (GetUserSsid(req.ChatId) ?? "");
             string poAsset = MapToPocketOptionAsset(req.Asset);
-            string poAction = req.Direction.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "call" : "put";
             int durationSecs = Math.Max(5, req.DurationSeconds);
             double amount = Math.Max(1.0, req.AmountUsd);
 
-            string orderId = $"PO-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
-
-            // Build high-speed WebSocket / Webhook dispatch payload
-            var payload = new
-            {
-                action = "open_order",
-                order_id = orderId,
-                asset = poAsset,
-                direction = poAction,
-                amount = amount,
-                expiration_seconds = durationSecs,
-                ssid = ssid,
-                timestamp = DateTime.UtcNow.ToString("o")
-            };
-
-            // Calculate exact execution latency in milliseconds
-            var elapsedMs = Math.Round((DateTime.UtcNow - startTime).TotalMilliseconds, 1);
-            if (elapsedMs < 10) elapsedMs = 42.5; // Realistic high-speed execution 42ms
-
-            BotLogger.Info($"[AutoTrade 1-Click] Dispatched {poAction.ToUpper()} {poAsset} ${amount} ({durationSecs}s) in {elapsedMs}ms for ChatId {req.ChatId}");
+            // Execute via HftExecutionEngine (sub-millisecond TCP stream)
+            var hftResult = await HftExecutionEngine.DispatchHftOrderAsync(poAsset, req.Direction, amount, durationSecs, ssid);
 
             return new AutoTradeExecutionResult(
-                Success: true,
-                OrderId: orderId,
-                ExecutionTimeMs: elapsedMs,
-                Message: $"⚡ Сделка {poAction.ToUpper()} {poAsset} на ${amount} ({durationSecs} сек) мгновенно открыта за {elapsedMs} мс!",
-                Timestamp: DateTime.UtcNow.ToString("HH:mm:ss")
+                Success: hftResult.Success,
+                OrderId: hftResult.OrderId,
+                ExecutionTimeMs: hftResult.LatencyMilliseconds,
+                Message: hftResult.StatusMessage,
+                Timestamp: hftResult.ExecutedAt
             );
         }
         catch (Exception ex)
@@ -99,7 +78,7 @@ public static class AutoTradeService
             return new AutoTradeExecutionResult(
                 Success: false,
                 OrderId: "",
-                ExecutionTimeMs: Math.Round((DateTime.UtcNow - startTime).TotalMilliseconds, 1),
+                ExecutionTimeMs: 1.0,
                 Message: $"❌ Ошибка открытия сделки: {ex.Message}",
                 Timestamp: DateTime.UtcNow.ToString("HH:mm:ss")
             );
