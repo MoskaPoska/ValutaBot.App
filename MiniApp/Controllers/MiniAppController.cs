@@ -46,6 +46,7 @@ public static partial class MiniAppController
         });
         builder.Services.AddHostedService<MarketDataService>();
         builder.Services.AddHostedService<LiquidationHeatmapService>();
+        builder.Services.AddHostedService<TwelveDataWebSocketStream>();
         builder.Services.AddHostedService<TelegramBotService>();
 
         // Launch Real-Time WebSocket stream for major CME proxy forex streams (0ms latency)

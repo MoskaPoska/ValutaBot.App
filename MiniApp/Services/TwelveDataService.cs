@@ -39,7 +39,7 @@ public static partial class TwelveDataService
         }
     }
 
-    private static string GetApiKey()
+    public static string GetApiKey()
     {
         _apiKey ??= Environment.GetEnvironmentVariable("TwelveDataApiKey") ?? "";
         return _apiKey;
