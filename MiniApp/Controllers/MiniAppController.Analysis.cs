@@ -266,8 +266,8 @@ public static partial class MiniAppController
 
             // ─── 2. Intermarket Vector Network (DXY & Risk Sentiment Cross-Asset Confluence) ───
             var intermarketResult = CrossAssetCorrelationEngine.EvaluateIntermarketConfluence(asset, isForex);
-            totalScore *= intermarketResult.CrossAssetConfluence;
-            BotLogger.Info($"[Intermarket Graph] Asset {asset}: Confluence Mult={intermarketResult.CrossAssetConfluence:F2}x | {intermarketResult.StateDescription}");
+            totalScore += intermarketResult.ScoreContribution;
+            BotLogger.Info($"[Intermarket Graph] Asset {asset}: Confluence Mult={intermarketResult.ScoreContribution:+0.00;-0.00;+0.00} | {intermarketResult.StateDescription}");
 
             // ─── 3. In-Process C# ONNX & Tensor Vector Neural Inference (<0.01ms) ───
             double kalmanSlope = Math.Abs(mainPrices[^1] - mainPrices[0]) / mainPrices.Length;

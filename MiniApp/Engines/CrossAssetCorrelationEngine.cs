@@ -7,7 +7,8 @@ namespace ValutaBot.MiniApp;
 public record IntermarketCorrelationResult(
     double DxyImpulseScore,        // DXY (US Dollar Index) momentum contribution
     double RiskSentimentScore,     // S&P 500 / Risk asset sentiment contribution
-    double CrossAssetConfluence,   // Intermarket correlation alignment multiplier (0.5x to 1.8x)
+    double ScoreContribution,      // Directional score contribution (-0.45 to +0.45)
+    double CrossAssetConfluence,   // Legacy multiplier compatibility (1.0)
     string StateDescription
 );
 
@@ -56,7 +57,7 @@ public static class CrossAssetCorrelationEngine
             riskScore = Math.Sign(btcChange) * Math.Min(1.0, Math.Abs(btcChange) * 200.0);
         }
 
-        double confluenceMult = 1.0;
+        double scoreContribution = 0.0;
         string desc = "Межрыночный вектор находится в балансе.";
 
         if (isForex)
@@ -66,13 +67,13 @@ public static class CrossAssetCorrelationEngine
             {
                 if (dxyScore < -0.3)
                 {
-                    confluenceMult = 1.45;
-                    desc = "Межрыночный имбаланс: Падение DXY (Индекс Доллара) даёт 145% бычий импульс.";
+                    scoreContribution = 0.45;
+                    desc = "Межрыночный имбаланс: Падение DXY (Индекс Доллара) даёт бычий импульс (+0.45).";
                 }
                 else if (dxyScore > 0.3)
                 {
-                    confluenceMult = 0.55;
-                    desc = "Межрыночный имбаланс: Рост DXY давят на пару ВНИЗ (Медвежий импульс).";
+                    scoreContribution = -0.45;
+                    desc = "Межрыночный имбаланс: Рост DXY давит на пару ВНИЗ (-0.45).";
                 }
             }
         }
@@ -81,20 +82,21 @@ public static class CrossAssetCorrelationEngine
             // For Crypto pairs: High Risk Sentiment = Bullish Crypto
             if (riskScore > 0.3)
             {
-                confluenceMult = 1.40;
-                desc = "Межрыночный имбаланс: Сильный бычий аппетит к риску (Risk-On Sentiment).";
+                scoreContribution = 0.40;
+                desc = "Межрыночный имбаланс: Сильный бычий аппетит к риску (Risk-On Sentiment +0.40).";
             }
             else if (riskScore < -0.3)
             {
-                confluenceMult = 0.60;
-                desc = "Межрыночный имбаланс: Бегство из рисковых активов (Risk-Off Sentiment).";
+                scoreContribution = -0.40;
+                desc = "Межрыночный имбаланс: Бегство из рисковых активов (Risk-Off Sentiment -0.40).";
             }
         }
 
         return new IntermarketCorrelationResult(
             DxyImpulseScore: Math.Round(dxyScore, 3),
             RiskSentimentScore: Math.Round(riskScore, 3),
-            CrossAssetConfluence: Math.Round(confluenceMult, 2),
+            ScoreContribution: Math.Round(scoreContribution, 2),
+            CrossAssetConfluence: 1.0,
             StateDescription: desc
         );
     }
