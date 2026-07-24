@@ -58,22 +58,22 @@ public static partial class MiniAppUI
         </div>
 
         <div class='top-categories' id='topCategories'>
-            <div class='top-cat-btn active' data-cat='fiat' onclick='changeTopCategory(this)'>
+            <div class='top-cat-btn active' data-cat='fiat'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><path d='M7 9h6a2 2 0 0 1 0 4H7'/><path d='M10 5v2m0 8v2'/></svg>
                 <div class='label'>Валюты</div>
             </div>
             <div class='cat-divider'></div>
-            <div class='top-cat-btn' data-cat='commodities' onclick='changeTopCategory(this)'>
+            <div class='top-cat-btn' data-cat='commodities'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M12 2a8 8 0 0 0-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 0 0-8-8z'/><circle cx='12' cy='10' r='3'/></svg>
                 <div class='label'>Сырьё</div>
             </div>
             <div class='cat-divider'></div>
-            <div class='top-cat-btn' data-cat='crypto' onclick='changeTopCategory(this)'>
+            <div class='top-cat-btn' data-cat='crypto'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/></svg>
                 <div class='label'>Крипта</div>
             </div>
             <div class='cat-divider'></div>
-            <div class='top-cat-btn' data-cat='stocks' onclick='changeTopCategory(this)'>
+            <div class='top-cat-btn' data-cat='stocks'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='22 7 13.5 15.5 8.5 10.5 2 17'/><polyline points='16 7 22 7 22 13'/></svg>
                 <div class='label'>Акции</div>
             </div>
@@ -83,14 +83,14 @@ public static partial class MiniAppUI
             <div class='sel-grid'>
                 <div class='sel-group'>
                     <span class='sel-label'>Актив</span>
-                    <div class='dropdown-trigger' id='assetBtn' onclick='toggleMenu(""assetMenu"", ""assetBtn"")'>
+                    <div class='dropdown-trigger' id='assetBtn'>
                         <span class='dropdown-val' id='selectedAsset'>EUR/USD OTC</span>
                         <span class='dropdown-arrow'>▼</span>
                     </div>
                 </div>
                 <div class='sel-group'>
                     <span class='sel-label'>Таймфрейм</span>
-                    <div class='dropdown-trigger' id='tfBtn' onclick='toggleMenu(""tfMenu"", ""tfBtn"")'>
+                    <div class='dropdown-trigger' id='tfBtn'>
                         <span class='dropdown-val' id='selectedTf'>M1</span>
                         <span class='dropdown-arrow'>▼</span>
                     </div>
@@ -103,16 +103,16 @@ public static partial class MiniAppUI
 
             <div class='tf-menu' id='tfMenu'>
                 <div class='tf-grid'>
-                    <button class='tf-btn' data-tf='S5' onclick='setTf(this)'>S5</button>
-                    <button class='tf-btn' data-tf='S10' onclick='setTf(this)'>S10</button>
-                    <button class='tf-btn' data-tf='S15' onclick='setTf(this)'>S15</button>
-                    <button class='tf-btn' data-tf='S30' onclick='setTf(this)'>S30</button>
-                    <button class='tf-btn active' data-tf='M1' onclick='setTf(this)'>M1</button>
-                    <button class='tf-btn' data-tf='M3' onclick='setTf(this)'>M3</button>
-                    <button class='tf-btn' data-tf='M5' onclick='setTf(this)'>M5</button>
-                    <button class='tf-btn' data-tf='M30' onclick='setTf(this)'>M30</button>
-                    <button class='tf-btn' data-tf='H1' onclick='setTf(this)'>H1</button>
-                    <button class='tf-btn' data-tf='H4' onclick='setTf(this)'>H4</button>
+                    <button class='tf-btn' data-tf='S5'>S5</button>
+                    <button class='tf-btn' data-tf='S10'>S10</button>
+                    <button class='tf-btn' data-tf='S15'>S15</button>
+                    <button class='tf-btn' data-tf='S30'>S30</button>
+                    <button class='tf-btn active' data-tf='M1'>M1</button>
+                    <button class='tf-btn' data-tf='M3'>M3</button>
+                    <button class='tf-btn' data-tf='M5'>M5</button>
+                    <button class='tf-btn' data-tf='M30'>M30</button>
+                    <button class='tf-btn' data-tf='H1'>H1</button>
+                    <button class='tf-btn' data-tf='H4'>H4</button>
                 </div>
             </div>
 
@@ -155,11 +155,11 @@ public static partial class MiniAppUI
 
         <!-- Tab Bar -->
         <div class='tab-bar' id='resultsTabBar' style='display:none'>
-            <div class='tab-btn active' id='tabBtnChart' onclick='switchResultTab(""chart"")'>
+            <div class='tab-btn active' id='tabBtnChart'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/><polyline points='22 4 12 14.01 9 11.01'/></svg>
                 Прогноз
             </div>
-            <div class='tab-btn' id='tabBtnAI' onclick='switchResultTab(""ai"")'>
+            <div class='tab-btn' id='tabBtnAI'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='width:12px;height:12px;margin-right:4px'><path d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/><polyline points='3.27 6.96 12 12.01 20.73 6.96'/><line x1='12' y1='22.08' x2='12' y2='12'/></svg>
                 ИИ Аналитика
             </div>
