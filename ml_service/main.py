@@ -27,6 +27,9 @@ from model import ForexPredictor, TF_MAP, is_forex_symbol
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+log = logging.getLogger("ml-service")
+
 from contextlib import asynccontextmanager
 
 _DEFAULT_SYMBOLS = os.getenv("PRETRAIN_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",")
