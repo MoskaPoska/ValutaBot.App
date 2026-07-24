@@ -28,11 +28,12 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
         // ─── 1. Main 5m SMC Structure Analysis ───
         var mainSmc = SmcEngine.AnalyzeSmcStructure(ohlcCandles, prices[^1]);
 
-        // ─── 2. HTF (H1) Alignment Validation ───
+        // ─── 2. HTF Alignment Validation ───
         SmcEngine.SmcAnalysisResult? htfSmc = null;
         if (higherTfData != null && higherTfData.Value.prices.Length >= 10)
         {
-            var higherOhlcKey = $"{asset}_h1";
+            string htfTf = MarketDataFetcher.HigherTf(timeframe) ?? "h1";
+            var higherOhlcKey = $"{asset}_{htfTf.ToLower()}";
             var higherOhlc = MarketDataFetcher.GetOhlcCandles(higherOhlcKey);
             if (higherOhlc != null && higherOhlc.Length >= 10)
             {
@@ -40,7 +41,7 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
             }
         }
 
-        var mtfValidation = SmcEngine.ValidateMtfSmcAlignment(mainSmc, htfSmc!);
+        var mtfValidation = SmcEngine.ValidateMtfSmcAlignment(mainSmc, htfSmc);
 
         // ─── 3. Compute SMC Structural Direction & Confidence ───
         string direction = "WAIT";

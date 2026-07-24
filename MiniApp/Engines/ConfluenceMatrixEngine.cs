@@ -124,7 +124,7 @@ public static class ConfluenceMatrixEngine
 
     private static string ScoreDirection(double[] prices)
     {
-        if (prices == null || prices.Length < 10) return "BUY";
+        if (prices == null || prices.Length < 10) return "NEUTRAL";
 
         double first = prices[0];
         double last  = prices[^1];
@@ -132,10 +132,10 @@ public static class ConfluenceMatrixEngine
         double rsi   = TechnicalAnalysisEngine.ComputeRsi(prices, 14);
 
         int score = 0;
-        if (last > first) score++; else score--;
-        if (last > sma) score++; else score--;
-        if (rsi > 50) score++; else score--;
+        if (last > first) score++; else if (last < first) score--;
+        if (last > sma) score++; else if (last < sma) score--;
+        if (rsi > 52) score++; else if (rsi < 48) score--;
 
-        return score >= 0 ? "BUY" : "PUT";
+        return score > 0 ? "BUY" : score < 0 ? "PUT" : "NEUTRAL";
     }
 }

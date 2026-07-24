@@ -183,39 +183,54 @@ public static class SmcEngine
             return new MtfSmcValidationResult(true, 1.0, "NEUTRAL", "Старший таймфрейм недоступен, проверка сопоставлена нейтрально.");
         }
 
-        // Determine HTF dominant direction
-        bool htfBullish = htfSmc.BosDirection == "BULLISH_BOS" || htfSmc.OrderBlockType == "BULLISH_OB" || htfSmc.FvgType == "BULLISH_FVG";
-        bool htfBearish = htfSmc.BosDirection == "BEARISH_BOS" || htfSmc.OrderBlockType == "BEARISH_OB" || htfSmc.FvgType == "BEARISH_FVG";
+        // Compute HTF net directional score (+ for Bullish, - for Bearish)
+        int htfScore = 0;
+        if (htfSmc.BosDirection == "BULLISH_BOS") htfScore += 2;
+        else if (htfSmc.BosDirection == "BEARISH_BOS") htfScore -= 2;
+        if (htfSmc.OrderBlockType == "BULLISH_OB") htfScore += 1;
+        else if (htfSmc.OrderBlockType == "BEARISH_OB") htfScore -= 1;
+        if (htfSmc.FvgType == "BULLISH_FVG") htfScore += 1;
+        else if (htfSmc.FvgType == "BEARISH_FVG") htfScore -= 1;
 
-        // Determine main (m1) signal direction
-        bool mainBullish = mainSmc.BosDirection == "BULLISH_BOS" || mainSmc.OrderBlockType == "BULLISH_OB" || mainSmc.FvgType == "BULLISH_FVG";
-        bool mainBearish = mainSmc.BosDirection == "BEARISH_BOS" || mainSmc.OrderBlockType == "BEARISH_OB" || mainSmc.FvgType == "BEARISH_FVG";
+        // Compute local net directional score
+        int mainScore = 0;
+        if (mainSmc.BosDirection == "BULLISH_BOS") mainScore += 2;
+        else if (mainSmc.BosDirection == "BEARISH_BOS") mainScore -= 2;
+        if (mainSmc.OrderBlockType == "BULLISH_OB") mainScore += 1;
+        else if (mainSmc.OrderBlockType == "BEARISH_OB") mainScore -= 1;
+        if (mainSmc.FvgType == "BULLISH_FVG") mainScore += 1;
+        else if (mainSmc.FvgType == "BEARISH_FVG") mainScore -= 1;
 
-        // Counter-trend Conflict: Main signal opposes HTF structure
+        bool htfBullish = htfScore > 0;
+        bool htfBearish = htfScore < 0;
+        bool mainBullish = mainScore > 0;
+        bool mainBearish = mainScore < 0;
+
+        // Counter-trend Conflict: Main signal opposes dominant HTF structure
         if (mainBullish && htfBearish)
         {
-            BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local m1 BUY signal opposes HTF (m15) BEARISH structure. Signal penalized.");
+            BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local BUY signal opposes HTF BEARISH structure. Signal penalized.");
             return new MtfSmcValidationResult(
                 false, 0.30, "COUNTER_TREND_CONFLICT",
-                "⚠️ Конфликт со старшим таймфреймом: бычий сетап на m1 против глобального медвежьего тренда m15."
+                "⚠️ Конфликт со старшим таймфреймом: бычий сетап локальной структуры против глобального медвежьего тренда."
             );
         }
         if (mainBearish && htfBullish)
         {
-            BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local m1 PUT signal opposes HTF (m15) BULLISH structure. Signal penalized.");
+            BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local PUT signal opposes HTF BULLISH structure. Signal penalized.");
             return new MtfSmcValidationResult(
                 false, 0.30, "COUNTER_TREND_CONFLICT",
-                "⚠️ Конфликт со старшим таймфреймом: медвежий сетап на m1 против глобального бычьего тренда m15."
+                "⚠️ Конфликт со старшим таймфреймом: медвежий сетап локальной структуры против глобального бычьего тренда."
             );
         }
 
-        // High Confluence Alignment: Main signal matches HTF structure
+        // High Confluence Alignment: Main signal matches dominant HTF structure
         if ((mainBullish && htfBullish) || (mainBearish && htfBearish))
         {
-            BotLogger.Info("[MTF SMC Filter] High Confluence Alignment! Local m1 SMC signal perfectly matches HTF m15 structure.");
+            BotLogger.Info("[MTF SMC Filter] High Confluence Alignment! Local SMC signal perfectly matches HTF structure.");
             return new MtfSmcValidationResult(
                 true, 1.40, "ALIGNED",
-                "✅ Высокое совпадение: сетап на m1 строго по тренду старшей структуры m15."
+                "✅ Высокое совпадение: локальный сетап строго по тренду старшей структуры."
             );
         }
 
