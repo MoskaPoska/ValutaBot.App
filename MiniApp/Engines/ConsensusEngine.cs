@@ -57,8 +57,7 @@ public static class ConsensusEngine
         double totalWeightSum = weightLgbm + weightMath;
         double weightedScore = (scoreLgbm * weightLgbm + scoreMath * weightMath) / totalWeightSum;
 
-        // ─── 4. Determine final direction & continuous probability (No NEUTRAL) ───
-        string candidateDir = weightedScore >= 0 ? "BUY" : "PUT";
+        string candidateDir = weightedScore > 0.0001 ? "BUY" : weightedScore < -0.0001 ? "PUT" : (totalScore > 0 ? "BUY" : totalScore < 0 ? "PUT" : (rsiVal < 50 ? "BUY" : "PUT"));
 
         double absWeightedScore = Math.Abs(weightedScore);
         int probability = isSubMinute

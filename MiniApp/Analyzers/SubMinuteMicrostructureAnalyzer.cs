@@ -72,7 +72,8 @@ public class SubMinuteMicrostructureAnalyzer : ITimeframeAnalyzer
             }
             else
             {
-                direction = prices.Length >= 2 && prices[^1] >= prices[^2] ? "BUY" : "PUT";
+                double tickDiff = prices.Length >= 5 ? prices[^1] - prices[^5] : (prices.Length >= 2 ? prices[^1] - prices[0] : 0);
+                direction = tickDiff > 0 ? "BUY" : tickDiff < 0 ? "PUT" : (mainResult.rsiVal < 50 ? "BUY" : "PUT");
                 confidence = 0.75;
                 reasoning = "[HFT 5s-30s] Тиковый отклик тикового сдвига (0.1ms tick momentum).";
             }

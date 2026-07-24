@@ -351,10 +351,9 @@ public static partial class MiniAppController
                 claudeResult.modelName
             );
 
-            // ─── Direct Directional Output (Always BUY or PUT) ───
             string finalDirection = (coreResult.Direction != "WAIT" && coreResult.Direction != "NEUTRAL" && !string.IsNullOrEmpty(coreResult.Direction))
                 ? coreResult.Direction 
-                : (consensus.FinalDirection != "NEUTRAL" ? consensus.FinalDirection : (totalScore >= 0 ? "BUY" : "PUT"));
+                : (consensus.FinalDirection != "NEUTRAL" ? consensus.FinalDirection : (totalScore > 0 ? "BUY" : totalScore < 0 ? "PUT" : (mainResult.rsiVal < 50 ? "BUY" : "PUT")));
 
             int finalProbability = Math.Max(75, Math.Max(consensus.Probability, (int)(coreResult.Confidence * 100)));
             if (matrixResult.ProbabilityBoost > 0)
