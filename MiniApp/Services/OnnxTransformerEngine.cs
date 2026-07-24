@@ -42,32 +42,32 @@ public static class OnnxTransformerEngine
         tensorVector[2] = Math.Clamp(bbZscore / 3.0, -1.0, 1.0);
         tensorVector[3] = Math.Clamp(velocityBps / 10.0, -1.0, 1.0);
         tensorVector[4] = Math.Clamp(accelBps2 / 5.0, -1.0, 1.0);
-        tensorVector[5] = Math.Clamp(orderFlowRatio / 3.0, 0, 1);
+        tensorVector[5] = orderFlowRatio; // Raw Volume Delta ratio (1.0 = balanced)
         tensorVector[6] = Math.Clamp(hurstH, 0, 1);
         tensorVector[7] = Math.Clamp(kalmanSlope * 100.0, -1.0, 1.0);
 
-        // 2. High-Speed Vectorized Linear Neural Weights Activation Matrix
+        // 2. High-Speed Symmetric Vectorized Neural Weights Activation Matrix
         double rawBuyScore = (tensorVector[0] < 0.35 ? 0.35 : 0.0) +
                              (tensorVector[3] > 0.2 ? 0.40 : 0.0) +
                              (tensorVector[4] > 0.1 ? 0.25 : 0.0) +
-                             (tensorVector[5] > 0.6 ? 0.30 : 0.0) +
-                             (tensorVector[6] > 0.55 ? 0.20 : 0.0);
+                             (tensorVector[5] >= 1.4 ? 0.30 : 0.0) +
+                             (tensorVector[6] > 0.55 && tensorVector[3] > 0 ? 0.20 : 0.0);
 
         double rawPutScore = (tensorVector[0] > 0.65 ? 0.35 : 0.0) +
                              (tensorVector[3] < -0.2 ? 0.40 : 0.0) +
                              (tensorVector[4] < -0.1 ? 0.25 : 0.0) +
-                             (tensorVector[5] < 0.4 ? 0.30 : 0.0) +
-                             (tensorVector[6] > 0.55 ? 0.20 : 0.0);
+                             (tensorVector[5] <= 0.7 && tensorVector[5] > 0 ? 0.30 : 0.0) +
+                             (tensorVector[6] > 0.55 && tensorVector[3] < 0 ? 0.20 : 0.0);
 
         string direction;
         double confidence;
 
-        if (rawBuyScore > rawPutScore && rawBuyScore >= 0.50)
+        if (rawBuyScore > rawPutScore && rawBuyScore >= 0.45)
         {
             direction = "BUY";
             confidence = Math.Clamp(0.55 + (rawBuyScore * 0.35), 0.60, 0.96);
         }
-        else if (rawPutScore > rawBuyScore && rawPutScore >= 0.50)
+        else if (rawPutScore > rawBuyScore && rawPutScore >= 0.45)
         {
             direction = "PUT";
             confidence = Math.Clamp(0.55 + (rawPutScore * 0.35), 0.60, 0.96);

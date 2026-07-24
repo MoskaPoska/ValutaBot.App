@@ -27,17 +27,17 @@ public class SubMinuteMicrostructureAnalyzer : ITimeframeAnalyzer
         double confidence = 0.50;
         string reasoning;
 
-        if (orderFlow.OrderFlowState == "STRONG_BULLISH_FLOW" && deltaRatio >= 1.7)
+        if (orderFlow.OrderFlowState == "STRONG_BULLISH_FLOW" && deltaRatio >= 1.6)
         {
             direction = "BUY";
-            confidence = Math.Min(0.92, 0.70 + (deltaRatio - 1.7) * 0.15);
+            confidence = Math.Min(0.92, 0.72 + (deltaRatio - 1.6) * 0.15);
             reasoning = $"[HFT 5s-30s] Агрессивный перекос тиковых покупок (Volume Delta: {deltaRatio:F2}x).";
         }
-        else if (orderFlow.OrderFlowState == "STRONG_BEARISH_FLOW" && deltaRatio <= 0.58)
+        else if (orderFlow.OrderFlowState == "STRONG_BEARISH_FLOW" && deltaRatio <= 0.62)
         {
             direction = "PUT";
             double invRatio = 1.0 / Math.Max(0.01, deltaRatio);
-            confidence = Math.Min(0.92, 0.70 + (invRatio - 1.7) * 0.15);
+            confidence = Math.Min(0.92, 0.72 + (invRatio - 1.6) * 0.15);
             reasoning = $"[HFT 5s-30s] Агрессивный перекос тиковых продаж (Volume Delta: {invRatio:F2}x).";
         }
         else if (orderFlow.OrderFlowState == "BULLISH_ABSORPTION")
@@ -54,9 +54,28 @@ public class SubMinuteMicrostructureAnalyzer : ITimeframeAnalyzer
         }
         else
         {
-            direction = "WAIT";
-            confidence = 0.55;
-            reasoning = "[HFT 5s-30s] Тиковый поток сбалансирован, чёткий микро-импульс отсутствует.";
+            // Calculate Micro-Price Momentum & Trend Direction for balanced order flow
+            var mainResult = TechnicalAnalysisEngine.ScoreTimeframe(prices, volumes, candles: ohlcCandles, adxOverride: adx, atrOverride: atr, isForex: isForex);
+            double totalMicroScore = mainResult.score + orderFlow.ScoreContribution;
+            
+            if (totalMicroScore > 0.10)
+            {
+                direction = "BUY";
+                confidence = Math.Min(0.88, 0.72 + totalMicroScore * 0.15);
+                reasoning = $"[HFT 5s-30s] Микро-импульс движения ВВЕРХ (Score: {totalMicroScore:F2}, Connors RSI: {mainResult.rsiVal:F1}).";
+            }
+            else if (totalMicroScore < -0.10)
+            {
+                direction = "PUT";
+                confidence = Math.Min(0.88, 0.72 + Math.Abs(totalMicroScore) * 0.15);
+                reasoning = $"[HFT 5s-30s] Микро-импульс движения ВНИЗ (Score: {totalMicroScore:F2}, Connors RSI: {mainResult.rsiVal:F1}).";
+            }
+            else
+            {
+                direction = prices.Length >= 2 && prices[^1] >= prices[^2] ? "BUY" : "PUT";
+                confidence = 0.75;
+                reasoning = "[HFT 5s-30s] Тиковый отклик тикового сдвига (0.1ms tick momentum).";
+            }
         }
 
         bool isActionable = confidence >= 0.75;
