@@ -664,6 +664,7 @@ public static partial class MiniAppUI
                             accEl.innerText = 'Точность модели: ' + data.lgbmAccuracy + '%';
                             accEl.style.color = data.lgbmAccuracy >= 55 ? '#a78bfa' : 'var(--subtext)';
                         }
+                    }
                     if (data.evLabel || data.kellyLabel) {
                         const mcCard = document.getElementById('mcCard');
                         if (mcCard) mcCard.style.display = 'block';
