@@ -177,14 +177,6 @@ public static partial class MiniAppUI
                 <div class='news-summary' id='claudeReasoning' style='max-height:140px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext);white-space:pre-wrap'></div>
             </div>
 
-            <div class='ml-card' id='lgbmCard' style='display:none;margin-bottom:8px'>
-                <div class='ml-header'><span class='ml-badge' style='background:linear-gradient(135deg,#f59e0b,#d97706)'>⚡ ML</span><span class='ml-label'>LightGBM локальная ИИ</span></div>
-                <div class='ml-body'>
-                    <span class='ml-dir' id='lgbmDir'>--</span>
-                    <span class='ml-conf' id='lgbmConf' style='font-size:11px'>--%</span>
-                </div>
-                <div style='font-size:9px;color:var(--subtext);text-align:center;margin-top:2px;padding-bottom:4px' id='lgbmAcc'></div>
-            </div>
 
             <!-- Monte Carlo & Risk Management Card -->
             <div class='ml-card' id='mcCard' style='display:none;margin-bottom:8px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.25)'>

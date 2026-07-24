@@ -648,23 +648,6 @@ public static partial class MiniAppUI
                         if (crEl) crEl.innerText = reasoningText;
                     }
 
-                    // ── LightGBM card ──
-                    if (data.lgbmDirection && data.lgbmDirection !== 'NEUTRAL' && data.lgbmConfidence) {
-                        const lc = document.getElementById('lgbmCard');
-                        if (lc) lc.style.display = 'flex';
-                        const ldirEl = document.getElementById('lgbmDir');
-                        if (ldirEl) {
-                            ldirEl.innerText = data.lgbmDirection === 'BUY' ? '↑ ВВЕРХ' : '↓ ВНИЗ';
-                            ldirEl.style.color = data.lgbmDirection === 'BUY' ? '#00e676' : '#ff1744';
-                        }
-                        const lconfEl = document.getElementById('lgbmConf');
-                        if (lconfEl) lconfEl.innerText = data.lgbmConfidence + '%';
-                        const accEl = document.getElementById('lgbmAcc');
-                        if (accEl && data.lgbmAccuracy != null) {
-                            accEl.innerText = 'Точность модели: ' + data.lgbmAccuracy + '%';
-                            accEl.style.color = data.lgbmAccuracy >= 55 ? '#a78bfa' : 'var(--subtext)';
-                        }
-                    }
                     if (data.evLabel || data.kellyLabel) {
                         const mcCard = document.getElementById('mcCard');
                         if (mcCard) mcCard.style.display = 'block';
