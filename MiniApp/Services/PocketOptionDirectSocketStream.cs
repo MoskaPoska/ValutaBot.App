@@ -92,12 +92,23 @@ public static class PocketOptionDirectSocketStream
                     byte[] buffer = new byte[8192];
                     while (_webSocket.State == WebSocketState.Open && !token.IsCancellationRequested)
                     {
-                        var result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-                        if (result.MessageType == WebSocketMessageType.Close)
+                        using var ms = new System.IO.MemoryStream();
+                        WebSocketReceiveResult? result = null;
+                        do
+                        {
+                            result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                            if (result.Count > 0) ms.Write(buffer, 0, result.Count);
+                        }
+                        while (!result.EndOfMessage && !token.IsCancellationRequested);
+
+                        if (result != null && result.MessageType == WebSocketMessageType.Close)
                             break;
 
-                        string jsonMsg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                        ParseBrokerTickMessage(jsonMsg);
+                        if (result != null && result.MessageType == WebSocketMessageType.Text)
+                        {
+                            string jsonMsg = Encoding.UTF8.GetString(ms.ToArray());
+                            ParseBrokerTickMessage(jsonMsg);
+                        }
                     }
                 }
             }

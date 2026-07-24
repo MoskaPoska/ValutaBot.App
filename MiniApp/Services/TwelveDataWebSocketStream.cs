@@ -75,11 +75,20 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
 
                 while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
                 {
-                    var result = await ws.ReceiveAsync(buffer, ct);
-                    if (result.MessageType != WebSocketMessageType.Text) continue;
+                    using var ms = new System.IO.MemoryStream();
+                    WebSocketReceiveResult? result = null;
+                    do
+                    {
+                        result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                        if (result.Count > 0) ms.Write(buffer, 0, result.Count);
+                    }
+                    while (!result.EndOfMessage && !ct.IsCancellationRequested);
 
-                    var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    ParseTick(json);
+                    if (result != null && result.MessageType == WebSocketMessageType.Text)
+                    {
+                        string json = Encoding.UTF8.GetString(ms.ToArray());
+                        ParseTick(json);
+                    }
                 }
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
