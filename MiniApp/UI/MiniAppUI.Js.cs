@@ -5,8 +5,13 @@ public static partial class MiniAppUI
     public static string GetJsScript()
     {
         return @"
-        const tg = window.Telegram.WebApp;
-        if(tg) tg.expand();
+        const tg = window.Telegram ? window.Telegram.WebApp : null;
+        if (tg) {
+            try {
+                tg.expand();
+                tg.ready();
+            } catch(e) {}
+        }
 
         function getCustomInitData() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -202,53 +207,73 @@ public static partial class MiniAppUI
             initPriceWebSocket();
         }
 
-        document.addEventListener('click', function(e) {
-            const catBtn = e.target.closest('.top-cat-btn');
+        function handleGlobalInteraction(e) {
+            const target = e.target;
+            if (!target) return;
+
+            const btnGet = target.closest('#btnGet');
+            if (btnGet) {
+                if (e.type === 'touchend') e.preventDefault();
+                executeAnalysis();
+                return;
+            }
+
+            const catBtn = target.closest('.top-cat-btn');
             if (catBtn) {
+                if (e.type === 'touchend') e.preventDefault();
                 changeTopCategory(catBtn);
                 return;
             }
 
-            const assetTrigger = e.target.closest('#assetBtn');
+            const assetTrigger = target.closest('#assetBtn');
             if (assetTrigger) {
+                if (e.type === 'touchend') e.preventDefault();
                 toggleMenu('assetMenu', 'assetBtn');
                 return;
             }
 
-            const tfTrigger = e.target.closest('#tfBtn');
+            const tfTrigger = target.closest('#tfBtn');
             if (tfTrigger) {
+                if (e.type === 'touchend') e.preventDefault();
                 toggleMenu('tfMenu', 'tfBtn');
                 return;
             }
 
-            const assetItem = e.target.closest('.asset-item');
+            const assetItem = target.closest('.asset-item');
             if (assetItem) {
+                if (e.type === 'touchend') e.preventDefault();
                 setAsset(assetItem);
                 return;
             }
 
-            const tfItem = e.target.closest('.tf-btn');
+            const tfItem = target.closest('.tf-btn');
             if (tfItem) {
+                if (e.type === 'touchend') e.preventDefault();
                 setTf(tfItem);
                 return;
             }
 
-            const tabBtnChart = e.target.closest('#tabBtnChart');
+            const tabBtnChart = target.closest('#tabBtnChart');
             if (tabBtnChart) {
+                if (e.type === 'touchend') e.preventDefault();
                 switchResultTab('chart');
                 return;
             }
 
-            const tabBtnAI = e.target.closest('#tabBtnAI');
+            const tabBtnAI = target.closest('#tabBtnAI');
             if (tabBtnAI) {
+                if (e.type === 'touchend') e.preventDefault();
                 switchResultTab('ai');
                 return;
             }
 
-            if (!e.target.closest('.selector-section')) {
+            if (!target.closest('.selector-section')) {
                 document.querySelectorAll('.asset-menu, .tf-menu').forEach(m => m.classList.remove('show'));
             }
-        });
+        }
+
+        document.addEventListener('click', handleGlobalInteraction);
+        document.addEventListener('touchend', handleGlobalInteraction, { passive: false });
 
         (function() {
             var p = new URLSearchParams(window.location.search);
@@ -505,8 +530,9 @@ public static partial class MiniAppUI
             btn.innerText = isHidden ? '▾ Скрыть детали' : '▸ Детали отладки';
         }
 
-        document.getElementById('btnGet').onclick = async () => {
+        async function executeAnalysis() {
             const btn = document.getElementById('btnGet');
+            if (btn && btn.disabled) return;
             const sphere = document.getElementById('mainSphere');
             
             try {
@@ -707,7 +733,7 @@ public static partial class MiniAppUI
                 const catchMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
                 renderError(e.message, catchMsg);
             }
-        };
+        }
         ";
     }
 }
