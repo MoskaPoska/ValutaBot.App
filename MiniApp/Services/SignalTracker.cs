@@ -171,8 +171,9 @@ public static class SignalTracker
 
             double priceDiff = (exitPrice.Value - record.EntryPrice) / record.EntryPrice;
 
-            // Ignore flat markets — too noisy to count
-            double minMove = record.IsForex ? 0.00010 : 0.00080; // 1 pip forex, ~8 bps crypto
+            // Ignore flat markets — too noisy to count (allow micro-moves for sub-minute timeframes)
+            bool isSubMin = record.Timeframe.ToLower().StartsWith("s");
+            double minMove = isSubMin ? 1e-8 : (record.IsForex ? 0.00002 : 0.00010);
             if (Math.Abs(priceDiff) < minMove)
             {
                 _pending.TryRemove(record.Id, out _); // discard, not counted
