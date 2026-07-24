@@ -15,8 +15,8 @@ public static partial class MiniAppUI
 
         function getCustomInitData() {
             const urlParams = new URLSearchParams(window.location.search);
-            const userId = urlParams.get('userId');
-            const userSign = urlParams.get('userSign');
+            const userId = urlParams.get('custom_user_id') || urlParams.get('userId');
+            const userSign = urlParams.get('custom_user_sign') || urlParams.get('userSign');
             if (userId && userSign) {
                 return `custom_user_id=${userId}&custom_user_sign=${userSign}`;
             }
