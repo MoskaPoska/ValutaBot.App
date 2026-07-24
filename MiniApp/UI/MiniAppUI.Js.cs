@@ -50,24 +50,33 @@ public static partial class MiniAppUI
             const top = getTopAssets();
             const majors = ['EUR/USD OTC', 'GBP/USD OTC', 'AUD/USD OTC'];
             return arr.map(function(a) {
-                var star = top.indexOf(a) !== -1 ? '<span class=\x27top-star\x27>★</span>' : '';
+                var star = top.indexOf(a) !== -1 ? '<span class=""top-star"">★</span>' : '';
                 var cls = majors.indexOf(a) !== -1 ? 'asset-item major' : 'asset-item';
-                return '<div class=\x27' + cls + '\x27 data-asset=\x27' + a + '\x27 onclick=\x27setAsset(this)\x27>' + a + star + '</div>';
+                return '<div class=""' + cls + '"" data-asset=""' + a + '"">' + a + star + '</div>';
             }).join('');
         }
 
         function changeTopCategory(el) {
+            if (!el) return;
+            el = el.closest('.top-cat-btn') || el;
             document.querySelectorAll('.top-cat-btn').forEach(c => c.classList.remove('active'));
             el.classList.add('active');
-            let cat = el.getAttribute('data-cat');
-            document.getElementById('assetGrid').innerHTML = `<div class='otc-scroll' style='grid-column:1/-1'><div class='asset-grid'>${renderAssets(assetsData[cat].otc)}</div></div>`;
+            let cat = el.getAttribute('data-cat') || 'fiat';
+            if (!assetsData[cat]) cat = 'fiat';
+            const gridEl = document.getElementById('assetGrid');
+            if (gridEl) {
+                gridEl.innerHTML = `<div class='otc-scroll' style='grid-column:1/-1'><div class='asset-grid'>${renderAssets(assetsData[cat].otc)}</div></div>`;
+            }
             let firstAssetEl = document.querySelector('.asset-item');
-            if(firstAssetEl) setAsset(firstAssetEl);
+            if (firstAssetEl) setAsset(firstAssetEl);
         }
 
         function toggleMenu(m, b) {
-            document.querySelectorAll('.asset-menu, .tf-menu').forEach(menu => { if(menu.id !== m) menu.classList.remove('show'); });
-            document.getElementById(m).classList.toggle('show');
+            document.querySelectorAll('.asset-menu, .tf-menu').forEach(menu => { 
+                if(menu.id !== m) menu.classList.remove('show'); 
+            });
+            const menuEl = document.getElementById(m);
+            if (menuEl) menuEl.classList.toggle('show');
         }
 
         let priceSocket = null;
@@ -160,30 +169,82 @@ public static partial class MiniAppUI
         }
 
         function setAsset(el) {
+            if (!el) return;
+            el = el.closest('.asset-item') || el;
             let a = el.getAttribute('data-asset');
+            if (!a) return;
             currentAsset = a;
-            document.getElementById('selectedAsset').innerText = a;
+            const selEl = document.getElementById('selectedAsset');
+            if (selEl) selEl.innerText = a;
             document.querySelectorAll('.asset-item').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
-            document.getElementById('assetMenu').classList.remove('show');
+            const menuEl = document.getElementById('assetMenu');
+            if (menuEl) menuEl.classList.remove('show');
             const sphere = document.getElementById('mainSphere');
             if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
             initPriceWebSocket();
         }
 
         function setTf(el) {
+            if (!el) return;
+            el = el.closest('.tf-btn') || el;
             let tf = el.getAttribute('data-tf');
+            if (!tf) return;
             currentTf = tf.toLowerCase();
-            document.getElementById('selectedTf').innerText = tf;
+            const selEl = document.getElementById('selectedTf');
+            if (selEl) selEl.innerText = tf;
             document.querySelectorAll('.tf-btn').forEach(i => i.classList.remove('active'));
             el.classList.add('active');
-            document.getElementById('tfMenu').classList.remove('show');
+            const menuEl = document.getElementById('tfMenu');
+            if (menuEl) menuEl.classList.remove('show');
             const sphere = document.getElementById('mainSphere');
             if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
             initPriceWebSocket();
         }
 
         document.addEventListener('click', function(e) {
+            const catBtn = e.target.closest('.top-cat-btn');
+            if (catBtn) {
+                changeTopCategory(catBtn);
+                return;
+            }
+
+            const assetTrigger = e.target.closest('#assetBtn');
+            if (assetTrigger) {
+                toggleMenu('assetMenu', 'assetBtn');
+                return;
+            }
+
+            const tfTrigger = e.target.closest('#tfBtn');
+            if (tfTrigger) {
+                toggleMenu('tfMenu', 'tfBtn');
+                return;
+            }
+
+            const assetItem = e.target.closest('.asset-item');
+            if (assetItem) {
+                setAsset(assetItem);
+                return;
+            }
+
+            const tfItem = e.target.closest('.tf-btn');
+            if (tfItem) {
+                setTf(tfItem);
+                return;
+            }
+
+            const tabBtnChart = e.target.closest('#tabBtnChart');
+            if (tabBtnChart) {
+                switchResultTab('chart');
+                return;
+            }
+
+            const tabBtnAI = e.target.closest('#tabBtnAI');
+            if (tabBtnAI) {
+                switchResultTab('ai');
+                return;
+            }
+
             if (!e.target.closest('.selector-section')) {
                 document.querySelectorAll('.asset-menu, .tf-menu').forEach(m => m.classList.remove('show'));
             }
@@ -202,7 +263,8 @@ public static partial class MiniAppUI
             }
         })();
 
-        changeTopCategory(document.querySelector('.top-cat-btn'));
+        const topCatInitial = document.querySelector('.top-cat-btn');
+        if (topCatInitial) changeTopCategory(topCatInitial);
         syncTime();
         initPriceWebSocket();
         

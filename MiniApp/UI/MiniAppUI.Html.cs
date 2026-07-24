@@ -120,7 +120,6 @@ public static partial class MiniAppUI
                 <span class='label'>До закрытия свечи</span>
                 <span class='time' id='candleTime'>--</span>
             </div>
-            </div>
 
             <button class='btn-analyze' id='btnGet'>ПОЛУЧИТЬ АНАЛИЗ</button>
             <div id='errorDisplay' class='error-box' style='display:none'></div>
