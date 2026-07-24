@@ -112,9 +112,9 @@ def _interpolate_subminute(m1_candles: List[Dict], interval: str) -> List[Dict]:
 # ── Timeframe → Binance interval string ──
 TF_MAP = {
     "s3": "1m", "s5": "1m", "s10": "1m", "s15": "1m", "s30": "1m",
-    "m1": "1m", "m2": "2m", "m3": "3m", "m5": "5m", "m10": "10m",
+    "m1": "1m", "m2": "1m", "m3": "3m", "m5": "5m", "m10": "5m",
     "m15": "15m", "m30": "30m", "h1": "1h", "h4": "4h",
-    "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
+    "1m": "1m", "2m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "4h": "4h",
 }
 
 LGBM_PARAMS = {

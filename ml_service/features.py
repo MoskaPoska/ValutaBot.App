@@ -77,7 +77,10 @@ def _hurst_approx(close: np.ndarray, lag_max: int = 16) -> np.ndarray:
             std2 = np.std(changes2) + 1e-12
             std16 = np.std(changes16) + 1e-12
             h = np.log(std16 / std2) / np.log(8)
-            result[i] = np.clip(h, 0.0, 1.0)
+            if not np.isnan(h) and not np.isinf(h):
+                result[i] = float(np.clip(h, 0.0, 1.0))
+            else:
+                result[i] = 0.5
         except Exception:
             result[i] = 0.5
     return result
@@ -157,7 +160,7 @@ def build_features(candles: List[Dict]) -> pd.DataFrame:
 
     result = pd.DataFrame(feats, index=df.index)
 
-    # Drop rows with any NaN (first ~50 candles will have NaN from rolling)
-    result = result.dropna()
+    # Slice off initial rolling warmup window (first 25 rows) and safely fill any residual NaNs with 0.0
+    result = result.iloc[25:].fillna(0.0)
 
     return result
