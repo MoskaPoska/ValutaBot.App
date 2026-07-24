@@ -226,6 +226,15 @@ public static class BinanceWebSocketStream
             if (root.TryGetProperty("bids", out var bidsProp) && root.TryGetProperty("asks", out var asksProp))
             {
                 string symbol = root.TryGetProperty("s", out var sProp) ? (sProp.GetString() ?? "") : "";
+                if (string.IsNullOrEmpty(symbol) && doc.RootElement.TryGetProperty("stream", out var streamProp))
+                {
+                    string streamStr = streamProp.GetString() ?? "";
+                    if (streamStr.Contains("@"))
+                    {
+                        symbol = streamStr.Split('@')[0].ToUpper();
+                    }
+                }
+
                 double totalBidVol = 0;
                 double totalAskVol = 0;
 

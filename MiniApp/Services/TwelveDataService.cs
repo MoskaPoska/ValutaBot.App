@@ -178,36 +178,38 @@ public static partial class TwelveDataService
         if (raw.Contains("BTC") || raw.Contains("ETH") || raw.Contains("SOL"))
             return null;
 
-        string a = raw.ToUpper()
+        string original = raw.ToUpper()
             .Replace("OTC", "")
             .Replace("ОТС", "") // Cyrillic
-            .Replace(" ", "")
-            .Replace("/", "")
-            .Replace("-", "")
-            .Replace("_", "")
             .Trim();
-        if (a == "GOLD" || a == "XAUUSD") return "XAU/USD";
-        if (a == "SILVER" || a == "XAGUSD") return "XAG/USD";
 
-        if (a.Contains("/"))
+        if (original.Contains("GOLD") || original.Contains("XAUUSD")) return "XAU/USD";
+        if (original.Contains("SILVER") || original.Contains("XAGUSD")) return "XAG/USD";
+
+        string cleanTicker = original.Replace(" ", "").Replace("/", "").Replace("-", "").Replace("_", "");
+        string[] knownStocks = { "AAPL", "TSLA", "AMZN", "GOOGL", "MSFT", "NVDA", "META" };
+        if (knownStocks.Contains(cleanTicker))
         {
-            var parts = a.Split('/');
+            return cleanTicker;
+        }
+
+        if (original.Contains("/"))
+        {
+            var parts = original.Split('/');
             if (parts.Length == 2)
             {
                 string left = parts[0].Trim();
                 string right = parts[1].Trim();
-
                 if (left == "USD") return $"{right}/{left}";
-
-                return a;
+                return $"{left}/{right}";
             }
         }
 
-        if (a.Length == 6 || a.Length == 7)
+        if (cleanTicker.Length == 6 || cleanTicker.Length == 7)
         {
-            int split = a.Length / 2;
-            string left = a[..split];
-            string right = a[split..];
+            int split = cleanTicker.Length / 2;
+            string left = cleanTicker[..split];
+            string right = cleanTicker[split..];
             return $"{left}/{right}";
         }
 
@@ -216,18 +218,18 @@ public static partial class TwelveDataService
 
     private static string? ConvertInterval(string interval) => interval.ToLower() switch
     {
-        "1m" => "1min",
-        "2m" => "2min",
-        "3m" => "5min",
-        "5m" => "5min",
-        "15m" => "15min",
-        "30m" => "30min",
+        "1m" or "m1" => "1min",
+        "2m" or "m2" => "2min",
+        "3m" or "m3" => "3min",
+        "5m" or "m5" => "5min",
+        "15m" or "m15" => "15min",
+        "30m" or "m30" => "30min",
         "45m" => "45min",
         "1h" or "h1" => "1h",
         "2h" or "h2" => "2h",
         "4h" or "h4" => "4h",
         "1d" or "d1" => "1day",
-        _ => null
+        _ => "1min"
     };
 }
 
