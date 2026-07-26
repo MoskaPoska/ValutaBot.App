@@ -91,7 +91,10 @@ public static class TradeOutcomeTracker
                 AutoCalibrationEngine.RecordSourceOutcome("SMC", record.Asset, record.Timeframe, wasCorrect);
             }
 
-            // 3. Continuous Online RL for Python LightGBM ML Service
+            // 3. Auto-Trading functionality has been removed. 
+            // DailyRiskCircuitBreaker now only needs to track global PnL if needed, or can be removed entirely later.
+
+            // 4. Continuous Online RL for Python LightGBM ML Service
             _ = Task.Run(async () =>
             {
                 try

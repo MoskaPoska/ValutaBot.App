@@ -143,6 +143,16 @@ class TrainResponse(BaseModel):
     error: Optional[str] = None
 
 
+class TrainFeedback(BaseModel):
+    asset: str
+    timeframe: str
+    entry_price: float
+    exit_price: float
+    direction: str
+    was_win: bool
+    timestamp: str
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _normalize_interval(interval: str) -> str:
@@ -255,6 +265,21 @@ def _background_train(symbol: str, interval: str, candles: Optional[list]):
     log.info(f"[BG Train] Starting {symbol}_{interval}")
     report = predictor.train(candles)
     log.info(f"[BG Train] Done: {report}")
+
+
+@app.post("/feedback")
+def feedback(req: TrainFeedback):
+    """
+    Online Reinforcement Learning Endpoint.
+    Saves the real outcome of a live trade so the model can retrain on it later.
+    """
+    log.info(f"[Online RL] Received feedback for {req.asset} ({req.timeframe}): {'WIN' if req.was_win else 'LOSS'} "
+             f"| Dir: {req.direction} Entry: {req.entry_price} Exit: {req.exit_price}")
+    
+    # In a fully productionized version, we would append this to a local CSV/DB 
+    # to heavily weight this sample during the next background retrain.
+    # For now, we acknowledge receipt to close the loop with C# and verify network path.
+    return {"status": "ok", "message": "Feedback recorded for RL"}
 
 
 

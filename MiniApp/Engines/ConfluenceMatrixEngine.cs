@@ -65,7 +65,7 @@ public static class ConfluenceMatrixEngine
             int maxAgree = Math.Max(buyCount, putCount);
 
             double confluenceRatio = Math.Round(maxAgree / 4.0, 2); // 1.0 (4/4), 0.75 (3/4), 0.50 (2/4)
-            string dominantDir = buyCount >= putCount ? "BUY" : "PUT";
+            string dominantDir = buyCount == putCount ? "NEUTRAL" : (buyCount > putCount ? "BUY" : "PUT");
             bool isGoldenSetup = confluenceRatio >= 0.99; // 100% 4/4 agreement
 
             int boost = confluenceRatio switch

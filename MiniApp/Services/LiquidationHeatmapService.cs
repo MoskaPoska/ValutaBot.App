@@ -1,13 +1,30 @@
+using System;
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
 
 namespace ValutaBot.MiniApp;
 
 public sealed class LiquidationHeatmapService : BackgroundService
 {
     private static readonly ConcurrentDictionary<string, ConcurrentDictionary<double, LiquidationBucket>> _heatmap = new();
+
+    private record struct SocketPayload(byte[] Buffer, int Length);
+
+    private static readonly Channel<SocketPayload> _jsonChannel = Channel.CreateBounded<SocketPayload>(new BoundedChannelOptions(2000)
+    {
+        SingleWriter = true,
+        SingleReader = true,
+        FullMode = BoundedChannelFullMode.DropOldest
+    });
 
     public static object GetHeatmapData()
     {
@@ -46,16 +63,23 @@ public sealed class LiquidationHeatmapService : BackgroundService
         
         // Start background cleanup loop
         _ = RunCleanupLoopAsync(ct);
+        
+        // Start consumer loop for JSON processing
+        _ = Task.Run(() => BackgroundConsumerLoopAsync(ct), ct);
 
         var symbols = new[] { "btcusdt", "ethusdt", "solusdt" };
         var streams = symbols.Select(s => $"{s}@forceOrder").ToList();
 
         while (!ct.IsCancellationRequested)
         {
+            ClientWebSocket? ws = null;
             try
             {
                 string url = $"wss://fstream.binance.com/ws";
-                using var ws = new ClientWebSocket();
+                ws = new ClientWebSocket();
+                ws.Options.SetRequestHeader("User-Agent", "ValutaBot/2.0-ZeroAlloc");
+                ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+                
                 await ws.ConnectAsync(new Uri(url), ct);
                 Console.WriteLine("[LIQ] Futures WS connected");
 
@@ -67,40 +91,128 @@ public sealed class LiquidationHeatmapService : BackgroundService
                 });
                 await ws.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(subMsg)), WebSocketMessageType.Text, true, ct);
 
-                var buffer = new byte[4096];
+                byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(65536);
 
                 while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
                 {
-                    var result = await ws.ReceiveAsync(buffer, ct);
-                    if (result.MessageType != WebSocketMessageType.Text) continue;
+                    ValueWebSocketReceiveResult result = default;
+                    int offset = 0;
 
-                    var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    ParseLiquidation(json);
+                    do
+                    {
+                        if (offset >= receiveBuffer.Length)
+                        {
+                            var newBuffer = ArrayPool<byte>.Shared.Rent(receiveBuffer.Length * 2);
+                            Array.Copy(receiveBuffer, newBuffer, offset);
+                            ArrayPool<byte>.Shared.Return(receiveBuffer);
+                            receiveBuffer = newBuffer;
+                        }
+                        
+                        result = await ws.ReceiveAsync(receiveBuffer.AsMemory(offset, receiveBuffer.Length - offset), ct);
+                        if (result.MessageType == WebSocketMessageType.Close) break;
+
+                        offset += result.Count;
+                    }
+                    while (!result.EndOfMessage && !ct.IsCancellationRequested);
+
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        break;
+                    }
+
+                    if (offset > 0)
+                    {
+                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent(offset);
+                        Array.Copy(receiveBuffer, channelBuffer, offset);
+
+                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, offset)))
+                        {
+                            ArrayPool<byte>.Shared.Return(channelBuffer);
+                        }
+                    }
                 }
+                
+                ArrayPool<byte>.Shared.Return(receiveBuffer);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 Console.WriteLine($"[LIQ] WS error: {ex.Message}, reconnecting in 5s");
                 await Task.Delay(5000, ct);
             }
+            finally
+            {
+                try { ws?.Dispose(); } catch { }
+            }
         }
     }
 
-    private static void ParseLiquidation(string json)
+    private static async Task BackgroundConsumerLoopAsync(CancellationToken token)
     {
         try
         {
-            using var doc = JsonDocument.Parse(json);
+            await foreach (var payload in _jsonChannel.Reader.ReadAllAsync(token))
+            {
+                try
+                {
+                    ParseLiquidation(payload.Buffer.AsSpan(0, payload.Length));
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(payload.Buffer);
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Heatmap Consumer] Error: {ex.Message}");
+        }
+        finally
+        {
+            while (_jsonChannel.Reader.TryRead(out var leftover))
+            {
+                ArrayPool<byte>.Shared.Return(leftover.Buffer);
+            }
+        }
+    }
+
+    private static readonly ConcurrentDictionary<string, string> _liqKeyCache = new();
+
+    private static string NormalizeLiqKey(string symbol)
+    {
+        if (_liqKeyCache.TryGetValue(symbol, out var cached)) return cached;
+        var clean = symbol.Replace("USDT", "/USDT");
+        _liqKeyCache[symbol] = clean;
+        return clean;
+    }
+
+    private static void ParseLiquidation(ReadOnlySpan<byte> jsonData)
+    {
+        try
+        {
+            var readerOptions = new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip };
+            var reader = new Utf8JsonReader(jsonData, readerOptions);
+
+            using var doc = JsonDocument.ParseValue(ref reader);
             var root = doc.RootElement;
 
             if (!root.TryGetProperty("o", out var o)) return;
 
-            var symbol = o.GetProperty("s").GetString() ?? "";
-            var side = o.GetProperty("S").GetString() ?? "";
-            var price = double.Parse(o.GetProperty("p").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
-            var qty = double.Parse(o.GetProperty("q").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+            var symbol = o.TryGetProperty("s", out var sProp) ? (sProp.GetString() ?? "") : "";
+            var side = o.TryGetProperty("S", out var SProp) ? (SProp.GetString() ?? "") : "";
+            
+            if (!o.TryGetProperty("p", out var pProp) || !o.TryGetProperty("q", out var qProp)) return;
+            
+            string? pStr = pProp.GetString();
+            string? qStr = qProp.GetString();
+            
+            if (string.IsNullOrEmpty(pStr) || string.IsNullOrEmpty(qStr)) return;
 
-            string key = symbol.Replace("USDT", "/USDT");
+            if (!double.TryParse(pStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double price) ||
+                !double.TryParse(qStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double qty))
+                return;
+
+            string key = NormalizeLiqKey(symbol);
             double bucketSize = price > 10000 ? 100 : price > 1000 ? 10 : price > 100 ? 1 : 0.5;
             double bucket = Math.Round(price / bucketSize) * bucketSize;
             double usdValue = price * qty;

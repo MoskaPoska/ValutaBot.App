@@ -18,6 +18,13 @@ public class OneMinuteEnsembleAnalyzer : ITimeframeAnalyzer
         bool isForex,
         (double[] prices, double[] volumes)? higherTfData)
     {
+        if (prices == null || prices.Length == 0)
+        {
+            return Task.FromResult(new TimeframeAnalysisResult(
+                "WAIT", 0.50, "HYBRID_ENSEMBLE", "Недостаточно тиков для 1m-анализа.", false
+            ));
+        }
+
         // ─── 1. Technical Analysis & RSI ───
         var mainResult = TechnicalAnalysisEngine.ScoreTimeframe(prices, volumes, candles: ohlcCandles, adxOverride: adx, atrOverride: atr, isForex: isForex);
         double rsiVal = mainResult.rsiVal;
@@ -57,7 +64,7 @@ public class OneMinuteEnsembleAnalyzer : ITimeframeAnalyzer
             totalScore += smcResult.OrderBlockType == "BULLISH_OB" ? 0.35 : -0.35;
         }
 
-        string direction = totalScore > 0.15 ? "BUY" : totalScore < -0.15 ? "PUT" : "WAIT";
+        string direction = totalScore > 0.15 ? "BUY" : totalScore < -0.15 ? "PUT" : "NEUTRAL";
         double confidence = Math.Min(0.95, 0.65 + Math.Abs(totalScore) * 0.20);
         bool isActionable = confidence >= 0.75;
 
@@ -68,7 +75,7 @@ public class OneMinuteEnsembleAnalyzer : ITimeframeAnalyzer
             _ => "[1m Ensemble] Ансамбль моделей находится в балансе."
         };
 
-        if (!isActionable && direction != "WAIT")
+        if (!isActionable && direction != "WAIT" && direction != "NEUTRAL")
         {
             reasoning += " (Уверенность ансамбля ниже порога 75%).";
         }

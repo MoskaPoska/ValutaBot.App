@@ -12,6 +12,12 @@ internal static class Program
             return;
         }
 
+        if (args.Length >= 3 && args[0] == "--backtest")
+        {
+            BacktestEngine.RunBacktestAsync(args[1], args[2]).GetAwaiter().GetResult();
+            return;
+        }
+
         try { Console.Title = "TradeBE Smart Terminal Core"; } catch { /* not a TTY (Docker/Linux) */ }
 
         var port = int.TryParse(Environment.GetEnvironmentVariable("PORT"), out var p) ? p : 5000;
@@ -83,7 +89,7 @@ internal static class Program
                 lastChange = currentChange;
             }
             
-            var hurstMethod = typeof(MiniAppController).GetMethod("CalculateHurstExponent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var hurstMethod = typeof(MathIndicatorsLibrary).GetMethod("CalculateHurstExponent", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
             double trendHurst = hurstMethod != null ? (double)hurstMethod.Invoke(null, new object[] { trendPrices })! : 0.6;
 
             // Generate range prices (sine wave): H should be low (<0.45)
@@ -102,7 +108,7 @@ internal static class Program
             var rand = new Random(42);
             for (int i = 0; i < 60; i++) noisyPrices[i] = 100.0 + (rand.NextDouble() - 0.5) * 10.0;
 
-            var kalmanMethod = typeof(MiniAppController).GetMethod("ComputeKalmanFilter", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var kalmanMethod = typeof(MathIndicatorsLibrary).GetMethod("ComputeKalmanFilter", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
             double[] filteredPrices = kalmanMethod != null ? (double[])kalmanMethod.Invoke(null, new object[] { noisyPrices })! : noisyPrices;
 
             // Calculate standard deviation of noisy vs filtered
@@ -122,7 +128,7 @@ internal static class Program
             double[] droppingPrices = new double[20];
             for (int i = 0; i < 20; i++) droppingPrices[i] = 10.0 - i * 0.1;
 
-            var tdMethod = typeof(MiniAppController).GetMethod("ComputeDeMarkScore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var tdMethod = typeof(MathIndicatorsLibrary).GetMethod("ComputeDeMarkScore", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
             double tdScore = tdMethod != null ? (double)tdMethod.Invoke(null, new object[] { droppingPrices })! : 0.35;
 
             Assert("TD Sequential Buy Setup completion", tdScore == 0.35, $"Expected score 0.35, got {tdScore}");
@@ -140,7 +146,7 @@ internal static class Program
                 mockVols[i] = 100.0;
             }
 
-            var scoreMethod = typeof(MiniAppController).GetMethod("ScoreTimeframe", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var scoreMethod = typeof(TechnicalAnalysisEngine).GetMethod("ScoreTimeframe", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
             
             // Score upward trend
             var upRes = scoreMethod?.Invoke(null, new object?[] { upTrend, mockVols, null, 30.0, 0.1, false });

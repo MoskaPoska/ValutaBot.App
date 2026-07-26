@@ -58,11 +58,11 @@ public static class SmcEngine
         bool bearishFvg = false;
         double fvgTop = 0, fvgBottom = 0, fvgGapSize = 0;
 
-        if (n >= 4)
+        if (n >= 3)
         {
-            var c1 = candles[^4];
-            var c2 = candles[^3];
-            var c3 = candles[^2];
+            var c1 = candles[^3];
+            var c2 = candles[^2];
+            var c3 = candles[^1];
 
             if (c3.Low > c1.High)
             {
@@ -102,15 +102,18 @@ public static class SmcEngine
                 if (isBullishObCandidate || isBearishObCandidate)
                 {
                     bool isMitigated = false;
+                    double obBodyTop = Math.Max(candle.Open, candle.Close);
+                    double obBodyBottom = Math.Min(candle.Open, candle.Close);
+
                     for (int j = i + 1; j < n - 1; j++)
                     {
                         var futureCandle = candles[j];
-                        if (isBullishObCandidate && futureCandle.Low <= candle.High)
+                        if (isBullishObCandidate && futureCandle.Low <= obBodyBottom)
                         {
                             isMitigated = true;
                             break;
                         }
-                        else if (isBearishObCandidate && futureCandle.High >= candle.Low)
+                        else if (isBearishObCandidate && futureCandle.High >= obBodyTop)
                         {
                             isMitigated = true;
                             break;
@@ -176,7 +179,7 @@ public static class SmcEngine
     /// Validates m1 SMC signals against the m15 / m30 Higher Timeframe (HTF) structure.
     /// Heavily penalizes or blocks counter-trend SMC trades against HTF structure.
     /// </summary>
-    public static MtfSmcValidationResult ValidateMtfSmcAlignment(SmcAnalysisResult mainSmc, SmcAnalysisResult htfSmc)
+    public static MtfSmcValidationResult ValidateMtfSmcAlignment(SmcAnalysisResult mainSmc, SmcAnalysisResult? htfSmc)
     {
         if (htfSmc == null)
         {
@@ -185,6 +188,8 @@ public static class SmcEngine
 
         // Compute HTF net directional score (+ for Bullish, - for Bearish)
         int htfScore = 0;
+        if (htfSmc.SweepDirection == "BULLISH_SWEEP") htfScore += 2;
+        else if (htfSmc.SweepDirection == "BEARISH_SWEEP") htfScore -= 2;
         if (htfSmc.BosDirection == "BULLISH_BOS") htfScore += 2;
         else if (htfSmc.BosDirection == "BEARISH_BOS") htfScore -= 2;
         if (htfSmc.OrderBlockType == "BULLISH_OB") htfScore += 1;
@@ -194,6 +199,8 @@ public static class SmcEngine
 
         // Compute local net directional score
         int mainScore = 0;
+        if (mainSmc.SweepDirection == "BULLISH_SWEEP") mainScore += 2;
+        else if (mainSmc.SweepDirection == "BEARISH_SWEEP") mainScore -= 2;
         if (mainSmc.BosDirection == "BULLISH_BOS") mainScore += 2;
         else if (mainSmc.BosDirection == "BEARISH_BOS") mainScore -= 2;
         if (mainSmc.OrderBlockType == "BULLISH_OB") mainScore += 1;

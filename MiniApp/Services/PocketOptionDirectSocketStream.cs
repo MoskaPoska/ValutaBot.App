@@ -1,10 +1,12 @@
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
-using System.Linq;
+using System.IO;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace ValutaBot.MiniApp;
@@ -16,8 +18,20 @@ namespace ValutaBot.MiniApp;
 /// </summary>
 public static class PocketOptionDirectSocketStream
 {
-    private static readonly ConcurrentDictionary<string, (double[] prices, DateTime updatedAt)> _directTicks = new();
-    private static ClientWebSocket? _webSocket;
+    // Reuses TickRingBuffer from TwelveDataWebSocketStream.cs
+    private static readonly ConcurrentDictionary<string, TickRingBuffer> _directTicks = new();
+
+    private record struct SocketPayload(byte[] Buffer, int Length);
+
+    private static Channel<SocketPayload> _jsonChannel = CreateChannel();
+
+    private static Channel<SocketPayload> CreateChannel() => Channel.CreateBounded<SocketPayload>(new BoundedChannelOptions(2000)
+    {
+        SingleWriter = true,
+        SingleReader = true,
+        FullMode = BoundedChannelFullMode.DropOldest
+    });
+
     private static CancellationTokenSource? _cts;
     private static bool _isRunning = false;
 
@@ -27,10 +41,13 @@ public static class PocketOptionDirectSocketStream
     public static bool TryGetDirectBrokerTicks(string asset, out double[] prices)
     {
         string key = SanitizeAssetKey(asset);
-        if (_directTicks.TryGetValue(key, out var data) && (DateTime.UtcNow - data.updatedAt).TotalSeconds < 5)
+        if (_directTicks.TryGetValue(key, out var buffer))
         {
-            prices = data.prices;
-            return true;
+            if ((DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 5)
+            {
+                prices = buffer.GetOrderedSnapshot(100);
+                if (prices.Length > 0) return true;
+            }
         }
 
         prices = Array.Empty<double>();
@@ -43,15 +60,8 @@ public static class PocketOptionDirectSocketStream
     public static void RecordDirectTick(string asset, double price)
     {
         string key = SanitizeAssetKey(asset);
-        _directTicks.AddOrUpdate(
-            key,
-            (new[] { price }, DateTime.UtcNow),
-            (_, existing) =>
-            {
-                var newPrices = existing.prices.Concat(new[] { price }).TakeLast(100).ToArray();
-                return (newPrices, DateTime.UtcNow);
-            }
-        );
+        var buffer = _directTicks.GetOrAdd(key, _ => new TickRingBuffer(100));
+        buffer.AddTick(price);
     }
 
     /// <summary>
@@ -62,7 +72,9 @@ public static class PocketOptionDirectSocketStream
         if (_isRunning) return;
         _isRunning = true;
         _cts = new CancellationTokenSource();
+        _jsonChannel = CreateChannel();
 
+        Task.Run(() => BackgroundConsumerLoopAsync(_cts.Token));
         Task.Run(() => ConnectionLoopAsync(socketUrl, ssidToken, _cts.Token));
     }
 
@@ -72,69 +84,147 @@ public static class PocketOptionDirectSocketStream
 
         while (!token.IsCancellationRequested)
         {
+            ClientWebSocket? webSocket = null;
             try
             {
-                using (_webSocket = new ClientWebSocket())
+                webSocket = new ClientWebSocket();
+                webSocket.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                webSocket.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+                Uri serverUri = new Uri(socketUrl);
+                await webSocket.ConnectAsync(serverUri, token);
+                BotLogger.Info("[Direct Broker Socket] Connected to broker live tick stream.");
+
+                // Send authentication SSID token if provided
+                if (!string.IsNullOrEmpty(ssidToken))
                 {
-                    _webSocket.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-                    Uri serverUri = new Uri(socketUrl);
-                    await _webSocket.ConnectAsync(serverUri, token);
-                    BotLogger.Info("[Direct Broker Socket] Connected to broker live tick stream.");
+                    string authPayload = $"42[\"auth\",{{\"session\":\"{ssidToken}\"}}]";
+                    byte[] authBytes = Encoding.UTF8.GetBytes(authPayload);
+                    await webSocket.SendAsync(Encoding.UTF8.GetBytes(authPayload).AsMemory(), WebSocketMessageType.Text, true, token);
+                }
 
-                    // Send authentication SSID token if provided
-                    if (!string.IsNullOrEmpty(ssidToken))
-                    {
-                        string authPayload = $"42[\"auth\",{{\"session\":\"{ssidToken}\"}}]";
-                        byte[] authBytes = Encoding.UTF8.GetBytes(authPayload);
-                        await _webSocket.SendAsync(new ArraySegment<byte>(authBytes), WebSocketMessageType.Text, true, token);
-                    }
+                byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(65536);
 
-                    byte[] buffer = new byte[8192];
-                    while (_webSocket.State == WebSocketState.Open && !token.IsCancellationRequested)
+                while (webSocket.State == WebSocketState.Open && !token.IsCancellationRequested)
+                {
+                    ValueWebSocketReceiveResult result = default;
+                    int offset = 0;
+
+                    do
                     {
-                        using var ms = new System.IO.MemoryStream();
-                        WebSocketReceiveResult? result = null;
-                        do
+                        if (offset >= receiveBuffer.Length)
                         {
-                            result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-                            if (result.Count > 0) ms.Write(buffer, 0, result.Count);
+                            var newBuffer = ArrayPool<byte>.Shared.Rent(receiveBuffer.Length * 2);
+                            Array.Copy(receiveBuffer, newBuffer, offset);
+                            ArrayPool<byte>.Shared.Return(receiveBuffer);
+                            receiveBuffer = newBuffer;
                         }
-                        while (!result.EndOfMessage && !token.IsCancellationRequested);
+                        
+                        result = await webSocket.ReceiveAsync(receiveBuffer.AsMemory(offset, receiveBuffer.Length - offset), token);
+                        if (result.MessageType == WebSocketMessageType.Close) break;
 
-                        if (result != null && result.MessageType == WebSocketMessageType.Close)
-                            break;
+                        offset += result.Count;
+                    }
+                    while (!result.EndOfMessage && !token.IsCancellationRequested);
 
-                        if (result != null && result.MessageType == WebSocketMessageType.Text)
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        break;
+
+                    if (offset > 0)
+                    {
+                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent(offset);
+                        Array.Copy(receiveBuffer, channelBuffer, offset);
+
+                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, offset)))
                         {
-                            string jsonMsg = Encoding.UTF8.GetString(ms.ToArray());
-                            ParseBrokerTickMessage(jsonMsg);
+                            ArrayPool<byte>.Shared.Return(channelBuffer);
                         }
                     }
                 }
+                
+                ArrayPool<byte>.Shared.Return(receiveBuffer);
             }
             catch (Exception ex)
             {
                 BotLogger.Warn($"[Direct Broker Socket] Notice: {ex.Message}. Reconnecting in 3s...");
-                await Task.Delay(3000, token);
+            }
+            finally
+            {
+                try { webSocket?.Dispose(); } catch { }
+            }
+
+            if (!token.IsCancellationRequested)
+            {
+                try { await Task.Delay(3000, token); } catch { }
             }
         }
     }
 
-    private static void ParseBrokerTickMessage(string message)
+    private static async Task BackgroundConsumerLoopAsync(CancellationToken token)
     {
         try
         {
-            if (message.Contains("updateStream") || message.Contains("asset"))
+            await foreach (var payload in _jsonChannel.Reader.ReadAllAsync(token))
             {
-                using var doc = JsonDocument.Parse(message);
+                try
+                {
+                    ParseBrokerTickMessage(payload.Buffer.AsSpan(0, payload.Length));
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(payload.Buffer);
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            BotLogger.Error("[Direct Broker Socket] Consumer loop error", ex);
+        }
+        finally
+        {
+            while (_jsonChannel.Reader.TryRead(out var leftover))
+            {
+                ArrayPool<byte>.Shared.Return(leftover.Buffer);
+            }
+        }
+    }
+
+    private static readonly byte[] _updateStreamPattern = Encoding.UTF8.GetBytes("updateStream");
+    private static readonly byte[] _assetPattern = Encoding.UTF8.GetBytes("asset");
+
+    private static void ParseBrokerTickMessage(ReadOnlySpan<byte> jsonData)
+    {
+        try
+        {
+            // Fast pattern match before parsing
+            if (jsonData.IndexOf(_updateStreamPattern) >= 0 || jsonData.IndexOf(_assetPattern) >= 0)
+            {
+                // Engine.IO often prepends characters like "42[" for socket.io messages.
+                // We find the first '[' to parse it as a valid JSON array.
+                int bracketIndex = jsonData.IndexOf((byte)'[');
+                if (bracketIndex < 0) return;
+                
+                ReadOnlySpan<byte> jsonArrayData = jsonData.Slice(bracketIndex);
+
+                var readerOptions = new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip };
+                var reader = new Utf8JsonReader(jsonArrayData, readerOptions);
+
+                using var doc = JsonDocument.ParseValue(ref reader);
                 var root = doc.RootElement;
+
                 if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 1)
                 {
                     var dataObj = root[1];
                     if (dataObj.TryGetProperty("asset", out var assetProp) && dataObj.TryGetProperty("price", out var priceProp))
                     {
                         string asset = assetProp.GetString() ?? "";
-                        double price = priceProp.GetDouble();
+                        double price = 0;
+                        
+                        if (priceProp.ValueKind == JsonValueKind.Number)
+                            price = priceProp.GetDouble();
+                        else if (priceProp.ValueKind == JsonValueKind.String)
+                            double.TryParse(priceProp.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out price);
+
                         if (!string.IsNullOrEmpty(asset) && price > 0)
                         {
                             RecordDirectTick(asset, price);
@@ -149,8 +239,13 @@ public static class PocketOptionDirectSocketStream
         }
     }
 
+    private static readonly ConcurrentDictionary<string, string> _keyCache = new();
+
     private static string SanitizeAssetKey(string asset)
     {
-        return asset.ToUpper().Replace("/", "").Replace("_OTC", "").Replace(" OTC", "").Trim();
+        if (_keyCache.TryGetValue(asset, out var cached)) return cached;
+        var clean = asset.ToUpper().Replace("/", "").Replace("_OTC", "").Replace(" OTC", "").Replace("OTC", "").Replace("-", "").Trim();
+        _keyCache[asset] = clean;
+        return clean;
     }
 }

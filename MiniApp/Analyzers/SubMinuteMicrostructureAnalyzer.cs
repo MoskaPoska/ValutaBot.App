@@ -18,6 +18,13 @@ public class SubMinuteMicrostructureAnalyzer : ITimeframeAnalyzer
         bool isForex,
         (double[] prices, double[] volumes)? higherTfData)
     {
+        if (prices == null || prices.Length == 0)
+        {
+            return Task.FromResult(new TimeframeAnalysisResult(
+                "WAIT", 0.50, "HFT_MICROSTRUCTURE", "Нет тиковых данных.", false
+            ));
+        }
+
         // ─── 1. Order Flow & Tick Delta Analysis ───
         var orderFlow = OrderFlowEngine.AnalyzeOrderFlow(prices, volumes, ohlcCandles);
         double deltaRatio = orderFlow.DeltaRatio;
@@ -72,15 +79,14 @@ public class SubMinuteMicrostructureAnalyzer : ITimeframeAnalyzer
             }
             else
             {
-                double tickDiff = prices.Length >= 5 ? prices[^1] - prices[^5] : (prices.Length >= 2 ? prices[^1] - prices[0] : 0);
-                direction = tickDiff > 0 ? "BUY" : tickDiff < 0 ? "PUT" : (mainResult.rsiVal < 50 ? "BUY" : "PUT");
-                confidence = 0.75;
-                reasoning = "[HFT 5s-30s] Тиковый отклик тикового сдвига (0.1ms tick momentum).";
+                direction = "NEUTRAL";
+                confidence = 0.50;
+                reasoning = "[HFT 5s-30s] Ордерфлоу сбалансирован, выраженного микро-импульса нет (Balanced State).";
             }
         }
 
         bool isActionable = confidence >= 0.75;
-        if (!isActionable && direction != "WAIT")
+        if (!isActionable && direction != "WAIT" && direction != "NEUTRAL")
         {
             reasoning += " (Низкая уверенность микроструктуры < 75%).";
         }

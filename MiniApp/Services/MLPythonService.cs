@@ -277,6 +277,7 @@ public static class MLPythonService
 
     // ── DTO ────────────────────────────────────────────────────────────────
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Instantiated by System.Text.Json deserialization")]
     private class PredictResponseDto
     {
         [JsonPropertyName("direction")]    public string?  Direction    { get; set; }

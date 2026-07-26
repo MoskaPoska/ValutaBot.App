@@ -74,14 +74,16 @@ public static class MarketDataFetcher
 
     public static string? LowerTf(string tf) => tf.ToLower() switch
     {
-        "m1" => null,
+        "s10" or "s15" or "s30" => "s5",
+        "s5" => "s3",
+        "m1" => "s30",
         "m2" => "m1", "m3" => "m1",
         "m5" => "m1", "m15" => "m5", "m30" => "m15",
         "h1" => "m30", "h4" => "h1",
         "d1" => "h4", _ => null
     };
 
-    public static async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50)
+    public static async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50, string? rawAsset = null, string? rawInterval = null)
     {
         string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
         var response = await _retryPolicy.ExecuteAsync(() => _httpClient.GetStringAsync(url));
@@ -110,19 +112,37 @@ public static class MarketDataFetcher
             double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture),
             double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)
         )).ToArray();
-        _ohlcCache[$"{symbol}_{interval}"] = ohlc;
+        if (prices.Length > 0)
+        {
+            string cacheSym = rawAsset ?? symbol;
+            string cacheInt = rawInterval ?? interval;
+            _ohlcCache[$"{cacheSym}_{cacheInt}"] = ohlc;
+        }
 
         return (prices, volumes);
     }
 
-    public static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
+    public static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
     {
-        interval = IntervalMap(interval);
+        string interval = IntervalMap(rawInterval);
         if (symbol != null)
         {
             if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes) && wsPrices.Length >= 15)
             {
                 BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
+                
+                var ohlc = new MiniAppController.OhlcCandle[wsPrices.Length];
+                double volatility = wsPrices.Length > 1 ? Math.Abs(wsPrices[^1] - wsPrices[0]) / wsPrices.Length * 2.0 : 0.0001;
+                for (int i = 0; i < wsPrices.Length; i++)
+                {
+                    double open = i == 0 ? wsPrices[i] : wsPrices[i - 1];
+                    double close = wsPrices[i];
+                    double high = Math.Max(open, close) + volatility;
+                    double low = Math.Min(open, close) - volatility;
+                    ohlc[i] = new MiniAppController.OhlcCandle(open, high, low, close, 1.0);
+                }
+                _ohlcCache[$"{originalAsset ?? symbol}_{rawInterval}"] = ohlc;
+                
                 return (wsPrices, wsVolumes);
             }
 
@@ -168,7 +188,7 @@ public static class MarketDataFetcher
             }
 
             // Fallback to Binance ticker if TwelveData API key is not configured
-            string cleanAsset = AssetSanitizer.Sanitize(originalAsset);
+            string cleanAsset = AssetSanitizer.Sanitize(originalAsset ?? "BTCUSDT");
             symbol = cleanAsset switch
             {
                 "BTCUSDT" or "BTC" or "BTCUSD" => "BTCUSDT",
@@ -180,10 +200,10 @@ public static class MarketDataFetcher
 
         try
         {
-            var res = await FetchBinanceCandles(symbol, interval, limit);
-            if (cacheTtlSeconds > 0)
+            var res = await FetchBinanceCandles(symbol, interval, limit, originalAsset ?? symbol, rawInterval);
+            if (cacheTtlSeconds > 0 && res.prices.Length > 0)
             {
-                string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
+                string binanceCacheKey = $"binance_raw_{symbol}_{rawInterval}_{limit}";
                 _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(cacheTtlSeconds));
             }
             return res;
@@ -199,25 +219,7 @@ public static class MarketDataFetcher
                 }
             }
 
-            var fallback = symbol switch
-            {
-                "EURJPYUSDT" or "EURGBPUSDT" or "EURNZDUSDT" or "EURCHFUSDT" => "EURUSDT",
-                "GBPJPYUSDT" or "GBPAUDUSDT" or "GBPCADUSDT" or "GBPCHFUSDT" => "GBPUSDT",
-                "NZDJPYUSDT" or "NZDCADUSDT" or "NZDCHFUSDT" => "NZDUSDT",
-                "AUDCADUSDT" or "AUDCHFUSDT" or "AUDNZDUSDT" => "AUDUSDT",
-                "CADCHFUSDT" or "USDCADUSDT" or "CADJPYUSDT" => "EURUSDT",
-                "USDCHFUSDT" or "CHFJPYUSDT" => "EURUSDT",
-                "USDBRLUSDT" or "USDIDRUSDT" or "USDPKRUSDT" or "USDDZDUSDT" => "GBPUSDT",
-                _ => null
-            };
-
-            if (fallback != null)
-            {
-                var res = await FetchBinanceCandles(fallback, interval, limit);
-                string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
-                _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(2));
-                return res;
-            }
+            throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", $"⚠️ Данные для {originalAsset ?? symbol} временно недоступны на бирже.");
 
             throw;
         }

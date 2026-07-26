@@ -177,21 +177,21 @@ public static class TechnicalAnalysisEngine
         double score = 0;
         double confidence = 60.0;
 
-        // Proportional Connors RSI scoring
-        if (rsi > 70) score -= (rsi - 70) / 15.0;
-        else if (rsi < 30) score += (30 - rsi) / 15.0;
-        else score += (rsi - 50) / 20.0;
+        // Proportional Connors RSI scoring (-1.0 to +1.0)
+        // Adjusted denominator to 40.0 to require more extreme RSI for high scores
+        score += (rsi - 50) / 40.0;
 
         // HMA (Hull Moving Average zero-lag) scoring
-        if (lastPrice > hma) score += 0.35;
-        else if (lastPrice < hma) score -= 0.35;
+        // Lowered from 0.35 to 0.15 so HMA alone cannot breach probability thresholds
+        if (lastPrice > hma) score += 0.15;
+        else if (lastPrice < hma) score -= 0.15;
 
         // ADX scoring
         if (adxVal > 25)
         {
             confidence += Math.Min((adxVal - 25) * 0.8, 20);
-            if (pdiVal > mdiVal && pdiVal > 0) score += 0.4;
-            else if (mdiVal > pdiVal && mdiVal > 0) score -= 0.4;
+            if (pdiVal > mdiVal && pdiVal > 0) score += 0.25;
+            else if (mdiVal > pdiVal && mdiVal > 0) score -= 0.25;
         }
 
         // Volume strength scoring
@@ -217,9 +217,14 @@ public static class TechnicalAnalysisEngine
     {
         if (prices == null || prices.Length < 15)
         {
-            return new GatekeeperResult(false, "Недостаточно свечей для проверки Gatekeeper", 0, 0);
+            return new GatekeeperResult(false, "Недостаточно данных цены для проверки Gatekeeper", 0, 0);
         }
 
+        if (candles == null || candles.Length < 15)
+        {
+            BotLogger.Warn("[Gatekeeper] Rejecting trade: Insufficient or missing OHLC candles. Synthetic data is prohibited.");
+            return new GatekeeperResult(false, "⚠️ Данные от биржи неполные. Сделка отклонена в целях безопасности.", 0, 0);
+        }
         double atr = candles != null ? ComputeAtr(candles) : 0;
         var (adx, _, _) = candles != null ? ComputeTrueAdx(candles) : (20.0, 0, 0);
 
@@ -239,7 +244,7 @@ public static class TechnicalAnalysisEngine
 
     public static double CalculateVolatilityRatio(double[] prices)
     {
-        if (prices == null || prices.Length < 25) return 1.0;
+        if (prices == null || prices.Length < 26) return 1.0;
 
         double[] shortReturns = new double[5];
         for (int i = 0; i < 5; i++)

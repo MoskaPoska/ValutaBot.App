@@ -95,7 +95,7 @@ public static class OrderFlowEngine
             }
         }
 
-        double deltaRatio = totalSellVol > 1e-8 ? totalBuyVol / totalSellVol : 1.0;
+        double deltaRatio = totalSellVol > 1e-8 ? totalBuyVol / totalSellVol : Math.Max(1.0, totalBuyVol);
         double priceDelta = prices[^1] - prices[Math.Max(0, prices.Length - 5)];
 
         string state;

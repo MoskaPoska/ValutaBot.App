@@ -1,19 +1,94 @@
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 
 namespace ValutaBot.MiniApp;
 
+/// <summary>
+/// A zero-allocation Ring Buffer for storing real-time tick prices.
+/// Avoids O(N) array cloning and GC pressure associated with ConcurrentQueue.
+/// </summary>
+public class TickRingBuffer
+{
+    private readonly double[] _prices;
+    private int _head = 0;
+    private int _count = 0;
+    private readonly int _capacity;
+    private readonly object _lock = new();
+
+    public DateTime UpdatedAt { get; private set; }
+    
+    // Tracks the most recent price for fast O(1) reads
+    public double LastPrice { get; private set; }
+
+    public TickRingBuffer(int capacity = 100)
+    {
+        _capacity = capacity;
+        _prices = new double[capacity];
+    }
+
+    public void AddTick(double price)
+    {
+        lock (_lock)
+        {
+            _prices[_head] = price;
+            _head = (_head + 1) % _capacity;
+            if (_count < _capacity) _count++;
+            
+            LastPrice = price;
+            UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public double[] GetOrderedSnapshot(int count)
+    {
+        lock (_lock)
+        {
+            if (_count == 0) return Array.Empty<double>();
+
+            int takeCount = Math.Min(count, _count);
+            double[] outPrices = new double[takeCount];
+            
+            // Start index is the oldest element among the 'takeCount' newest elements
+            int startIdx = (_head - takeCount + _capacity) % _capacity;
+            for (int i = 0; i < takeCount; i++)
+            {
+                int srcIdx = (startIdx + i) % _capacity;
+                outPrices[i] = _prices[srcIdx];
+            }
+            return outPrices;
+        }
+    }
+}
+
 public sealed class TwelveDataWebSocketStream : BackgroundService
 {
-    private static readonly ConcurrentDictionary<string, ConcurrentQueue<double>> _realtimeTicks = new();
-    private static readonly ConcurrentDictionary<string, DateTime> _lastTickTime = new();
+    private static readonly ConcurrentDictionary<string, TickRingBuffer> _realtimeTicks = new();
+    
+    // Client broadcast dictionaries
+    private static readonly ConcurrentDictionary<string, ConcurrentDictionary<string, WebSocket>> _clients = new();
+    private static readonly ConcurrentDictionary<WebSocket, SemaphoreSlim> _clientLocks = new();
+    private static ClientWebSocket? _activeWs;
+    private static readonly object _wsLock = new();
+
+    private record struct SocketPayload(byte[] Buffer, int Length);
+
+    private static readonly Channel<SocketPayload> _jsonChannel = Channel.CreateBounded<SocketPayload>(new BoundedChannelOptions(2000)
+    {
+        SingleWriter = true,
+        SingleReader = true,
+        FullMode = BoundedChannelFullMode.DropOldest
+    });
 
     /// <summary>
     /// Returns zero-latency in-memory tick prices from RAM (0.001s response time).
@@ -22,25 +97,121 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
     public static double[]? GetRealtimePrices(string asset, int count = 30)
     {
         string cleanKey = NormalizeKey(asset);
-        if (_realtimeTicks.TryGetValue(cleanKey, out var q) && q.Count >= 10)
+        if (_realtimeTicks.TryGetValue(cleanKey, out var buffer))
         {
-            if (_lastTickTime.TryGetValue(cleanKey, out var lastTime) && (DateTime.UtcNow - lastTime).TotalSeconds < 30)
+            if ((DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 30)
             {
-                var arr = q.ToArray();
-                return arr.TakeLast(Math.Min(count, arr.Length)).ToArray();
+                var arr = buffer.GetOrderedSnapshot(count);
+                if (arr.Length >= 10) return arr;
             }
         }
         return null;
     }
+    
+    // Used by MiniAppController for /api/stream/price
+    public static double GetLastPrice(string asset)
+    {
+        string symbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+        string cleanKey = NormalizeKey(symbol);
+        
+        if (_realtimeTicks.TryGetValue(cleanKey, out var buffer))
+        {
+            if ((DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 15)
+            {
+                return buffer.LastPrice;
+            }
+        }
+        return 0;
+    }
+    
+    public static (double price, DateTime timestamp)[] GetTicks(string asset)
+    {
+        string cleanKey = NormalizeKey(asset);
+        if (_realtimeTicks.TryGetValue(cleanKey, out var buffer))
+        {
+            var arr = buffer.GetOrderedSnapshot(30);
+            // Simulate timestamp for compatibility with old controller
+            var result = new (double price, DateTime timestamp)[arr.Length];
+            for (int i = 0; i < arr.Length; i++) result[i] = (arr[i], DateTime.UtcNow.AddMilliseconds(-arr.Length + i));
+            return result;
+        }
+        return Array.Empty<(double price, DateTime timestamp)>();
+    }
+
+    public static async Task RegisterClientAsync(string asset, string clientId, WebSocket clientWs)
+    {
+        string symbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+        
+        _clients.GetOrAdd(symbol, _ => new())[clientId] = clientWs;
+        Console.WriteLine($"[TwelveData WS] Client {clientId} subscribed to {symbol}");
+
+        await SubscribeToSymbolAsync(symbol);
+        
+        string cleanKey = NormalizeKey(symbol);
+        if (_realtimeTicks.TryGetValue(cleanKey, out var buffer) && (DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 15)
+        {
+            await SendToClientAsync(clientWs, symbol, buffer.LastPrice);
+        }
+    }
+
+    public static void UnregisterClient(string asset, string clientId)
+    {
+        string symbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
+        if (_clients.TryGetValue(symbol, out var dict))
+        {
+            if (dict.TryRemove(clientId, out var ws))
+            {
+                _clientLocks.TryRemove(ws, out _);
+            }
+        }
+    }
+
+    private static async Task SubscribeToSymbolAsync(string symbol)
+    {
+        ClientWebSocket? ws;
+        lock (_wsLock) { ws = _activeWs; }
+        
+        if (ws == null || ws.State != WebSocketState.Open) return;
+
+        try
+        {
+            var subMsg = new
+            {
+                action = "subscribe",
+                @params = new
+                {
+                    symbols = symbol
+                }
+            };
+            string json = JsonSerializer.Serialize(subMsg);
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            Console.WriteLine($"[TwelveData WS] Requested subscription for {symbol}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TwelveData WS] Subscription failed for {symbol}: {ex.Message}");
+        }
+    }
+
+    public static Task StartBackgroundStreamingAsync()
+    {
+        // Now handled entirely by the background service lifecycle
+        return Task.CompletedTask;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        Console.WriteLine("[TwelveData WS] Starting Persistent Zero-Latency Forex Streaming Service...");
+        Console.WriteLine("[TwelveData WS] Starting Unified Zero-Latency Forex Streaming Service...");
 
-        var symbols = new[]
+        // Launch consumer loop
+        _ = Task.Run(() => BackgroundConsumerLoopAsync(ct), ct);
+
+        var defaultSymbols = new[]
         {
             "EUR/USD", "GBP/USD", "AUD/USD", "USD/JPY", "USD/CAD", "USD/CHF",
-            "NZD/USD", "EUR/GBP", "EUR/JPY", "GBP/JPY", "AUD/JPY", "CAD/JPY"
+            "NZD/USD", "EUR/GBP", "EUR/JPY", "GBP/JPY", "AUD/JPY", "CAD/JPY",
+            "BTC/USD"
         };
 
         while (!ct.IsCancellationRequested)
@@ -53,60 +224,138 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
                 continue;
             }
 
+            ClientWebSocket? ws = null;
             try
             {
                 string url = $"wss://ws.twelvedata.com/v1/quotes/price?apikey={apiKey}";
-                using var ws = new ClientWebSocket();
+                ws = new ClientWebSocket();
+                ws.Options.SetRequestHeader("User-Agent", "ValutaBot/2.0-ZeroAlloc");
+                ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+
                 await ws.ConnectAsync(new Uri(url), ct);
                 Console.WriteLine("[TwelveData WS] Persistent Zero-Latency Stream Connected!");
+                
+                lock (_wsLock) { _activeWs = ws; }
+
+                // Collect all symbols (defaults + any registered clients)
+                var allSymbols = new HashSet<string>(defaultSymbols);
+                foreach (var s in _clients.Keys) allSymbols.Add(s);
 
                 var subMsg = JsonSerializer.Serialize(new
                 {
                     action = "subscribe",
                     @params = new
                     {
-                        symbols = string.Join(",", symbols)
+                        symbols = string.Join(",", allSymbols)
                     }
                 });
 
                 await ws.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(subMsg)), WebSocketMessageType.Text, true, ct);
 
-                var buffer = new byte[8192];
+                byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(65536);
 
                 while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
                 {
-                    using var ms = new System.IO.MemoryStream();
-                    WebSocketReceiveResult? result = null;
+                    ValueWebSocketReceiveResult result = default;
+                    int offset = 0;
+
                     do
                     {
-                        result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-                        if (result.Count > 0) ms.Write(buffer, 0, result.Count);
+                        if (offset >= receiveBuffer.Length)
+                        {
+                            var newBuffer = ArrayPool<byte>.Shared.Rent(receiveBuffer.Length * 2);
+                            Array.Copy(receiveBuffer, newBuffer, offset);
+                            ArrayPool<byte>.Shared.Return(receiveBuffer);
+                            receiveBuffer = newBuffer;
+                        }
+
+                        result = await ws.ReceiveAsync(receiveBuffer.AsMemory(offset, receiveBuffer.Length - offset), ct);
+                        if (result.MessageType == WebSocketMessageType.Close) break;
+
+                        offset += result.Count;
                     }
                     while (!result.EndOfMessage && !ct.IsCancellationRequested);
 
-                    if (result != null && result.MessageType == WebSocketMessageType.Text)
+                    if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        string json = Encoding.UTF8.GetString(ms.ToArray());
-                        ParseTick(json);
+                        break;
+                    }
+
+                    if (offset > 0)
+                    {
+                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent(offset);
+                        Array.Copy(receiveBuffer, channelBuffer, offset);
+
+                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, offset)))
+                        {
+                            ArrayPool<byte>.Shared.Return(channelBuffer);
+                        }
                     }
                 }
+                
+                ArrayPool<byte>.Shared.Return(receiveBuffer);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 Console.WriteLine($"[TwelveData WS] Exception: {ex.Message}. Reconnecting in 5s...");
-                await Task.Delay(5000, ct);
+            }
+            finally
+            {
+                lock (_wsLock) { if (_activeWs == ws) _activeWs = null; }
+                try { ws?.Dispose(); } catch { }
+            }
+
+            if (!ct.IsCancellationRequested)
+            {
+                try { await Task.Delay(5000, ct); } catch { }
             }
         }
     }
 
-    private static void ParseTick(string json)
+    private static async Task BackgroundConsumerLoopAsync(CancellationToken token)
     {
         try
         {
-            using var doc = JsonDocument.Parse(json);
+            await foreach (var payload in _jsonChannel.Reader.ReadAllAsync(token))
+            {
+                try
+                {
+                    ParseTick(payload.Buffer.AsSpan(0, payload.Length));
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(payload.Buffer);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Ignored on shutdown
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TwelveData Consumer] Error: {ex.Message}");
+        }
+        finally
+        {
+            while (_jsonChannel.Reader.TryRead(out var leftover))
+            {
+                ArrayPool<byte>.Shared.Return(leftover.Buffer);
+            }
+        }
+    }
+
+    private static void ParseTick(ReadOnlySpan<byte> jsonData)
+    {
+        try
+        {
+            var readerOptions = new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip };
+            var reader = new Utf8JsonReader(jsonData, readerOptions);
+
+            using var doc = JsonDocument.ParseValue(ref reader);
             var root = doc.RootElement;
 
-            if (root.TryGetProperty("event", out var evProp) && evProp.GetString() == "price")
+            if (root.TryGetProperty("event", out var evProp) && evProp.ValueEquals("price"))
             {
                 if (root.TryGetProperty("symbol", out var symProp) && root.TryGetProperty("price", out var priceProp))
                 {
@@ -121,11 +370,11 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
                     if (price > 0 && !string.IsNullOrEmpty(symbol))
                     {
                         string cleanKey = NormalizeKey(symbol);
-                        var q = _realtimeTicks.GetOrAdd(cleanKey, _ => new ConcurrentQueue<double>());
-                        q.Enqueue(price);
-                        _lastTickTime[cleanKey] = DateTime.UtcNow;
-
-                        while (q.Count > 100) q.TryDequeue(out _);
+                        var buffer = _realtimeTicks.GetOrAdd(cleanKey, _ => new TickRingBuffer(100));
+                        buffer.AddTick(price);
+                        
+                        // Fire-and-forget broadcast to all connected frontend clients
+                        _ = BroadcastToClientsAsync(symbol, price);
                     }
                 }
             }
@@ -133,13 +382,66 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
         catch { /* skip malformed ticks */ }
     }
 
+    private static async Task BroadcastToClientsAsync(string symbol, double price)
+    {
+        if (_clients.TryGetValue(symbol, out var dict))
+        {
+            var deadClients = new List<string>();
+            foreach (var pair in dict)
+            {
+                var clientWs = pair.Value;
+                if (clientWs.State == WebSocketState.Open)
+                {
+                    try
+                    {
+                        await SendToClientAsync(clientWs, symbol, price);
+                    }
+                    catch
+                    {
+                        deadClients.Add(pair.Key);
+                    }
+                }
+                else
+                {
+                    deadClients.Add(pair.Key);
+                }
+            }
+
+            foreach (var id in deadClients)
+            {
+                if (dict.TryRemove(id, out var deadWs))
+                {
+                    _clientLocks.TryRemove(deadWs, out _);
+                }
+            }
+        }
+    }
+
+    private static async Task SendToClientAsync(WebSocket ws, string symbol, double price)
+    {
+        // Minimal json allocation for broadcasting
+        string json = $"{{\"symbol\":\"{symbol}\",\"price\":{price.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}";
+        byte[] bytes = Encoding.UTF8.GetBytes(json);
+        
+        var sem = _clientLocks.GetOrAdd(ws, _ => new SemaphoreSlim(1, 1));
+        await sem.WaitAsync();
+        try
+        {
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    private static readonly ConcurrentDictionary<string, string> _keyCache = new();
+
     private static string NormalizeKey(string asset)
     {
-        return asset.ToUpper()
-                    .Replace("OTC", "")
-                    .Replace("_OTC", "")
-                    .Replace(" ", "")
-                    .Replace("-", "")
-                    .Trim();
+        if (_keyCache.TryGetValue(asset, out var cached)) return cached;
+        var clean = asset.ToUpper().Replace("/", "").Replace("OTC", "").Replace("_OTC", "").Replace(" ", "").Replace("-", "").Trim();
+        _keyCache[asset] = clean;
+        return clean;
     }
 }

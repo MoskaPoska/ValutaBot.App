@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace ValutaBot.MiniApp;
 
 /// <summary>
@@ -18,10 +20,10 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
         bool isForex,
         (double[] prices, double[] volumes)? higherTfData)
     {
-        if (ohlcCandles == null || ohlcCandles.Length < 10)
+        if (ohlcCandles == null || ohlcCandles.Length < 10 || prices == null || prices.Length == 0)
         {
             return Task.FromResult(new TimeframeAnalysisResult(
-                "WAIT", 0.50, "STRUCTURAL_SMC", "Недостаточно свечей для SMC-анализа 5m+.", false
+                "WAIT", 0.50, "STRUCTURAL_SMC", "Недостаточно данных для SMC-анализа 5m+.", false
             ));
         }
 
@@ -33,7 +35,7 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
         if (higherTfData != null && higherTfData.Value.prices.Length >= 10)
         {
             string htfTf = MarketDataFetcher.HigherTf(timeframe) ?? "h1";
-            var higherOhlcKey = $"{asset}_{htfTf.ToLower()}";
+            var higherOhlcKey = $"{asset}_{htfTf.ToLower(CultureInfo.InvariantCulture)}";
             var higherOhlc = MarketDataFetcher.GetOhlcCandles(higherOhlcKey);
             if (higherOhlc != null && higherOhlc.Length >= 10)
             {
@@ -74,19 +76,19 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
         }
         else if (!mtfValidation.IsAlignedWithHtf)
         {
-            direction = "WAIT";
+            direction = "NEUTRAL";
             confidence = 0.50;
             reasoning = $"[Structural 5m] {mtfValidation.Description}";
         }
         else
         {
-            direction = "WAIT";
+            direction = "NEUTRAL";
             confidence = 0.55;
             reasoning = "[Structural 5m] Структура 5m консолидируется без чёткого Order Block.";
         }
 
         bool isActionable = confidence >= 0.75;
-        if (!isActionable && direction != "WAIT")
+        if (!isActionable && direction != "WAIT" && direction != "NEUTRAL")
         {
             reasoning += " (Уверенность структуры ниже 75%).";
         }

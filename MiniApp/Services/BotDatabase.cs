@@ -21,6 +21,10 @@ public static class BotDatabase
         using var conn = GetConnection();
         conn.Open();
 
+        // Enable WAL mode for concurrent multi-threaded writes without locking
+        conn.Execute("PRAGMA journal_mode=WAL;");
+        conn.Execute("PRAGMA synchronous=NORMAL;");
+
         // ─── 1. Create Tables ───
         conn.Execute(@"
             CREATE TABLE IF NOT EXISTS allowed_users (

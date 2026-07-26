@@ -48,16 +48,22 @@ public static class OnnxTransformerEngine
 
         // 2. High-Speed Symmetric Vectorized Neural Weights Activation Matrix
         double rawBuyScore = (tensorVector[0] < 0.35 ? 0.35 : 0.0) +
+                             (tensorVector[1] > 0.05 ? 0.15 : 0.0) + // EMA Trend
+                             (tensorVector[2] < -0.8 ? 0.20 : 0.0) + // BB ZScore Oversold
                              (tensorVector[3] > 0.2 ? 0.40 : 0.0) +
                              (tensorVector[4] > 0.1 ? 0.25 : 0.0) +
                              (tensorVector[5] >= 1.4 ? 0.30 : 0.0) +
-                             (tensorVector[6] > 0.55 && tensorVector[3] > 0 ? 0.20 : 0.0);
+                             (tensorVector[6] > 0.55 && tensorVector[3] > 0 ? 0.20 : 0.0) +
+                             (tensorVector[7] > 0.5 ? 0.15 : 0.0);   // Kalman Slope Up
 
         double rawPutScore = (tensorVector[0] > 0.65 ? 0.35 : 0.0) +
+                             (tensorVector[1] < -0.05 ? 0.15 : 0.0) + // EMA Trend
+                             (tensorVector[2] > 0.8 ? 0.20 : 0.0) +   // BB ZScore Overbought
                              (tensorVector[3] < -0.2 ? 0.40 : 0.0) +
                              (tensorVector[4] < -0.1 ? 0.25 : 0.0) +
                              (tensorVector[5] <= 0.7 && tensorVector[5] > 0 ? 0.30 : 0.0) +
-                             (tensorVector[6] > 0.55 && tensorVector[3] < 0 ? 0.20 : 0.0);
+                             (tensorVector[6] > 0.55 && tensorVector[3] < 0 ? 0.20 : 0.0) +
+                             (tensorVector[7] < -0.5 ? 0.15 : 0.0);   // Kalman Slope Down
 
         string direction;
         double confidence;

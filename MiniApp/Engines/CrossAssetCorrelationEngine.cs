@@ -47,14 +47,14 @@ public static class CrossAssetCorrelationEngine
         {
             double eurChange = (eurPrices[^1] - eurPrices[0]) / eurPrices[0];
             // EUR/USD is inverse to DXY (~80% negative correlation)
-            dxyScore = -Math.Sign(eurChange) * Math.Min(1.0, Math.Abs(eurChange) * 500.0);
+            dxyScore = -Math.Sign(eurChange) * Math.Min(1.0, Math.Abs(eurChange) * 5000.0);
         }
 
         // 2. Analyze Risk Asset Sentiment (S&P 500 / BTC Proxy)
         if (_intermarketPrices.TryGetValue("BTCUSDT", out var btcPrices) && btcPrices.Length >= 5)
         {
             double btcChange = (btcPrices[^1] - btcPrices[0]) / btcPrices[0];
-            riskScore = Math.Sign(btcChange) * Math.Min(1.0, Math.Abs(btcChange) * 200.0);
+            riskScore = Math.Sign(btcChange) * Math.Min(1.0, Math.Abs(btcChange) * 2000.0);
         }
 
         double scoreContribution = 0.0;

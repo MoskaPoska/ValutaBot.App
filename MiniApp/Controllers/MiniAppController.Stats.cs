@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using Microsoft.AspNetCore.Http;
 
@@ -8,6 +9,7 @@ public static partial class MiniAppController
 {
     public static IResult HandleGetStats(HttpContext context)
     {
+        ArgumentNullException.ThrowIfNull(context);
         context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
         var overall = SignalTracker.GetOverallStats();
         var allStats = SignalTracker.GetAllStats()
@@ -42,7 +44,7 @@ public static partial class MiniAppController
                 exit      = r.ExitPrice.HasValue ? Math.Round(r.ExitPrice.Value, 5) : (double?)null,
                 pnlBps    = r.PnlBps,
                 correct   = r.WasCorrect,
-                at        = r.CreatedAt.ToString("HH:mm:ss")
+                at        = r.CreatedAt.ToString("HH:mm:ss", CultureInfo.InvariantCulture)
             });
 
         return Results.Json(new
@@ -64,6 +66,7 @@ public static partial class MiniAppController
 
     public static IResult HandleGetSignalStats(HttpContext context)
     {
+        ArgumentNullException.ThrowIfNull(context);
         context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
         if (!IsRequestAuthorized(context, out string? authError))
             return Results.Json(new { error = authError }, statusCode: 401);

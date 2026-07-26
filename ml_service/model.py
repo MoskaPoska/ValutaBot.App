@@ -125,11 +125,11 @@ LGBM_PARAMS = {
     "max_depth": 6,
     "num_leaves": 31,
     "min_child_samples": 30,
-    "feature_fraction": 0.8,
-    "bagging_fraction": 0.8,
+    "feature_fraction": 0.7,
+    "bagging_fraction": 0.7,
     "bagging_freq": 5,
-    "lambda_l1": 0.1,
-    "lambda_l2": 0.1,
+    "lambda_l1": 0.5,
+    "lambda_l2": 1.0,
     "verbose": -1,
 }
 
@@ -247,13 +247,25 @@ class ForexPredictor:
             if feats.empty or len(feats) < 100:
                 return {"error": "Feature engineering yielded too few rows"}
 
-            # Build target: next candle close > current close  → 1
-            closes = np.array([c["close"] for c in candles])
-            target_raw = (closes[1:] > closes[:-1]).astype(int)
-            # Align features (features is shorter by ~50 due to rolling NaN drop)
+            # Build target: 3-candle horizon. Next 3 candles close > current close  → 1
+            closes = np.array([cl["close"] for cl in candles])
+            # To predict 3 candles ahead, we shift by 3.
+            # target_raw[i] = 1 if closes[i+3] > closes[i] else 0
+            # To keep arrays aligned, we pad the end with 0s (they will be ignored if we slice feats)
+            target_raw = np.zeros(len(closes), dtype=int)
+            target_raw[:-3] = (closes[3:] > closes[:-3]).astype(int)
+            
+            # Align features (features is shorter by ~25 due to rolling NaN drop)
             feat_indices = feats.index.values
-            # target index: for feature at position i in original, label = target_raw[i]
-            target_aligned = target_raw[feat_indices]
+            
+            # Since the last 3 rows do not have a valid future target (we padded with 0s),
+            # we must drop the last 3 rows from training data!
+            valid_mask = feat_indices < (len(closes) - 3)
+            feat_indices_valid = feat_indices[valid_mask]
+            
+            # Slice features and targets to valid rows only
+            feats = feats.loc[feat_indices_valid]
+            target_aligned = target_raw[feat_indices_valid]
 
             X = feats.values.astype(np.float32)
             y = target_aligned

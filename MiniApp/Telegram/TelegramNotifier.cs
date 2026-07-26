@@ -27,28 +27,4 @@ public static class TelegramNotifier
             BotLogger.Info("[TG Notifier] TelegramBotClient SDK initialized successfully.");
         }
     }
-
-    public static async Task SendMessage(long chatId, string text)
-    {
-        if (_botClient == null) return;
-
-        try
-        {
-            await _botClient.SendTextMessageAsync(
-                chatId: chatId,
-                text: text,
-                parseMode: ParseMode.Html
-            );
-        }
-        catch (Exception ex)
-        {
-            BotLogger.Error($"[TG Notifier] SendMessage SDK exception to chatId={chatId}: {ex.Message}", ex);
-        }
-    }
-
-    public static async Task SendAlert(long chatId, string title, string body, string color = "#b388ff")
-    {
-        string message = $"🚨 <b>{title}</b>\n\n{body}";
-        await SendMessage(chatId, message);
-    }
 }

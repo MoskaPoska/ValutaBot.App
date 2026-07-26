@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
@@ -7,16 +8,92 @@ using System.Threading.Channels;
 namespace ValutaBot.MiniApp;
 
 /// <summary>
-/// High-throughput Producer-Consumer WebSocket Client for Binance Tick Streams.
-/// Uses System.Threading.Channels to decouple network socket reading (Producer)
-/// from JSON parsing and SMC/OrderFlow processing (Consumer).
+/// A zero-allocation (on the hot path) Ring Buffer for storing candlestick data.
+/// Avoids O(N) array cloning on every WebSocket tick.
 /// </summary>
+public class CandleSeriesBuffer
+{
+    private readonly double[] _prices;
+    private readonly double[] _volumes;
+    private int _head = 0;
+    private int _count = 0;
+    private readonly int _capacity;
+    private readonly object _lock = new();
+
+    public long LastCandleTime { get; private set; }
+    public DateTime UpdatedAt { get; private set; }
+
+    public CandleSeriesBuffer(int capacity = 100)
+    {
+        _capacity = capacity;
+        _prices = new double[capacity];
+        _volumes = new double[capacity];
+    }
+
+    public void Update(double price, double volume, long candleTime)
+    {
+        lock (_lock)
+        {
+            if (LastCandleTime == candleTime && _count > 0)
+            {
+                // Update latest tick (same candle)
+                int idx = (_head - 1 + _capacity) % _capacity;
+                _prices[idx] = price;
+                _volumes[idx] = volume;
+            }
+            else
+            {
+                // Push new candle
+                _prices[_head] = price;
+                _volumes[_head] = volume;
+                _head = (_head + 1) % _capacity;
+                if (_count < _capacity) _count++;
+            }
+            LastCandleTime = candleTime;
+            UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public (double[] prices, double[] volumes) GetOrderedSnapshot()
+    {
+        lock (_lock)
+        {
+            if (_count == 0) return (Array.Empty<double>(), Array.Empty<double>());
+
+            double[] outPrices = new double[_count];
+            double[] outVolumes = new double[_count];
+
+            int startIdx = (_head - _count + _capacity) % _capacity;
+            for (int i = 0; i < _count; i++)
+            {
+                int srcIdx = (startIdx + i) % _capacity;
+                outPrices[i] = _prices[srcIdx];
+                outVolumes[i] = _volumes[srcIdx];
+            }
+            return (outPrices, outVolumes);
+        }
+    }
+}
+
 public static class BinanceWebSocketStream
 {
-    private static readonly ConcurrentDictionary<string, (double[] prices, double[] volumes, DateTime updatedAt)> _liveCandles = new();
-    
-    // High-performance Bounded Channel for Producer-Consumer decoupling
-    private static readonly Channel<string> _jsonChannel = Channel.CreateBounded<string>(new BoundedChannelOptions(2000)
+    private static readonly ConcurrentDictionary<string, CandleSeriesBuffer> _liveCandles = new();
+
+    public record OrderbookDepthSnapshot(
+        double TotalBidVolume,
+        double TotalAskVolume,
+        double ImbalanceRatio, // Range -1.0 to +1.0
+        DateTime UpdatedAt
+    );
+
+    private static readonly ConcurrentDictionary<string, OrderbookDepthSnapshot> _liveOrderbooks = new();
+
+    // Payload consists of rented ArrayPool array and the valid length.
+    private record struct SocketPayload(byte[] Buffer, int Length);
+
+    private static Channel<SocketPayload> _jsonChannel = CreateChannel();
+
+    private static Channel<SocketPayload> CreateChannel() => Channel.CreateBounded<SocketPayload>(new BoundedChannelOptions(2000)
     {
         SingleWriter = true,
         SingleReader = true,
@@ -29,26 +106,19 @@ public static class BinanceWebSocketStream
     public static bool TryGetLiveCandles(string symbol, string interval, out double[] prices, out double[] volumes)
     {
         string key = $"{symbol.ToUpper()}_{interval.ToLower()}";
-        if (_liveCandles.TryGetValue(key, out var data) && (DateTime.UtcNow - data.updatedAt).TotalSeconds < 5)
+        if (_liveCandles.TryGetValue(key, out var buffer))
         {
-            prices = data.prices;
-            volumes = data.volumes;
-            return true;
+            if ((DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 5)
+            {
+                (prices, volumes) = buffer.GetOrderedSnapshot();
+                return true;
+            }
         }
 
         prices = Array.Empty<double>();
         volumes = Array.Empty<double>();
         return false;
     }
-
-    public record OrderbookDepthSnapshot(
-        double TotalBidVolume,
-        double TotalAskVolume,
-        double ImbalanceRatio, // Range -1.0 to +1.0
-        DateTime UpdatedAt
-    );
-
-    private static readonly ConcurrentDictionary<string, OrderbookDepthSnapshot> _liveOrderbooks = new();
 
     public static bool TryGetLiveOrderbookImbalance(string symbol, out OrderbookDepthSnapshot? snapshot)
     {
@@ -71,33 +141,32 @@ public static class BinanceWebSocketStream
         var streams = new List<string>();
         foreach (var s in symbols)
         {
-            streams.Add($"{s.ToLower()}@kline_{interval}");
-            streams.Add($"{s.ToLower()}@depth20@100ms");
+            string cleanSym = s.ToLower().Replace("/", "").Replace("-", "");
+            streams.Add($"{cleanSym}@kline_{interval}");
+            streams.Add($"{cleanSym}@depth20@100ms");
         }
         string streamNames = string.Join("/", streams);
-        string wsUrl = $"wss://stream.binance.com:9443/ws/{streamNames}";
+        string wsUrl = $"wss://stream.binance.com:9443/stream?streams={streamNames}";
 
-        // 1. Launch Consumer Background Loop (Processes Channel Queue)
+        _jsonChannel = CreateChannel();
+
         _ = Task.Run(() => BackgroundConsumerLoopAsync(interval, _cts.Token));
-
-        // 2. Launch Producer Network Socket Loop (Reads Network & Writes to Channel)
         _ = Task.Run(() => ProducerNetworkLoopAsync(wsUrl, _cts.Token));
     }
 
-    public static void Stop()
+    public static void StopStream()
     {
+        if (!_isRunning) return;
         _cts?.Cancel();
+        _jsonChannel.Writer.TryComplete();
         _isRunning = false;
         BotLogger.Info("[WebSocket Producer] WebSocket stream stopped and disconnected.");
     }
+    
+    public static void Stop() => StopStream(); // Forward to StopStream for backwards compatibility
 
-    /// <summary>
-    /// Producer: Reads raw socket frames from WebSocket network thread and pushes immediately to Channel.
-    /// Zero JSON parsing or processing on the network thread.
-    /// </summary>
     private static async Task ProducerNetworkLoopAsync(string url, CancellationToken token)
     {
-        byte[] buffer = new byte[8192];
         int reconnectAttempts = 0;
 
         while (!token.IsCancellationRequested)
@@ -106,40 +175,53 @@ public static class BinanceWebSocketStream
             try
             {
                 client = new ClientWebSocket();
-                client.Options.SetRequestHeader("User-Agent", "ValutaBot/1.0");
+                client.Options.SetRequestHeader("User-Agent", "ValutaBot/2.0-ZeroAlloc");
+                client.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
 
                 BotLogger.Info($"[WebSocket Producer] Connecting to Binance real-time stream: {url}");
                 await client.ConnectAsync(new Uri(url), token);
                 reconnectAttempts = 0;
                 BotLogger.Info("[WebSocket Producer] Connected successfully to Binance WebSocket stream!");
 
+                byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(65536);
+
                 while (client.State == WebSocketState.Open && !token.IsCancellationRequested)
                 {
-                    using var ms = new MemoryStream();
-                    WebSocketReceiveResult? result = null;
+                    ValueWebSocketReceiveResult result = default;
+                    int offset = 0;
 
                     try
                     {
                         do
                         {
-                            result = await client.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-                            ms.Write(buffer, 0, result.Count);
+                            if (offset >= receiveBuffer.Length)
+                            {
+                                var newBuffer = ArrayPool<byte>.Shared.Rent(receiveBuffer.Length * 2);
+                                Array.Copy(receiveBuffer, newBuffer, offset);
+                                ArrayPool<byte>.Shared.Return(receiveBuffer);
+                                receiveBuffer = newBuffer;
+                            }
+                            
+                            result = await client.ReceiveAsync(receiveBuffer.AsMemory(offset, receiveBuffer.Length - offset), token);
+                            if (result.MessageType == WebSocketMessageType.Close) break;
+
+                            offset += result.Count;
                         }
                         while (!result.EndOfMessage && !token.IsCancellationRequested);
                     }
                     catch (WebSocketException wsEx)
                     {
-                        BotLogger.Warn($"[WebSocket Producer] Network frame receive error: {wsEx.Message}. Socket will reconnect.");
+                        BotLogger.Warn($"[WebSocket Producer] Network frame receive error: {wsEx.Message}. Reconnecting.");
                         break;
                     }
 
-                    if (token.IsCancellationRequested || client.State == WebSocketState.Aborted || client.State == WebSocketState.Closed)
+                    if (token.IsCancellationRequested || client.State != WebSocketState.Open)
                     {
                         BotLogger.Warn($"[WebSocket Producer] Socket state changed to {client.State}. Reconnecting...");
                         break;
                     }
 
-                    if (result != null && result.MessageType == WebSocketMessageType.Close)
+                    if (result.MessageType == WebSocketMessageType.Close)
                     {
                         BotLogger.Warn("[WebSocket Producer] Received close frame from Binance. Reconnecting...");
                         try
@@ -150,12 +232,20 @@ public static class BinanceWebSocketStream
                         break;
                     }
 
-                    ms.Seek(0, SeekOrigin.Begin);
-                    string json = Encoding.UTF8.GetString(ms.ToArray());
+                    if (offset > 0)
+                    {
+                        // Copy to a precisely sized rented array for the channel
+                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent(offset);
+                        Array.Copy(receiveBuffer, channelBuffer, offset);
 
-                    // Fast non-blocking push to Channel queue
-                    _jsonChannel.Writer.TryWrite(json);
+                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, offset)))
+                        {
+                            ArrayPool<byte>.Shared.Return(channelBuffer); // Return if drop occurs
+                        }
+                    }
                 }
+                
+                ArrayPool<byte>.Shared.Return(receiveBuffer);
             }
             catch (WebSocketException wsEx)
             {
@@ -169,11 +259,7 @@ public static class BinanceWebSocketStream
             }
             finally
             {
-                try
-                {
-                    client?.Dispose();
-                }
-                catch { /* Ensure clean disposal */ }
+                try { client?.Dispose(); } catch { }
             }
 
             if (!token.IsCancellationRequested)
@@ -185,19 +271,23 @@ public static class BinanceWebSocketStream
         }
     }
 
-    /// <summary>
-    /// Consumer: Background worker processing JSON frames from Channel queue.
-    /// Updates live price/volume state and feeds SMC & OrderFlow processing.
-    /// </summary>
     private static async Task BackgroundConsumerLoopAsync(string interval, CancellationToken token)
     {
-        BotLogger.Info("[WebSocket Consumer] Started background processing loop for Channel queue.");
+        BotLogger.Info("[WebSocket Consumer] Started background zero-allocation processing loop.");
 
         try
         {
-            await foreach (string jsonMessage in _jsonChannel.Reader.ReadAllAsync(token))
+            await foreach (var payload in _jsonChannel.Reader.ReadAllAsync(token))
             {
-                ProcessKlineMessage(jsonMessage, interval);
+                try
+                {
+                    // Zero allocation raw byte parse
+                    ProcessKlineMessage(payload.Buffer.AsSpan(0, payload.Length), interval);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(payload.Buffer);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -208,13 +298,24 @@ public static class BinanceWebSocketStream
         {
             BotLogger.Error("[WebSocket Consumer] Error processing frame in consumer loop", ex);
         }
+        finally
+        {
+            while (_jsonChannel.Reader.TryRead(out var leftover))
+            {
+                ArrayPool<byte>.Shared.Return(leftover.Buffer);
+            }
+        }
     }
 
-    private static void ProcessKlineMessage(string jsonMessage, string interval)
+    private static void ProcessKlineMessage(ReadOnlySpan<byte> jsonData, string interval)
     {
         try
         {
-            using var doc = JsonDocument.Parse(jsonMessage);
+            // Parses JSON directly from raw UTF-8 bytes. Skips String allocation entirely.
+            var readerOptions = new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip };
+            var reader = new Utf8JsonReader(jsonData, readerOptions);
+
+            using var doc = JsonDocument.ParseValue(ref reader);
             var root = doc.RootElement;
 
             if (root.TryGetProperty("data", out var dataProp))
@@ -222,14 +323,13 @@ public static class BinanceWebSocketStream
                 root = dataProp;
             }
 
-            // Real-Time Orderbook Depth Stream (@depth20@100ms)
             if (root.TryGetProperty("bids", out var bidsProp) && root.TryGetProperty("asks", out var asksProp))
             {
                 string symbol = root.TryGetProperty("s", out var sProp) ? (sProp.GetString() ?? "") : "";
                 if (string.IsNullOrEmpty(symbol) && doc.RootElement.TryGetProperty("stream", out var streamProp))
                 {
                     string streamStr = streamProp.GetString() ?? "";
-                    if (streamStr.Contains("@"))
+                    if (streamStr.Contains('@'))
                     {
                         symbol = streamStr.Split('@')[0].ToUpper();
                     }
@@ -240,13 +340,13 @@ public static class BinanceWebSocketStream
 
                 foreach (var bid in bidsProp.EnumerateArray())
                 {
-                    if (double.TryParse(bid[1].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double qty))
+                    if (bid.GetArrayLength() >= 2 && double.TryParse(bid[1].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double qty))
                         totalBidVol += qty;
                 }
 
                 foreach (var ask in asksProp.EnumerateArray())
                 {
-                    if (double.TryParse(ask[1].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double qty))
+                    if (ask.GetArrayLength() >= 2 && double.TryParse(ask[1].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double qty))
                         totalAskVol += qty;
                 }
 
@@ -268,36 +368,33 @@ public static class BinanceWebSocketStream
             if (root.TryGetProperty("s", out var symbolProp) && root.TryGetProperty("k", out var klineProp))
             {
                 string symbol = symbolProp.GetString() ?? "";
-                double closePrice = double.Parse(klineProp.GetProperty("c").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
-                double volume = double.Parse(klineProp.GetProperty("v").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+                
+                if (!klineProp.TryGetProperty("c", out var cProp) || !klineProp.TryGetProperty("v", out var vProp))
+                    return;
+
+                string? cStr = cProp.GetString();
+                string? vStr = vProp.GetString();
+
+                if (string.IsNullOrEmpty(cStr) || string.IsNullOrEmpty(vStr))
+                    return;
+
+                if (!double.TryParse(cStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double closePrice) ||
+                    !double.TryParse(vStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double volume))
+                    return;
+
+                long klineStartTime = klineProp.TryGetProperty("t", out var tProp) ? tProp.GetInt64() : 0;
 
                 string key = $"{symbol.ToUpper()}_{interval.ToLower()}";
 
                 ForexMarketProxyEngine.RecordTapeTrade(symbol, closePrice, volume, volume > 0);
 
-                _liveCandles.AddOrUpdate(
-                    key,
-                    (new[] { closePrice }, new[] { volume }, DateTime.UtcNow),
-                    (k, existing) =>
-                    {
-                        var newPrices = existing.prices.Concat(new[] { closePrice }).TakeLast(100).ToArray();
-                        var newVolumes = existing.volumes.Concat(new[] { volume }).TakeLast(100).ToArray();
-                        return (newPrices, newVolumes, DateTime.UtcNow);
-                    }
-                );
+                var buffer = _liveCandles.GetOrAdd(key, _ => new CandleSeriesBuffer(100));
+                buffer.Update(closePrice, volume, klineStartTime);
             }
         }
         catch (Exception ex)
         {
-            BotLogger.Warn("[WebSocket Consumer] Error parsing kline JSON frame", ex);
+            BotLogger.Warn("[WebSocket Consumer] Error parsing zero-allocation JSON frame", ex);
         }
-    }
-
-    public static void StopStream()
-    {
-        _cts?.Cancel();
-        _jsonChannel.Writer.TryComplete();
-        _isRunning = false;
-        BotLogger.Info("[WebSocket] Stream and Channel consumer stopped.");
     }
 }

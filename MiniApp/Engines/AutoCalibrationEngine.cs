@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 
 namespace ValutaBot.MiniApp;
 
@@ -21,21 +22,21 @@ public static class AutoCalibrationEngine
         public int Wins { get; set; }
         public int Losses { get; set; }
         public int Total => Wins + Losses;
-        public double WinRate => Total > 0 ? (double)Wins / Total : 0.65;
+        public double WinRate => Total > 0 ? (double)Wins / Total : 0.50;
     }
 
     private static readonly ConcurrentDictionary<string, SourceStats> _statsMap = new();
 
     public static MarketRegime DetectMarketRegime(double adx, double volRatio, double rsi)
     {
+        if (adx >= 25.0 && volRatio <= 2.0)
+        {
+            return MarketRegime.TrendingImpulse;
+        }
+
         if (volRatio > 1.75 || Math.Abs(rsi - 50.0) > 28.0)
         {
             return MarketRegime.HighVolatilityChaos;
-        }
-
-        if (adx >= 24.0)
-        {
-            return MarketRegime.TrendingImpulse;
         }
 
         return MarketRegime.RangingFlat;
@@ -50,10 +51,14 @@ public static class AutoCalibrationEngine
         double rsi,
         double defaultBaseWeight = 1.0)
     {
+        ArgumentNullException.ThrowIfNull(sourceName);
+        ArgumentNullException.ThrowIfNull(asset);
+        ArgumentNullException.ThrowIfNull(timeframe);
+
         var regime = DetectMarketRegime(adx, volRatio, rsi);
 
         // ─── 1. Apply Market Regime Preset Base Weight ───
-        double regimeBaseWeight = (regime, sourceName.ToUpper()) switch
+        double regimeBaseWeight = (regime, sourceName.ToUpper(CultureInfo.InvariantCulture)) switch
         {
             // TRENDING IMPULSE: SMC & OrderFlow dominate
             (MarketRegime.TrendingImpulse, "SMC") => 2.20,
@@ -80,14 +85,14 @@ public static class AutoCalibrationEngine
         };
 
         // ─── 2. Apply Rolling Empirical Win Rate Multiplier ───
-        string key = $"{sourceName.ToUpper()}_{asset.ToUpper()}_{timeframe.ToLower()}";
+        string key = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_{asset.ToUpper(CultureInfo.InvariantCulture)}_{timeframe.ToLower(CultureInfo.InvariantCulture)}";
         if (!_statsMap.TryGetValue(key, out var stats) || stats.Total < 5)
         {
-            string fallbackKey = $"{sourceName.ToUpper()}_GLOBAL";
+            string fallbackKey = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_GLOBAL";
             _statsMap.TryGetValue(fallbackKey, out stats);
         }
 
-        double winRate = stats != null && stats.Total >= 5 ? stats.WinRate : 0.65;
+        double winRate = stats != null && stats.Total >= 5 ? stats.WinRate : 0.50;
         double winRateMultiplier = winRate switch
         {
             >= 0.80 => 1.6,
@@ -104,8 +109,12 @@ public static class AutoCalibrationEngine
 
     public static void RecordSourceOutcome(string sourceName, string asset, string timeframe, bool isWin)
     {
-        string specificKey = $"{sourceName.ToUpper()}_{asset.ToUpper()}_{timeframe.ToLower()}";
-        string globalKey = $"{sourceName.ToUpper()}_GLOBAL";
+        ArgumentNullException.ThrowIfNull(sourceName);
+        ArgumentNullException.ThrowIfNull(asset);
+        ArgumentNullException.ThrowIfNull(timeframe);
+
+        string specificKey = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_{asset.ToUpper(CultureInfo.InvariantCulture)}_{timeframe.ToLower(CultureInfo.InvariantCulture)}";
+        string globalKey = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_GLOBAL";
 
         UpdateStats(_statsMap.GetOrAdd(specificKey, _ => new SourceStats()), isWin);
         UpdateStats(_statsMap.GetOrAdd(globalKey, _ => new SourceStats()), isWin);
@@ -120,8 +129,8 @@ public static class AutoCalibrationEngine
 
             if (stats.Total > 50)
             {
-                stats.Wins = (int)(stats.Wins * 0.9);
-                stats.Losses = (int)(stats.Losses * 0.9);
+                stats.Wins = (int)Math.Round(stats.Wins * 0.9);
+                stats.Losses = (int)Math.Round(stats.Losses * 0.9);
             }
         }
     }

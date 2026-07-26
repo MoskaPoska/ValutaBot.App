@@ -7,13 +7,14 @@ public static partial class MiniAppController
 {
     /* ─── Multi-TF conflict penalty ─── */
 
+
     private static double MfConflictPenalty((double score, double conf, double rsi, double ema, double vol, double atr) main,
                                              (double score, double conf, double rsi, double ema, double vol, double atr) higher)
     {
-        int mainDir = main.score >= 0 ? 1 : -1;
-        int higherDir = higher.score >= 0 ? 1 : -1;
-        if (mainDir != higherDir)
-            return 0.7; // 30% penalty
+        int mainDir = main.score > 0.05 ? 1 : main.score < -0.05 ? -1 : 0;
+        int higherDir = higher.score > 0.05 ? 1 : higher.score < -0.05 ? -1 : 0;
+        if (mainDir != 0 && higherDir != 0 && mainDir != higherDir)
+            return 0.7; // 30% penalty for active opposing trends
         return 1.0;
     }
 
@@ -81,20 +82,7 @@ public static partial class MiniAppController
             }
 
             var ohlcCandles = MarketDataFetcher.GetOhlcCandles($"{clean}_{mainInterval}");
-            if (ohlcCandles == null || ohlcCandles.Length < 10)
-            {
-                var syntheticList = new List<OhlcCandle>();
-                for (int i = 1; i < mainPrices.Length; i++)
-                {
-                    double open = mainPrices[i - 1];
-                    double close = mainPrices[i];
-                    double high = Math.Max(open, close);
-                    double low = Math.Min(open, close);
-                    double vol = (mainVolumes != null && i < mainVolumes.Length) ? mainVolumes[i] : 1.0;
-                    syntheticList.Add(new OhlcCandle(open, high, low, close, vol));
-                }
-                ohlcCandles = syntheticList.ToArray();
-            }
+            
             var gatekeeper = TechnicalAnalysisEngine.ValidateMarketGatekeeper(mainPrices, ohlcCandles);
             if (!gatekeeper.IsTradeable)
             {
@@ -110,7 +98,7 @@ public static partial class MiniAppController
             {
                 BinanceWebSocketStream.TryGetLiveOrderbookImbalance(symbol, out liveDepth);
             }
-            var orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(mainPrices, mainVolumes, ohlcCandles, liveDepth);
+            var orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(mainPrices, mainVolumes ?? Array.Empty<double>(), ohlcCandles, liveDepth);
             BotLogger.Info($"[Order Flow] Asset {asset} ({timeframe}): {orderFlowResult.Description}");
 
             var forexTape = ForexMarketProxyEngine.AnalyzeForexTape(asset);
@@ -153,15 +141,18 @@ public static partial class MiniAppController
             double totalConfidence = 0;
             double totalWeight = 0;
 
-            var (mlDirection, mlConfidence, _) = MLForecastService.PredictNextCandles(mainPrices, isForex);
-            if (mlDirection != "NEUTRAL")
+            var newsResult = NewsAnalysisService.Analyze(asset);
+            bool isNewsActive = newsResult.sentiment == "High Impact Volatility" || Math.Abs(newsResult.score) > 1.5;
+
+            // ─── Walk-Forward Out-of-Sample Anti-Overfitting Check ───
+            var wfResult = WalkForwardValidationEngine.ValidateWalkForward(asset, timeframe, mainPrices, isNewsActive);
+            if (wfResult.IsOverfitted || wfResult.IsCooloffActive)
             {
-                double mlSign = mlDirection == "BUY" ? 1.0 : -1.0;
-                double mlWeight = SignalTracker.GetSignalWeight("ML прогноз", 1.0);
-                totalScore += mlSign * (mlConfidence / 100.0) * mlWeight;
-                totalConfidence += mlConfidence * mlWeight;
-                totalWeight += mlWeight;
+                BotLogger.Warn($"[Anti-Overfitting] {asset} ({timeframe}): {wfResult.StatusReasoning} ML weight multiplier set to {wfResult.WeightMultiplier}x.");
             }
+
+            var (mlDirection, mlConfidence, _) = MLForecastService.PredictNextCandles(mainPrices, isForex);
+            // ML is evaluated in ConsensusEngine, not here.
 
             string lgbmDirection = "NEUTRAL";
             double lgbmConfidence = 0.5;
@@ -182,13 +173,7 @@ public static partial class MiniAppController
                         lgbmConfidence = lgbmResult.Confidence;
                         lgbmModelVersion = lgbmResult.ModelVersion;
                         lgbmAccuracy = lgbmResult.Accuracy;
-
-                        double lgbmSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
-                        double baseLgbmWeight = lgbmConfidence >= 0.65 ? 2.8 : 1.5;
-                        double lgbmWeight = SignalTracker.GetSignalWeight("LightGBM", baseLgbmWeight);
-                        totalScore += lgbmSign * (lgbmConfidence * 2.0) * lgbmWeight;
-                        totalConfidence += lgbmConfidence * 100.0 * lgbmWeight;
-                        totalWeight += lgbmWeight;
+                        // LightGBM is evaluated in ConsensusEngine, not here.
                     }
                 }
                 catch (Exception ex)
@@ -197,15 +182,6 @@ public static partial class MiniAppController
                 }
             }
 
-            var newsResult = NewsAnalysisService.Analyze(asset);
-            bool isNewsActive = newsResult.sentiment == "High Impact Volatility" || Math.Abs(newsResult.score) > 1.5;
-
-            // ─── Walk-Forward Out-of-Sample Anti-Overfitting Check ───
-            var wfResult = WalkForwardValidationEngine.ValidateWalkForward(asset, timeframe, mainPrices, isNewsActive);
-            if (wfResult.IsOverfitted || wfResult.IsCooloffActive)
-            {
-                BotLogger.Warn($"[Anti-Overfitting] {asset} ({timeframe}): {wfResult.StatusReasoning} ML weight multiplier set to {wfResult.WeightMultiplier}x.");
-            }
 
             if (Math.Abs(newsResult.score) > 0.1)
             {
@@ -216,8 +192,12 @@ public static partial class MiniAppController
                 totalWeight += newsWeight;
             }
 
-            string imbalanceKey = symbol != null && symbol.EndsWith("USDT") ? symbol.Replace("USDT", "/USDT") : "";
-            double imbalance = MarketDataService.GetBookImbalance(imbalanceKey);
+            string binanceSymbol = symbol != null && symbol.EndsWith("USDT") ? symbol : "";
+            double imbalance = 0;
+            if (!string.IsNullOrEmpty(binanceSymbol) && BinanceWebSocketStream.TryGetLiveOrderbookImbalance(binanceSymbol, out var snapshot) && snapshot != null)
+            {
+                imbalance = snapshot.ImbalanceRatio;
+            }
 
             var (mainAdx, mainPdi, mainMdi) = mainOhlc != null ? TechnicalAnalysisEngine.ComputeTrueAdx(mainOhlc) : (20.0, 0.0, 0.0);
             double mainAtr = mainOhlc != null ? TechnicalAnalysisEngine.ComputeAtr(mainOhlc) : 0;
@@ -240,7 +220,7 @@ public static partial class MiniAppController
 
                 var (hAdx, hPdi, hMdi) = higherOhlc != null ? TechnicalAnalysisEngine.ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
                 double hAtr = higherOhlc != null ? TechnicalAnalysisEngine.ComputeAtr(higherOhlc) : 0;
-                higherResult = TechnicalAnalysisEngine.ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes, candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: isForex);
+                higherResult = TechnicalAnalysisEngine.ScoreTimeframe(higherResultData.Value.prices, higherResultData.Value.volumes ?? Array.Empty<double>(), candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: isForex);
                 conflictPenalty *= MfConflictPenalty(mainResult, higherResult);
 
                 totalScore += higherResult.score * conflictPenalty;
@@ -261,30 +241,35 @@ public static partial class MiniAppController
 
             // ─── 1. Continuous Latent State Engine (Instant Velocity & Acceleration Vector) ───
             var continuousState = ContinuousStateEngine.EvaluateContinuousState(mainPrices);
-            totalScore += continuousState.MomentumContribution;
+            double stateWeight = SignalTracker.GetSignalWeight("VelocityState", 1.5);
+            totalScore += continuousState.MomentumContribution * stateWeight;
+            totalConfidence += 60.0 * stateWeight;
+            totalWeight += stateWeight;
             BotLogger.Info($"[Continuous State] Asset {asset}: State={continuousState.VelocityRegime} | Velocity={continuousState.VelocityBpsPerSec} bps/s");
 
             // ─── 2. Intermarket Vector Network (DXY & Risk Sentiment Cross-Asset Confluence) ───
             var intermarketResult = CrossAssetCorrelationEngine.EvaluateIntermarketConfluence(asset, isForex);
-            totalScore += intermarketResult.ScoreContribution;
+            double intermarketWeight = SignalTracker.GetSignalWeight("Intermarket", 1.0);
+            totalScore += intermarketResult.ScoreContribution * intermarketWeight;
+            totalConfidence += 60.0 * intermarketWeight;
+            totalWeight += intermarketWeight;
             BotLogger.Info($"[Intermarket Graph] Asset {asset}: Confluence Mult={intermarketResult.ScoreContribution:+0.00;-0.00;+0.00} | {intermarketResult.StateDescription}");
 
             // ─── 3. In-Process C# ONNX & Tensor Vector Neural Inference (<0.01ms) ───
             double kalmanSlope = Math.Abs(mainPrices[^1] - mainPrices[0]) / mainPrices.Length;
-            double hurstH = CalculateHurstExponent(mainPrices);
+            double hurstH = MathIndicatorsLibrary.CalculateHurstExponent(mainPrices);
             var onnxResult = OnnxTransformerEngine.PredictTensor(mainPrices, mainResult.rsiVal, mainResult.emaVal, bbZscore, continuousState.VelocityBpsPerSec, continuousState.AccelerationBpsPerSec2, orderFlowResult.DeltaRatio, hurstH, kalmanSlope);
+
+            string onnxDirection = "NEUTRAL";
+            double onnxConfidence = 0.5;
+            string onnxModelVersion = "";
 
             if (onnxResult.Direction != "NEUTRAL")
             {
-                lgbmDirection = onnxResult.Direction;
-                lgbmConfidence = onnxResult.Confidence;
-                lgbmModelVersion = onnxResult.ModelName;
-
-                double onnxSign = lgbmDirection == "BUY" ? 1.0 : -1.0;
-                double onnxWeight = SignalTracker.GetSignalWeight("ONNX_Tensor", 2.2);
-                totalScore += onnxSign * (lgbmConfidence * 1.5) * onnxWeight;
-                totalConfidence += lgbmConfidence * 100.0 * onnxWeight;
-                totalWeight += onnxWeight;
+                onnxDirection = onnxResult.Direction;
+                onnxConfidence = onnxResult.Confidence;
+                onnxModelVersion = onnxResult.ModelName;
+                // ONNX is evaluated in ConsensusEngine, not here.
             }
             var ohlcForClaude = ohlcCandles != null && ohlcCandles.Length > 30 ? ohlcCandles[^30..] : ohlcCandles;
             var detectedPatterns = ohlcCandles != null ? PatternDetector.DetectPatterns(ohlcCandles) : new List<string>();
@@ -296,50 +281,77 @@ public static partial class MiniAppController
             string cacheKey = $"claude_signal_{asset}_{timeframe}";
             (string direction, double probability, string reasoning, string modelName) claudeResult;
 
-            if (_cache.TryGetValue(cacheKey, out object? cached) && cached is ValueTuple<string, double, string, string> cachedTuple)
+            string fallbackDir = totalScore > 0.05 ? "BUY" : totalScore < -0.05 ? "PUT" : "NEUTRAL";
+            string fallbackReasoning = "Рынок находится во флэте или индикаторы противоречат друг другу. Рекомендуется воздержаться от сделок.";
+            
+            if (totalScore > 0.6) 
             {
-                claudeResult = cachedTuple;
+                fallbackReasoning = "Сильный бычий тренд. Ключевые индикаторы (RSI, MACD, Объемы) подтверждают рост. Идеальные условия для входа.";
             }
-            else
+            else if (totalScore > 0.2)
             {
-                // Provide instant zero-delay HFT fallback reasoning for immediate signal generation (<0.1ms)
-                claudeResult = ("BUY", 75.0, $"SMC + OrderFlow + Native ML In-Process Consensus", "HFT-Native-Engine");
+                fallbackReasoning = "Умеренный бычий тренд. Паттерны указывают на вероятный рост, учитывайте ближайшие уровни сопротивления.";
+            }
+            else if (totalScore < -0.6)
+            {
+                fallbackReasoning = "Сильный медвежий тренд. Ожидается падение. Высокое давление продавцов, рекомендуется вход на понижение.";
+            }
+            else if (totalScore < -0.2)
+            {
+                fallbackReasoning = "Умеренный медвежий тренд. Индикаторы указывают на снижение, следите за уровнями поддержки.";
+            }
 
-                // Asynchronously trigger DeepSeek/Claude LLM in background without blocking signal execution
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        var asyncResult = await ClaudeSignalService.AnalyzeSignal(
-                            asset, mainPrices, mainVolumes,
-                            mainResult.rsiVal, mainResult.emaVal, macdLine, macdSig,
-                            mainAdx, bbZscore, mainResult.volStrengthVal, imbalance,
-                            null, ohlcForClaude, detectedPatterns, supports, resistances,
-                            timeframe, candleSecondsRemaining, timeframeSec, mainAtr, mainPdi, mainMdi);
-                        _cache.Set(cacheKey, asyncResult, TimeSpan.FromSeconds(10));
-                        BotLogger.Info($"[Asynchronous LLM] Background DeepSeek reasoning ready for {asset} ({timeframe}) in cache.");
-                    }
-                    catch (Exception llmEx)
-                    {
-                        BotLogger.Warn($"[Asynchronous LLM] Background LLM notice: {llmEx.Message}");
-                    }
-                });
-            }
+            claudeResult = (fallbackDir, 50.0, fallbackReasoning, "Математический Анализ");
+
 
             // ─── Strategy Pattern Router ───
             ITimeframeAnalyzer timeframeAnalyzer = GetAnalyzer(timeframe);
             var coreResult = await timeframeAnalyzer.AnalyzeAsync(asset, timeframe, mainPrices, mainVolumes, ohlcCandles, mainAdx, mainAtr, isForex, higherResultData);
+
+            if (coreResult.Direction != "NEUTRAL" && coreResult.Direction != "WAIT" && !string.IsNullOrEmpty(coreResult.Direction))
+            {
+                double coreSign = coreResult.Direction == "BUY" ? 1.0 : -1.0;
+                double coreWeight = 2.0;
+                totalScore += coreSign * coreResult.Confidence * coreWeight;
+                totalConfidence += coreResult.Confidence * 100.0 * coreWeight;
+                totalWeight += coreWeight;
+            }
+
+            // Normalization: Dilution Bug Fix. 
+            // All modules must be normalized by total weight before being clamped or passed to Consensus.
+            if (totalWeight > 0)
+            {
+                totalScore /= totalWeight;
+                totalConfidence /= totalWeight;
+            }
 
             int scoreSign = totalScore > 0.02 ? 1 : totalScore < -0.02 ? -1 : 0;
             bool isSubMinute = timeframe.ToLower().StartsWith("s");
 
             var matrixResult = await ConfluenceMatrixEngine.Evaluate4DMatrixAsync(asset, timeframe, isForex, symbol);
 
+            // ─── Incorporate SMC Structurally BEFORE Consensus (Fixing Live/Backtest Divergence) ───
+            int smcScore = 0;
+            if (smcResult.SweepDirection == "BULLISH_SWEEP") smcScore += 2;
+            else if (smcResult.SweepDirection == "BEARISH_SWEEP") smcScore -= 2;
+            if (smcResult.BosDirection == "BULLISH_BOS") smcScore += 2;
+            else if (smcResult.BosDirection == "BEARISH_BOS") smcScore -= 2;
+            if (smcResult.OrderBlockType == "BULLISH_OB") smcScore += 1;
+            else if (smcResult.OrderBlockType == "BEARISH_OB") smcScore -= 1;
+            if (smcResult.FvgType == "BULLISH_FVG") smcScore += 1;
+            else if (smcResult.FvgType == "BEARISH_FVG") smcScore -= 1;
+            string smcDir = smcScore > 0 ? "BUY" : smcScore < 0 ? "PUT" : "NEUTRAL";
+            
+            totalScore += (smcScore * 0.25);
+            // Re-evaluate score sign after SMC
+            scoreSign = totalScore > 0.02 ? 1 : totalScore < -0.02 ? -1 : 0;
+
             var consensus = ConsensusEngine.EvaluateConsensus(
                 totalScore, scoreSign,
                 claudeResult.direction, (int)claudeResult.probability, claudeResult.reasoning,
                 lgbmDirection, lgbmConfidence, lgbmAccuracy,
                 mlDirection, mlConfidence,
+                onnxDirection, onnxConfidence,
                 mainResult.rsiVal, mainResult.emaVal,
                 isSubMinute,
                 asset,
@@ -348,17 +360,37 @@ public static partial class MiniAppController
                 mainResult.volStrengthVal,
                 smcResult.SummaryReasoning,
                 orderFlowResult.Description,
-                claudeResult.modelName
+                claudeResult.modelName,
+                wfResult.WeightMultiplier
             );
 
-            string finalDirection = (coreResult.Direction != "WAIT" && coreResult.Direction != "NEUTRAL" && !string.IsNullOrEmpty(coreResult.Direction))
-                ? coreResult.Direction 
-                : (consensus.FinalDirection != "NEUTRAL" ? consensus.FinalDirection : (totalScore > 0 ? "BUY" : totalScore < 0 ? "PUT" : (mainResult.rsiVal < 50 ? "BUY" : "PUT")));
-
-            int finalProbability = Math.Max(75, Math.Max(consensus.Probability, (int)(coreResult.Confidence * 100)));
-            if (matrixResult.ProbabilityBoost > 0)
+            string finalDirection = consensus.FinalDirection;
+            
+            if (coreResult.Direction == "WAIT")
             {
-                finalProbability = Math.Clamp(finalProbability + matrixResult.ProbabilityBoost, 75, 95);
+                // CRITICAL OVERRIDE: The timeframe analyzer detected a severe trap (e.g. HFT spoofing).
+                // We MUST halt the trade completely and suppress all other neural signals.
+                finalDirection = "NEUTRAL";
+            }
+            else if (coreResult.Direction != "NEUTRAL" && !string.IsNullOrEmpty(coreResult.Direction))
+            {
+                if (consensus.FinalDirection == "NEUTRAL")
+                {
+                    finalDirection = coreResult.Direction;
+                }
+            }
+            
+            int blendedConfidence = totalWeight > 0 ? (int)totalConfidence : 50;
+            int finalProbability = Math.Max(consensus.Probability, Math.Max(blendedConfidence, (int)(coreResult.Confidence * 100)));
+            
+            // Ensure NO trading happens if NEUTRAL
+            if (finalDirection == "NEUTRAL")
+            {
+                finalProbability = 50;
+            }
+            else if (matrixResult.ProbabilityBoost > 0)
+            {
+                finalProbability = Math.Clamp(finalProbability + matrixResult.ProbabilityBoost, 55, 95);
             }
 
             if (finalProbability >= 70)
@@ -380,6 +412,8 @@ public static partial class MiniAppController
                 1000
             );
 
+            string orderFlowDir = orderFlowResult.ScoreContribution > 0 ? "BUY" : orderFlowResult.ScoreContribution < 0 ? "PUT" : "NEUTRAL";
+
             SignalTracker.RecordPrediction(
                 finalDirection, asset, timeframe, mainPrices[^1],
                 expiryCandles: Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
@@ -389,8 +423,12 @@ public static partial class MiniAppController
                 sourceDirections: new Dictionary<string, string>
                 {
                     ["LIGHTGBM"] = lgbmDirection,
-                    ["SKENDER_MATH"] = consensus.CandidateDirection,
-                    ["CLAUDE_AI"] = claudeResult.direction
+                    ["SKENDER_MATH"] = scoreSign > 0 ? "BUY" : scoreSign < 0 ? "PUT" : "NEUTRAL",
+                    ["CLAUDE_AI"] = claudeResult.direction,
+                    ["SMC"] = smcDir,
+                    ["ORDERFLOW"] = orderFlowDir,
+                    ["ONNX"] = onnxDirection,
+                    ["NATIVE_ML"] = mlDirection
                 }
             );
 
@@ -469,3 +507,4 @@ public static partial class MiniAppController
         };
     }
 }
+

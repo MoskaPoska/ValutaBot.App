@@ -22,23 +22,32 @@ public static class AdaptiveExpiryEngine
         bool isSubMinute)
     {
         string tfLower = timeframe.ToLower().Trim();
-        int totalSeconds = tfLower switch
+        int baseSeconds = tfLower switch
         {
-            "s3" => 3,
-            "s5" => 5,
-            "s10" => 10,
-            "s15" => 15,
-            "s30" => 30,
-            "m1" or "1m" => 60,
-            "m2" or "2m" => 120,
-            "m3" or "3m" => 180,
-            "m5" or "5m" => 300,
-            "m15" or "15m" => 900,
-            "m30" or "30m" => 1800,
-            "h1" or "1h" => 3600,
-            "h4" or "4h" => 14400,
-            _ => 60
+            "s3" => 3, "s5" => 5, "s10" => 10, "s15" => 15, "s30" => 30,
+            "m1" or "1m" => 60, "m2" or "2m" => 120, "m3" or "3m" => 180,
+            "m5" or "5m" => 300, "m15" or "15m" => 900, "m30" or "30m" => 1800,
+            "h1" or "1h" => 3600, "h4" or "4h" => 14400, _ => 60
         };
+
+        // Dynamic adjustment based on ATR / Volatility
+        double multiplier = 1.0;
+        string dynamicReason = "Стандартная волатильность.";
+
+        if (volRatio > 1.5)
+        {
+            multiplier = 2.0;
+            dynamicReason = "Рынок турбулентный (VolRatio > 1.5) — удвоенная экспирация.";
+        }
+        else if (smc != null && (smc.HasOrderBlock || smc.HasFvg))
+        {
+            multiplier = 1.5;
+            dynamicReason = "Цена в зоне SMC (Ордерблок/FVG) — увеличено время на отработку.";
+        }
+
+        int totalSeconds = (int)(baseSeconds * multiplier);
+        if (totalSeconds < 5) totalSeconds = 5;
+        if (totalSeconds > 14400) totalSeconds = 14400;
 
         string expiryText = totalSeconds switch
         {
@@ -54,7 +63,7 @@ public static class AdaptiveExpiryEngine
             _ => $"{totalSeconds / 60} мин"
         };
 
-        string reasoning = $"Экспирация {expiryText} под выбранный таймфрейм {timeframe.ToUpper()}.";
+        string reasoning = $"Экспирация {expiryText} под таймфрейм {timeframe.ToUpper()}. {dynamicReason}";
         return new OptimalExpiryResult(totalSeconds, expiryText, reasoning);
     }
 }

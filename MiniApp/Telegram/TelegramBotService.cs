@@ -11,6 +11,10 @@ namespace ValutaBot.MiniApp;
 
 public partial class TelegramBotService : BackgroundService
 {
+    private static string _baseUrl = "https://api.telegram.org";
+    internal static string GetBaseUrl() => _baseUrl;
+    internal static void SetBaseUrl(string url) => _baseUrl = url?.TrimEnd('/') ?? _baseUrl;
+
     private static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),

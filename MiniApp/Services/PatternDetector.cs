@@ -138,8 +138,8 @@ public static class PatternDetector
         double currBody = Math.Abs(curr.Close - curr.Open);
         bool prevBullish = prev.Close > prev.Open;
         bool currBullish = curr.Close > curr.Open;
-        bullish = currBullish && !prevBullish && currBody > prevBody * 1.1;
-        bool bearish = !currBullish && prevBullish && currBody > prevBody * 1.1;
+        bullish = currBullish && !prevBullish && currBody > prevBody * 1.1 && curr.Close > prev.Open && curr.Open < prev.Close;
+        bool bearish = !currBullish && prevBullish && currBody > prevBody * 1.1 && curr.Close < prev.Open && curr.Open > prev.Close;
         return bullish || bearish;
     }
 

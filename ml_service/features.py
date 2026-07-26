@@ -86,6 +86,38 @@ def _hurst_approx(close: np.ndarray, lag_max: int = 16) -> np.ndarray:
     return result
 
 
+def _order_flow_features(o: np.ndarray, h: np.ndarray, lo: np.ndarray, c: np.ndarray, v: np.ndarray, vol_ma: np.ndarray) -> tuple:
+    candle_range = (h - lo) + 1e-10
+    buy_ratio = (c - lo) / candle_range
+    sell_ratio = (h - c) / candle_range
+    
+    buy_vol = v * buy_ratio
+    sell_vol = v * sell_ratio
+    
+    delta_ratio = buy_vol / (sell_vol + 1e-10)
+    
+    # Block trade anomaly: 1 if volume > 1.7x MA, else 0
+    block_trade = (v > (vol_ma * 1.7)).astype(float)
+    
+    return buy_vol, sell_vol, delta_ratio, block_trade
+
+
+def _fvg_features(h: np.ndarray, lo: np.ndarray) -> tuple:
+    """Fair Value Gaps: Returns arrays for Bullish and Bearish FVG sizes."""
+    fvg_bullish = np.zeros(len(h))
+    fvg_bearish = np.zeros(len(h))
+    
+    for i in range(2, len(h)):
+        # Bullish FVG: Low of current candle > High of i-2 candle
+        if lo[i] > h[i-2]:
+            fvg_bullish[i] = lo[i] - h[i-2]
+        # Bearish FVG: High of current candle < Low of i-2 candle
+        elif h[i] < lo[i-2]:
+            fvg_bearish[i] = lo[i-2] - h[i]
+            
+    return fvg_bullish, fvg_bearish
+
+
 def build_features(candles: List[Dict]) -> pd.DataFrame:
     """
     Build feature matrix from list of OHLCV candle dicts.
@@ -142,10 +174,26 @@ def build_features(candles: List[Dict]) -> pd.DataFrame:
     feats['lower_wick']    = (np.minimum(o, c) - lo) / candle_range
     feats['candle_dir']    = np.sign(c - o)
 
-    # ── Volume ──
+    # ── Volume & Order Flow & SMC ──
     vol_ma = _volume_ma(v, 20)
     feats['vol_ratio']     = v / (vol_ma + 1e-10)
     feats['vol_ma']        = vol_ma / (vol_ma.mean() + 1e-10)
+    
+    buy_vol, sell_vol, delta_ratio, block_trade = _order_flow_features(o, h, lo, c, v, vol_ma)
+    feats['of_buy_vol_norm'] = buy_vol / (vol_ma + 1e-10)
+    feats['of_sell_vol_norm'] = sell_vol / (vol_ma + 1e-10)
+    feats['of_delta_ratio'] = np.clip(delta_ratio, 0.0, 5.0)  # clip to avoid extreme outliers
+    feats['of_block_trade'] = block_trade
+    
+    # Rolling Delta Ratio
+    rolling_buy = pd.Series(buy_vol).rolling(5).sum().values
+    rolling_sell = pd.Series(sell_vol).rolling(5).sum().values
+    feats['of_rolling_delta_5'] = np.clip(rolling_buy / (rolling_sell + 1e-10), 0.0, 5.0)
+    
+    # Fair Value Gaps
+    fvg_bull, fvg_bear = _fvg_features(h, lo)
+    feats['smc_fvg_bullish'] = fvg_bull / (c + 1e-10)
+    feats['smc_fvg_bearish'] = fvg_bear / (c + 1e-10)
 
     # ── High/Low channel position ──
     high20 = pd.Series(h).rolling(20).max().values

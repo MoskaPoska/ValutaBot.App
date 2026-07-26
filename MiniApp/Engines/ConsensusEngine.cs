@@ -26,6 +26,8 @@ public static class ConsensusEngine
         double? lgbmAccuracy,
         string mlDirection,
         double mlConfidence,
+        string onnxDirection,
+        double onnxConfidence,
         double rsiVal,
         double emaVal,
         bool isSubMinute,
@@ -35,41 +37,52 @@ public static class ConsensusEngine
         double volRatioVal = 1.0,
         string smcReasoning = "",
         string orderFlowReasoning = "",
-        string aiModelName = "ИИ Анализ")
+        string aiModelName = "ИИ Анализ",
+        double wfWeightMultiplier = 1.0)
     {
         // ─── 1. Market-Regime Aware Auto-Calibrated Weights ───
         double weightLgbm = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.8);
         double weightMath = AutoCalibrationEngine.GetCalibratedRegimeWeight("SKENDER_MATH", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.2);
 
-        // ─── 2. Dynamic RSI Extreme Weight Shift (Meta-Labeling & Suppression) ───
-        bool isExtremeRsi = rsiVal >= 70.0 || rsiVal <= 30.0;
-        if (isExtremeRsi)
-        {
-            weightMath *= 2.5;
-            weightLgbm *= 0.4;
-            BotLogger.Info($"[Consensus] Extreme RSI ({rsiVal:F1}) detected. Boosting Skender Math weight ({weightMath:F1}x) and suppressing ML weight ({weightLgbm:F1}x).");
-        }
+        // ─── 2. Removed Extreme RSI multiplier to prevent counter-trend shorting ───
+        // (Deleted the weightMath *= 2.5 block)
 
         // ─── 3. HFT Soft Voting Vector Calculation (0% LLM Weight in Decision Pipeline) ───
         double scoreLgbm = lgbmDirection == "BUY" ? lgbmConfidence : lgbmDirection == "PUT" ? -lgbmConfidence : 0;
-        double scoreMath = Math.Clamp(totalScore, -1.0, 1.0);
+        double scoreMl = mlDirection == "BUY" ? (mlConfidence / 100.0) : mlDirection == "PUT" ? -(mlConfidence / 100.0) : 0;
+        double scoreOnnx = onnxDirection == "BUY" ? onnxConfidence : onnxDirection == "PUT" ? -onnxConfidence : 0;
+        double scoreMath = Math.Clamp(totalScore, -2.5, 2.5);
 
-        double totalWeightSum = weightLgbm + weightMath;
-        double weightedScore = (scoreLgbm * weightLgbm + scoreMath * weightMath) / totalWeightSum;
+        double weightMl = 1.0;
+        double weightOnnx = 2.2;
+        
+        // Only include weights for models that actually provided a directional opinion.
+        // Apply Walk-Forward Anti-Overfitting Multiplier to ML engines
+        double activeWeightLgbm = (lgbmDirection == "BUY" || lgbmDirection == "PUT") ? weightLgbm * wfWeightMultiplier : 0;
+        double activeWeightMl = (mlDirection == "BUY" || mlDirection == "PUT") ? weightMl * wfWeightMultiplier : 0;
+        
+        double activeWeightOnnx = (onnxDirection == "BUY" || onnxDirection == "PUT") ? weightOnnx : 0;
+        // Math is always active since it produces a continuous score
+        double activeWeightMath = weightMath; 
+        
+        double totalWeightSum = activeWeightLgbm + activeWeightMl + activeWeightOnnx + activeWeightMath;
+        if (totalWeightSum < 1e-9) totalWeightSum = 1.0;
+        
+        double weightedScore = (scoreLgbm * activeWeightLgbm + scoreMl * activeWeightMl + scoreOnnx * activeWeightOnnx + scoreMath * activeWeightMath) / totalWeightSum;
 
-        string candidateDir = weightedScore > 0.0001 ? "BUY" : weightedScore < -0.0001 ? "PUT" : (totalScore > 0 ? "BUY" : totalScore < 0 ? "PUT" : (rsiVal < 50 ? "BUY" : "PUT"));
+        string candidateDir = weightedScore > 0.0001 ? "BUY" : weightedScore < -0.0001 ? "PUT" : (totalScore > 0.02 ? "BUY" : totalScore < -0.02 ? "PUT" : "NEUTRAL");
 
         double absWeightedScore = Math.Abs(weightedScore);
         int probability = isSubMinute
-            ? Math.Clamp(75 + (int)Math.Round(absWeightedScore * 18), 75, 91)
-            : Math.Clamp(76 + (int)Math.Round(absWeightedScore * 18), 75, 95);
+            ? Math.Clamp(50 + (int)Math.Round(absWeightedScore * 40), 50, 91)
+            : Math.Clamp(50 + (int)Math.Round(absWeightedScore * 45), 50, 95);
 
         string finalDirection = candidateDir;
 
         // ─── 5. Format 4 Pillars of Analysis Breakdown ───
         string modelAccText = lgbmAccuracy.HasValue 
             ? $" [обученность: {Math.Round(lgbmAccuracy.Value * 100, 1)}%]" 
-            : " [обученность: 68.5%]";
+            : "";
 
         string smcText = !string.IsNullOrEmpty(smcReasoning)
             ? $"• 🏛️ SMC Структура: {smcReasoning}"

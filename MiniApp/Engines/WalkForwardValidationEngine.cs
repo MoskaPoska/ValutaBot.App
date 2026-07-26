@@ -87,7 +87,7 @@ public static class WalkForwardValidationEngine
         {
             double diff = prices[i + 1] - prices[i];
             double prevDiff = prices[i] - prices[i - 1];
-            if (Math.Sign(diff) == Math.Sign(prevDiff)) inSampleWins++;
+            if (diff != 0 && Math.Sign(diff) == Math.Sign(prevDiff)) inSampleWins++;
             inSampleTotal++;
         }
 
@@ -98,7 +98,7 @@ public static class WalkForwardValidationEngine
         {
             double diff = prices[i + 1] - prices[i];
             double prevDiff = prices[i] - prices[i - 1];
-            if (Math.Sign(diff) == Math.Sign(prevDiff)) outSampleWins++;
+            if (diff != 0 && Math.Sign(diff) == Math.Sign(prevDiff)) outSampleWins++;
             outSampleTotal++;
         }
 
@@ -144,6 +144,7 @@ public static class WalkForwardValidationEngine
                 if (state.ConsecutiveLosses >= 3)
                 {
                     state.CooloffUntil = DateTime.UtcNow.AddMinutes(15);
+                    state.ConsecutiveLosses = 0; // Reset after triggering cooloff
                     BotLogger.Warn($"[Drawdown Protection] 3 consecutive losses detected for {key}. Triggering 15-minute cooloff until {state.CooloffUntil:HH:mm:ss}");
                 }
             }

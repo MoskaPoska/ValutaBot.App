@@ -30,7 +30,7 @@ public static class MonteCarloEngine
         if (currentPrice <= 0) currentPrice = 1.0;
         if (atr <= 0) atr = currentPrice * 0.0005; // Fallback volatility 0.05%
         
-        double prob = Math.Clamp(winProbability, 0.50, 0.95);
+        double prob = Math.Clamp(winProbability, 0.35, 0.95);
         bool isBuy = direction.Equals("BUY", StringComparison.OrdinalIgnoreCase);
 
         // Normalize volatility per second
@@ -40,7 +40,7 @@ public static class MonteCarloEngine
 
         // Directional drift based on probability
         double driftSign = isBuy ? 1.0 : -1.0;
-        double directionalDrift = (prob - 0.5) * 2.0 * totalVol;
+        double directionalDrift = driftSign * (prob - 0.5) * 2.0 * totalVol;
 
         int successCount = 0;
         var rand = Random.Shared;
@@ -80,16 +80,18 @@ public static class MonteCarloEngine
 
         double fullKelly = (p * b - q) / b;
         // Fractional Kelly (Half-Kelly to Fractional 25% for conservative capital preservation)
-        double fractionalKelly = Math.Clamp(fullKelly * 0.25, 0.01, 0.05);
+        double fractionalKelly = Math.Clamp(fullKelly * 0.25, 0.0, 0.05);
         double kellyRiskPct = Math.Round(fractionalKelly * 100.0, 1);
 
         string evLabel = evPct > 0 
             ? $"+{evPct:F1}% EV (Высокая выгода)" 
             : $"{evPct:F1}% EV (Низкое матожидание)";
 
-        string kellyLabel = $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% от депозита";
+        string kellyLabel = kellyRiskPct > 0 
+            ? $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% от депозита"
+            : "0% (Не рекомендуется открывать сделку)";
 
-        string summary = $"🎰 Монте-Карло (1000 прогонов ATR): {successCount}/{iterations} успехов | EV: {(evPct > 0 ? "+" : "")}{evPct:F1}% | Риск Келли: {kellyRiskPct:F1}%";
+        string summary = $"🎰 Монте-Карло ({iterations} прогонов ATR): {successCount}/{iterations} успехов | EV: {(evPct > 0 ? "+" : "")}{evPct:F1}% | Риск Келли: {kellyRiskPct:F1}%";
 
         return new MonteCarloResult(
             iterations,
