@@ -105,8 +105,7 @@ public static class TradeOutcomeTracker
             }
 
             // 3. Auto-Trading functionality has been removed.
-            // DailyRiskCircuitBreaker now only needs to track global PnL if needed, or can be removed entirely later.
-
+            
             // 4. Continuous Online RL for Python LightGBM ML Service
             _ = Task.Run(async () =>
             {

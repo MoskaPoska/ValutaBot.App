@@ -353,7 +353,6 @@ public static class BinanceWebSocketStream
                     if (!string.IsNullOrEmpty(symbol) && closePrice > 0)
                     {
                         string key = $"{ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol)}_{interval.ToLower()}";
-                        ForexMarketProxyEngine.RecordTapeTrade(symbol, closePrice, volume, volume > 0);
 
                         var buffer = _liveCandles.GetOrAdd(key, CreateBuffer);
                         buffer.Update(closePrice, volume, klineStartTime);

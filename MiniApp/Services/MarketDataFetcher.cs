@@ -46,14 +46,6 @@ public class MarketDataFetcher : IMarketDataFetcher
             double high = Math.Max(open, close) + volatility;
             double low = Math.Min(open, close) - volatility;
             ohlc[i] = new MiniAppController.OhlcCandle(open, high, low, close, 1.0);
-            
-            if (interval.StartsWith("s") && i >= prices.Length - 2)
-            {
-                long candleTimeMs = currentTimeMs - ((prices.Length - 1 - i) * intervalSec * 1000);
-                candleTimeMs = (candleTimeMs / (intervalSec * 1000)) * (intervalSec * 1000); // Align to boundary
-                
-                _ = Data.LocalTickDatabase.SaveCandleAsync(asset, interval, candleTimeMs, open, high, low, close, 1.0);
-            }
         }
         _cache.Set($"ohlc_{asset}_{interval}", ohlc, TimeSpan.FromMinutes(10));
     }
