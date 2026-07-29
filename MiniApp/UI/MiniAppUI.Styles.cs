@@ -5,51 +5,64 @@ public static partial class MiniAppUI
     public static string GetCssStyles()
     {
         return @"
-        @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Inter:wght@400;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=Unbounded:wght@600;700;800;900&display=swap');
         :root {
-            --bg: #07051a;
-            --panel: rgba(12, 10, 35, 0.88);
-            --panel-border: rgba(124, 77, 255, 0.18);
-            --accent: #7c4dff;
-            --accent-glow: rgba(124, 77, 255, 0.35);
-            --magenta: #b388ff;
-            --cyan: #00e5ff;
-            --gold: #ffd700;
-            --green: #00e676;
-            --red: #ff1744;
-            --text: #ffffff;
-            --subtext: #a89fd4;
-            --dim: #5a5290;
-            --radius: 12px;
-            --btn-h: 46px;
-            --glass-bg: rgba(255, 255, 255, 0.03);
+            --bg: #03010c;
+            --panel: rgba(10, 8, 24, 0.65);
+            --panel-border: rgba(162, 114, 255, 0.22);
+            --accent: #8b5cf6;
+            --accent-glow: rgba(139, 92, 246, 0.5);
+            --magenta: #d946ef;
+            --cyan: #06b6d4;
+            --gold: #f59e0b;
+            --green: #10b981;
+            --red: #ef4444;
+            --text: #f8fafc;
+            --subtext: #94a3b8;
+            --dim: #475569;
+            --radius: 16px;
+            --btn-h: 52px;
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-blur: blur(24px);
         }
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body {
-            background: radial-gradient(ellipse at 50% -30%, #2d1060 0%, #0c0925 35%, #060412 70%, #03020a 100%);
+            background: #03010c;
             color: var(--text);
             padding: 12px;
             padding-bottom: 24px;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             user-select: none;
-            font-size: 14px;
-            line-height: 1.4;
+            font-size: 14.5px;
+            line-height: 1.45;
             min-height: 100vh;
             overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
-        /* ─── Animated background particles ─── */
+        /* ─── Animated Premium Mesh Background ─── */
         body::before {
             content: '';
             position: fixed;
             inset: 0;
             background:
-                radial-gradient(ellipse at 15% 60%, rgba(124,77,255,0.07) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 20%, rgba(0,229,255,0.04) 0%, transparent 40%),
-                radial-gradient(ellipse at 50% 80%, rgba(179,136,255,0.05) 0%, transparent 40%);
+                radial-gradient(ellipse at 15% 30%, rgba(139, 92, 246, 0.15) 0%, transparent 45%),
+                radial-gradient(ellipse at 85% 20%, rgba(6, 182, 212, 0.12) 0%, transparent 40%),
+                radial-gradient(ellipse at 50% 90%, rgba(217, 70, 239, 0.1) 0%, transparent 50%);
+            filter: blur(40px);
             pointer-events: none;
             z-index: 0;
+            animation: meshPulse 12s ease-in-out infinite alternate;
         }
+
+        @keyframes meshPulse {
+            0% { transform: scale(1) translate(0, 0); opacity: 0.8; }
+            50% { transform: scale(1.05) translate(2%, -2%); opacity: 1; }
+            100% { transform: scale(1) translate(-2%, 2%); opacity: 0.8; }
+        }
+
+        /* ─── Animated background particles ─── */
 
         .particle-field {
             position: fixed;
@@ -96,11 +109,14 @@ public static partial class MiniAppUI
             justify-content: space-between;
             align-items: center;
             margin: 0 0 16px;
-            background: linear-gradient(135deg, rgba(124,77,255,0.1) 0%, rgba(0,229,255,0.03) 70%, transparent 100%);
-            border-radius: 18px;
-            padding: 8px 14px;
-            border: 1px solid rgba(124,77,255,0.12);
-            transition: all 0.4s ease;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: var(--radius);
+            padding: 16px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
         }
@@ -109,19 +125,20 @@ public static partial class MiniAppUI
             position: absolute;
             top: 0; left: 0; right: 0;
             height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(179,136,255,0.3), transparent);
+            background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
         }
-        .welcome-section.compact { margin-bottom: 0; opacity: 0.5; }
+        .welcome-section.compact { margin-bottom: 0; opacity: 0.7; transform: scale(0.98); }
         .welcome-title {
             font-family: 'Unbounded', sans-serif;
-            font-size: 15px;
+            font-size: 16px;
             font-weight: 800;
-            line-height: 1.3;
+            line-height: 1.35;
             max-width: 60%;
-            background: linear-gradient(135deg, #e0d0ff 0%, #b388ff 30%, #7c4dff 60%, #00e5ff 100%);
+            background: linear-gradient(135deg, #f8fafc 0%, #cbd5e1 30%, #a272ff 60%, #06b6d4 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
         }
 
         /* ─── 3D Magic Ball + Rings + Pedestal ─── */
@@ -394,24 +411,23 @@ public static partial class MiniAppUI
         /* ─── Top Categories ─── */
         .top-categories {
             display: flex;
-            background: linear-gradient(135deg, rgba(124,77,255,0.04), rgba(0,229,255,0.02));
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(124,77,255,0.12);
-            border-radius: 16px;
-            padding: 6px;
-            margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.02);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius);
+            padding: 8px;
+            margin-bottom: 24px;
             position: relative;
             box-shadow:
-                0 0 0 1px rgba(124,77,255,0.06),
-                inset 0 1px 0 rgba(255,255,255,0.03),
-                0 4px 20px rgba(0,0,0,0.3);
+                inset 0 1px 1px rgba(255,255,255,0.06),
+                0 8px 32px rgba(0,0,0,0.25);
         }
         .top-categories .cat-divider {
             width: 1px;
             align-self: stretch;
             margin: 8px 0;
-            background: linear-gradient(180deg, transparent, rgba(124,77,255,0.35), rgba(0,229,255,0.18), rgba(124,77,255,0.35), transparent);
+            background: linear-gradient(180deg, transparent, rgba(255,255,255,0.1), rgba(255,255,255,0.1), transparent);
             flex-shrink: 0;
         }
         .top-cat-btn {
@@ -420,21 +436,22 @@ public static partial class MiniAppUI
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 10px 0 8px;
+            padding: 12px 0 10px;
             border-radius: 12px;
             cursor: pointer;
             color: var(--dim);
-            transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
         }
         .top-cat-btn::before {
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, var(--accent), #00bcd4);
+            background: linear-gradient(135deg, var(--accent), #06b6d4);
             opacity: 0;
-            transition: opacity 0.35s;
+            transition: opacity 0.4s ease;
             border-radius: 12px;
+            box-shadow: inset 0 1px 1px rgba(255,255,255,0.3);
         }
         .top-cat-btn.active::before { opacity: 1; }
         .top-cat-btn.active::after {
@@ -442,29 +459,28 @@ public static partial class MiniAppUI
             position: absolute;
             inset: -1px;
             border-radius: 13px;
-            border: 1px solid rgba(124,77,255,0.3);
+            border: 1px solid rgba(255,255,255,0.15);
         }
-        .top-cat-btn svg { width: 22px; height: 22px; opacity: 0.5; transition: 0.35s; position: relative; z-index: 1; }
-        .top-cat-btn .label { font-size: 10px; font-weight: 700; margin-top: 5px; letter-spacing: 0.3px; position: relative; z-index: 1; }
-        .top-cat-btn.active { color: #fff; box-shadow: 0 4px 20px var(--accent-glow); }
-        .top-cat-btn.active svg { opacity: 1; filter: drop-shadow(0 0 6px rgba(255,255,255,0.3)); }
+        .top-cat-btn svg { width: 24px; height: 24px; opacity: 0.6; transition: 0.4s; position: relative; z-index: 1; margin-bottom: 2px; }
+        .top-cat-btn .label { font-size: 11px; font-weight: 700; margin-top: 4px; letter-spacing: 0.3px; position: relative; z-index: 1; }
+        .top-cat-btn.active { color: #fff; box-shadow: 0 8px 24px var(--accent-glow); transform: translateY(-2px); }
+        .top-cat-btn.active svg { opacity: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
         .top-cat-btn.active svg path, .top-cat-btn.active svg circle { stroke: #fff; }
 
         /* ─── Selector Section ─── */
         .selector-section {
-            background: linear-gradient(135deg, rgba(124,77,255,0.04), transparent 70%);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(124,77,255,0.12);
-            border-radius: 16px;
-            padding: 12px 14px;
-            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 12px;
             position: relative;
             z-index: 50;
             box-shadow:
-                0 0 0 1px rgba(124,77,255,0.06),
-                0 8px 48px rgba(124,77,255,0.06),
-                inset 0 1px 0 rgba(255,255,255,0.04);
+                0 8px 32px rgba(0,0,0,0.25),
+                inset 0 1px 1px rgba(255,255,255,0.06);
         }
         .sel-grid {
             display: grid;
@@ -550,25 +566,28 @@ public static partial class MiniAppUI
         .btn-analyze {
             width: 100%;
             height: var(--btn-h);
-            background: linear-gradient(135deg, #7c4dff 0%, #b388ff 30%, #00e5ff 100%);
+            background: linear-gradient(135deg, #a272ff 0%, #7c4dff 50%, #06b6d4 100%);
             background-size: 200% 200%;
-            border: none;
+            border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
             border-radius: var(--radius);
             font-weight: 800;
-            font-size: 14px;
-            letter-spacing: 2px;
+            font-size: 15px;
+            letter-spacing: 1.5px;
             text-transform: uppercase;
             cursor: pointer;
-            margin-top: 10px;
-            transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-            box-shadow: 0 4px 12px rgba(124, 77, 255, 0.2);
+            margin-top: 14px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 8px 24px rgba(124, 77, 255, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.4);
             position: relative;
             z-index: 1;
             overflow: hidden;
             animation: btnShimmer 4s ease-in-out infinite;
         }
-
+        .btn-analyze:hover {
+            box-shadow: 0 12px 32px rgba(124, 77, 255, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.5);
+            transform: translateY(-2px);
+        }
 
         @keyframes btnShimmer {
             0% { background-position: 0% 50%; }
@@ -579,31 +598,31 @@ public static partial class MiniAppUI
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.12) 60%, transparent 80%);
+            background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.3) 50%, transparent 60%);
             transition: transform 0.6s;
             transform: translateX(-100%);
         }
         .btn-analyze:hover::after { transform: translateX(100%); }
-        .btn-analyze:active { transform: scale(0.96); }
-        .btn-analyze:disabled { opacity: 0.5; transform: none; box-shadow: none; animation: none; }
+        .btn-analyze:active { transform: scale(0.96) translateY(0); box-shadow: 0 4px 12px rgba(124, 77, 255, 0.3); }
+        .btn-analyze:disabled { opacity: 0.6; transform: none; box-shadow: none; animation: none; cursor: not-allowed; }
 
         /* ─── Results ─── */
-        .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+        .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
         .res-card {
-            background: linear-gradient(135deg, rgba(124,77,255,0.04), transparent);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--panel-border);
-            border-radius: 14px;
-            padding: 10px 4px 8px;
+            background: rgba(255, 255, 255, 0.02);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius);
+            padding: 14px 8px 10px;
             text-align: center;
-            min-height: 95px;
+            min-height: 105px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 4px 24px rgba(124, 77, 255, 0.04), inset 0 1px 0 rgba(255,255,255,0.04);
-            transition: border-color 0.3s;
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06), 0 4px 16px rgba(0, 0, 0, 0.15);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
         }
@@ -612,11 +631,11 @@ public static partial class MiniAppUI
             position: absolute;
             top: 0; left: 20%; right: 20%;
             height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(124,77,255,0.15), transparent);
+            background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
         }
-        .res-card:hover { border-color: rgba(124,77,255,0.2); }
-        .res-label { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; margin-bottom: 2px; }
-        .res-value { font-size: 15px; font-weight: 800; font-family: 'Unbounded', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin: 2px 0; }
+        .res-card:hover { border-color: rgba(255, 255, 255, 0.15); transform: translateY(-2px); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.25); }
+        .res-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 4px; }
+        .res-value { font-size: 16px; font-weight: 800; font-family: 'Unbounded', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin: 4px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
         .res-chart { margin-top: auto; width: 100%; height: 22px; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
         .res-chart-bar {
             width: 4px;

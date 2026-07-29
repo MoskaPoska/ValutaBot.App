@@ -10,28 +10,61 @@ namespace ValutaBot.MiniApp;
 /// <summary>
 /// Service for fetching historical candle data with caching, fallback, and sub-minute interpolation.
 /// </summary>
-public static class MarketDataFetcher
+public class MarketDataFetcher : IMarketDataFetcher
 {
+    public static IMarketDataFetcher Instance { get; set; } = new MarketDataFetcher();
     private static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
         EnableMultipleHttp2Connections = true
     }) { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
-    private static readonly AsyncRetryPolicy _retryPolicy = Policy
-        .Handle<HttpRequestException>()
-        .Or<TaskCanceledException>()
-        .WaitAndRetryAsync(3, attempt => TimeSpan.FromMilliseconds(500 * attempt));
+    private static readonly ResiliencePipeline _retryPipeline = new ResiliencePipelineBuilder()
+        .AddRetry(new Polly.Retry.RetryStrategyOptions
+        {
+            ShouldHandle = new PredicateBuilder().Handle<HttpRequestException>().Handle<TaskCanceledException>(),
+            MaxRetryAttempts = 3,
+            DelayGenerator = static args => new ValueTask<TimeSpan?>(TimeSpan.FromMilliseconds(500 * (args.AttemptNumber + 1)))
+        })
+        .Build();
 
-    private static readonly ConcurrentDictionary<string, MiniAppController.OhlcCandle[]> _ohlcCache = new();
 
-    public static MiniAppController.OhlcCandle[]? GetOhlcCandles(string key) =>
-        _ohlcCache.TryGetValue(key, out var v) ? v : null;
 
-    public static void SetOhlcCandles(string key, MiniAppController.OhlcCandle[] candles) =>
-        _ohlcCache[key] = candles;
+    private void CacheMockOhlc(string asset, string interval, double[] prices)
+    {
+        if (prices.Length == 0) return;
+        var ohlc = new MiniAppController.OhlcCandle[prices.Length];
+        double volatility = prices.Length > 1 ? Math.Abs(prices[^1] - prices[0]) / prices.Length * 2.0 : 0.0001;
+        
+        long currentTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        int intervalSec = TimeframeSeconds(interval);
+        
+        for (int i = 0; i < prices.Length; i++)
+        {
+            double open = i == 0 ? prices[i] : prices[i - 1];
+            double close = prices[i];
+            double high = Math.Max(open, close) + volatility;
+            double low = Math.Min(open, close) - volatility;
+            ohlc[i] = new MiniAppController.OhlcCandle(open, high, low, close, 1.0);
+            
+            if (interval.StartsWith("s") && i >= prices.Length - 2)
+            {
+                long candleTimeMs = currentTimeMs - ((prices.Length - 1 - i) * intervalSec * 1000);
+                candleTimeMs = (candleTimeMs / (intervalSec * 1000)) * (intervalSec * 1000); // Align to boundary
+                
+                _ = Data.LocalTickDatabase.SaveCandleAsync(asset, interval, candleTimeMs, open, high, low, close, 1.0);
+            }
+        }
+        _cache.Set($"ohlc_{asset}_{interval}", ohlc, TimeSpan.FromMinutes(10));
+    }
 
-    public static string IntervalMap(string tf) => tf.ToLower() switch
+    public MiniAppController.OhlcCandle[]? GetOhlcCandles(string key) =>
+        _cache.TryGetValue($"ohlc_{key}", out MiniAppController.OhlcCandle[]? v) ? v : null;
+
+    public void SetOhlcCandles(string key, MiniAppController.OhlcCandle[] candles) =>
+        _cache.Set($"ohlc_{key}", candles, TimeSpan.FromMinutes(10));
+
+    public string IntervalMap(string tf) => tf.ToLower() switch
     {
         "s3" or "s5" or "s10" or "s15" or "s30" => "1m",
         "m1" => "1m", "m2" => "1m", "m3" => "3m",
@@ -40,7 +73,7 @@ public static class MarketDataFetcher
         "d1" => "1d", _ => "1m"
     };
 
-    public static int GetExpiryCandles(string tf) => tf.ToLower() switch
+    public int GetExpiryCandles(string tf) => tf.ToLower() switch
     {
         "s3" or "s5" or "s10" or "s15" or "s30" => 3,
         "m1" => 3,
@@ -55,7 +88,7 @@ public static class MarketDataFetcher
         _ => 3
     };
 
-    public static int TimeframeSeconds(string tf) => tf.ToLower() switch
+    public int TimeframeSeconds(string tf) => tf.ToLower() switch
     {
         "s3" => 3, "s5" => 5, "s10" => 10, "s15" => 15, "s30" => 30,
         "m1" => 60, "m2" => 120, "m3" => 180, "m5" => 300,
@@ -64,7 +97,7 @@ public static class MarketDataFetcher
         "d1" => 86400, _ => 60
     };
 
-    public static string? HigherTf(string tf) => tf.ToLower() switch
+    public string? HigherTf(string tf) => tf.ToLower() switch
     {
         "s3" or "s5" or "s10" or "s15" or "s30" => "m5",
         "m1" => "m5", "m2" => "m5", "m3" => "m5",
@@ -72,7 +105,7 @@ public static class MarketDataFetcher
         "h1" => "h4", "h4" => "d1", _ => null
     };
 
-    public static string? LowerTf(string tf) => tf.ToLower() switch
+    public string? LowerTf(string tf) => tf.ToLower() switch
     {
         "s10" or "s15" or "s30" => "s5",
         "s5" => "s3",
@@ -83,46 +116,53 @@ public static class MarketDataFetcher
         "d1" => "h4", _ => null
     };
 
-    public static async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50, string? rawAsset = null, string? rawInterval = null)
+    public async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50, string? rawAsset = null, string? rawInterval = null)
     {
         string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
-        var response = await _retryPolicy.ExecuteAsync(() => _httpClient.GetStringAsync(url));
-        using var doc = JsonDocument.Parse(response);
-        var arr = doc.RootElement.EnumerateArray().ToList();
+        
+        var _numOpts = new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString };
+        var arr = await _retryPipeline.ExecuteAsync(async ct => await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(_httpClient, url, _numOpts, ct));
+        
+        if (arr == null || arr.Length == 0) return (Array.Empty<double>(), Array.Empty<double>());
 
-        if (arr.Count > 0)
+        var lastCandle = arr[^1];
+        long openTimeMs = (long)lastCandle[0];
+        var openTime = DateTimeOffset.FromUnixTimeMilliseconds(openTimeMs).UtcDateTime;
+
+        if (DateTime.UtcNow - openTime > TimeSpan.FromDays(5))
         {
-            var lastCandle = arr[^1];
-            long openTimeMs = lastCandle[0].GetInt64();
-            var openTime = DateTimeOffset.FromUnixTimeMilliseconds(openTimeMs).UtcDateTime;
-
-            if (DateTime.UtcNow - openTime > TimeSpan.FromDays(5))
-            {
-                throw new Exception($"Binance symbol {symbol} data is extremely stale ({openTime}).");
-            }
+            throw new Exception($"Binance symbol {symbol} data is extremely stale ({openTime}).");
         }
 
-        var prices = arr.Select(k => double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture)).ToArray();
-        var volumes = arr.Select(k => double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)).ToArray();
+        var prices = new double[arr.Length];
+        var volumes = new double[arr.Length];
+        var ohlc = new MiniAppController.OhlcCandle[arr.Length];
 
-        var ohlc = arr.Select(k => new MiniAppController.OhlcCandle(
-            double.Parse(k[1].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[2].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[3].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)
-        )).ToArray();
+        for (int i = 0; i < arr.Length; i++)
+        {
+            var k = arr[i];
+            double open = k[1];
+            double high = k[2];
+            double low = k[3];
+            double close = k[4];
+            double volume = k[5];
+
+            prices[i] = close;
+            volumes[i] = volume;
+            ohlc[i] = new MiniAppController.OhlcCandle(open, high, low, close, volume);
+        }
+
         if (prices.Length > 0)
         {
             string cacheSym = rawAsset ?? symbol;
             string cacheInt = rawInterval ?? interval;
-            _ohlcCache[$"{cacheSym}_{cacheInt}"] = ohlc;
+            _cache.Set($"ohlc_{cacheSym}_{cacheInt}", ohlc, TimeSpan.FromMinutes(10));
         }
 
         return (prices, volumes);
     }
 
-    public static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
+    public async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
     {
         string interval = IntervalMap(rawInterval);
         if (symbol != null)
@@ -130,19 +170,7 @@ public static class MarketDataFetcher
             if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes) && wsPrices.Length >= 15)
             {
                 BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
-                
-                var ohlc = new MiniAppController.OhlcCandle[wsPrices.Length];
-                double volatility = wsPrices.Length > 1 ? Math.Abs(wsPrices[^1] - wsPrices[0]) / wsPrices.Length * 2.0 : 0.0001;
-                for (int i = 0; i < wsPrices.Length; i++)
-                {
-                    double open = i == 0 ? wsPrices[i] : wsPrices[i - 1];
-                    double close = wsPrices[i];
-                    double high = Math.Max(open, close) + volatility;
-                    double low = Math.Min(open, close) - volatility;
-                    ohlc[i] = new MiniAppController.OhlcCandle(open, high, low, close, 1.0);
-                }
-                _ohlcCache[$"{originalAsset ?? symbol}_{rawInterval}"] = ohlc;
-                
+                CacheMockOhlc(originalAsset ?? symbol, rawInterval, wsPrices);
                 return (wsPrices, wsVolumes);
             }
 
@@ -157,28 +185,16 @@ public static class MarketDataFetcher
         {
             if (originalAsset != null)
             {
-                // 1. Direct Broker WebSocket Stream (0ms latency, 0% price discrepancy)
-                if (PocketOptionDirectSocketStream.TryGetDirectBrokerTicks(originalAsset, out var directBrokerTicks) && directBrokerTicks.Length >= 15)
-                {
-                    double[] directVolumes = directBrokerTicks.Select((_, idx) => 1.0 + (idx % 3) * 0.5).ToArray();
-                    BotLogger.Info($"[MarketDataFetcher] Served Zero-Discrepancy Direct Broker Ticks for {originalAsset} in 0ms.");
-                    return (directBrokerTicks, directVolumes);
-                }
 
-                // 2. Direct MT5 Institutional Bank Tick Bridge (< 1ms latency)
-                if (MetaTrader5BridgeEngine.TryGetMt5Ticks(originalAsset, out var mt5Ticks) && mt5Ticks.Length >= 15)
-                {
-                    double[] mt5Volumes = mt5Ticks.Select((_, idx) => 1.0 + (idx % 3) * 0.5).ToArray();
-                    BotLogger.Info($"[MarketDataFetcher] Served Institutional MT5 Bank Ticks for {originalAsset} in 0.5ms.");
-                    return (mt5Ticks, mt5Volumes);
-                }
 
                 // 3. Persistent Zero-Latency WebSocket Stream RAM cache
                 var wsTicks = TwelveDataWebSocketStream.GetRealtimePrices(originalAsset, limit);
                 if (wsTicks != null && wsTicks.Length >= 15)
                 {
-                    double[] mockVolumes = wsTicks.Select((_, idx) => 1.0 + (idx % 3) * 0.5).ToArray();
+                    double[] mockVolumes = new double[wsTicks.Length];
+                    for (int i = 0; i < wsTicks.Length; i++) mockVolumes[i] = 1.0 + (i % 3) * 0.5;
                     BotLogger.Info($"[MarketDataFetcher] Served Zero-Latency Forex Persistent WebSocket ticks for {originalAsset} in 1ms.");
+                    CacheMockOhlc(originalAsset, rawInterval, wsTicks);
                     return (wsTicks, mockVolumes);
                 }
 
@@ -220,8 +236,12 @@ public static class MarketDataFetcher
             }
 
             throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", $"⚠️ Данные для {originalAsset ?? symbol} временно недоступны на бирже.");
-
-            throw;
         }
     }
 }
+
+
+
+
+
+

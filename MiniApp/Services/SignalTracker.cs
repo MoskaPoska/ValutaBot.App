@@ -18,6 +18,9 @@ public static class SignalTracker
 
     // Live price cache — updated by MiniAppController after each analysis
     private static readonly ConcurrentDictionary<string, (double price, DateTime at)> _priceCache = new();
+    
+    // Cooldown map to prevent duplicate signals spam
+    private static readonly ConcurrentDictionary<string, DateTime> _cooldowns = new();
 
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
     private static readonly Timer _verifyTimer;
@@ -55,6 +58,14 @@ public static class SignalTracker
     {
         string sym = (binanceSymbol ?? MapToBinanceSymbol(asset)).ToUpper();
         int verifyDelaySecs = expiryCandles * timeframeSecs + 5; // +5s buffer for candle close
+
+        string cooldownKey = $"{asset}_{timeframe}";
+        if (_cooldowns.TryGetValue(cooldownKey, out var lastSignalAt) && (DateTime.UtcNow - lastSignalAt).TotalSeconds < 30)
+        {
+            BotLogger.Warn($"[Tracker] Cooldown active for {cooldownKey}. Skipping duplicate signal recording.");
+            return;
+        }
+        _cooldowns[cooldownKey] = DateTime.UtcNow;
 
         var record = new PredictionRecord
         {
@@ -239,31 +250,63 @@ public static class SignalTracker
     {
         string sym = record.BinanceSymbol;
 
-        // 1. Live cache (updated by MiniAppController after each analysis)
+        // 1. Live cache (updated by MiniAppController after each analysis) — fastest path
         if (_priceCache.TryGetValue(sym, out var cached) &&
             (DateTime.UtcNow - cached.at).TotalMinutes < 5)
         {
             return cached.price;
         }
 
-        // 2. Binance REST API for crypto
+        // 2. Binance REST API (Historical Kline) — exact close price at VerifyAt
         if (!record.IsForex)
         {
             try
             {
+                long endTime = new DateTimeOffset(record.VerifyAt).ToUnixTimeMilliseconds();
                 var json = await _http.GetStringAsync(
-                    $"https://api.binance.com/api/v3/ticker/price?symbol={sym}");
-                var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("price", out var p))
-                    return double.Parse(p.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+                    $"https://api.binance.com/api/v3/klines?symbol={sym}&interval=1m&endTime={endTime}&limit=1");
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                {
+                    var kline = doc.RootElement[0];
+                    if (kline.ValueKind == JsonValueKind.Array && kline.GetArrayLength() >= 5)
+                    {
+                        string closeStr = kline[4].GetString() ?? "0";
+                        return double.Parse(closeStr, System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Tracker] Binance price fetch failed for {sym}: {ex.Message}");
+                Console.WriteLine($"[Tracker] Binance historical kline fetch failed for {sym}: {ex.Message}");
             }
         }
 
-        // 3. Stale cache (up to 15 min old) — better than nothing for forex
+        // 3. TwelveData REST API — for forex/commodity verification (closes ML feedback loop)
+        if (record.IsForex)
+        {
+            try
+            {
+                string tdResult = await _http.GetStringAsync(
+                    $"https://api.twelvedata.com/price?symbol={Uri.EscapeDataString(record.Asset)}" +
+                    $"&apikey={TwelveDataService.GetApiKey()}");
+                using var doc = JsonDocument.Parse(tdResult);
+                if (doc.RootElement.TryGetProperty("price", out var p) &&
+                    double.TryParse(p.GetString(), System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var price))
+                {
+                    // Update live cache with fresh TwelveData price
+                    _priceCache[sym] = (price, DateTime.UtcNow);
+                    return price;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tracker] TwelveData price fetch failed for {record.Asset}: {ex.Message}");
+            }
+        }
+
+        // 4. Stale cache (up to 15 min old) — last resort, better than discarding the trade
         if (_priceCache.TryGetValue(sym, out var stale) &&
             (DateTime.UtcNow - stale.at).TotalMinutes < 15)
         {

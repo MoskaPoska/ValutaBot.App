@@ -20,7 +20,7 @@ public static class DailyRiskCircuitBreaker
     private class UserDailyState
     {
         public string DateKey { get; set; } = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        public double StartingBalanceUsd { get; set; } = 100.0;
+        public double StartingBalanceUsd { get; set; } = -1.0;
         public double CumulativeLossUsd { get; set; } = 0.0;
         public int ConsecutiveLosses { get; set; } = 0;
         public bool HardBlockedForDay { get; set; } = false;
@@ -46,6 +46,10 @@ public static class DailyRiskCircuitBreaker
                 state.CumulativeLossUsd = 0;
                 state.ConsecutiveLosses = 0;
                 state.HardBlockedForDay = false;
+            }
+            else if (state.StartingBalanceUsd < 0)
+            {
+                state.StartingBalanceUsd = currentBalanceUsd;
             }
 
             if (state.HardBlockedForDay)

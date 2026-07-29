@@ -6,43 +6,7 @@ Takes OHLCV candle arrays and returns a feature DataFrame.
 import numpy as np
 import pandas as pd
 from typing import List, Dict
-
-
-def _rsi(close: np.ndarray, period: int = 14) -> np.ndarray:
-    delta = np.diff(close, prepend=close[0])
-    gain = np.where(delta > 0, delta, 0.0)
-    loss = np.where(delta < 0, -delta, 0.0)
-    avg_gain = pd.Series(gain).ewm(alpha=1 / period, adjust=False).mean().values
-    avg_loss = pd.Series(loss).ewm(alpha=1 / period, adjust=False).mean().values
-    rs = np.where(avg_loss == 0, 100, avg_gain / (avg_loss + 1e-10))
-    return 100 - 100 / (1 + rs)
-
-
-def _ema(close: np.ndarray, period: int) -> np.ndarray:
-    return pd.Series(close).ewm(span=period, adjust=False).mean().values
-
-
-def _atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> np.ndarray:
-    prev_close = np.roll(close, 1)
-    prev_close[0] = close[0]
-    tr = np.maximum.reduce([high - low, np.abs(high - prev_close), np.abs(low - prev_close)])
-    return pd.Series(tr).ewm(alpha=1 / period, adjust=False).mean().values
-
-
-def _bollinger_z(close: np.ndarray, period: int = 20) -> np.ndarray:
-    s = pd.Series(close)
-    ma = s.rolling(period).mean()
-    std = s.rolling(period).std()
-    return ((s - ma) / (std + 1e-10)).values
-
-
-def _macd(close: np.ndarray, fast=12, slow=26, signal=9):
-    fast_ema = _ema(close, fast)
-    slow_ema = _ema(close, slow)
-    macd_line = fast_ema - slow_ema
-    signal_line = _ema(macd_line, signal)
-    return macd_line, signal_line
-
+import ta
 
 def _rolling_std(close: np.ndarray, period: int = 10) -> np.ndarray:
     return pd.Series(close).rolling(period).std().values
@@ -53,37 +17,33 @@ def _volume_ma(volume: np.ndarray, period: int = 20) -> np.ndarray:
 
 
 def _linreg_slope(close: np.ndarray, period: int = 20) -> np.ndarray:
-    """Rolling linear regression slope (normalized by price)."""
-    slopes = np.zeros(len(close))
+    """Rolling linear regression slope (normalized by price) using Pandas vectorization."""
+    s = pd.Series(close)
     x = np.arange(period, dtype=float)
-    x -= x.mean()
-    for i in range(period - 1, len(close)):
-        y = close[i - period + 1: i + 1].astype(float)
+    x_centered = x - x.mean()
+    var_x = (x_centered ** 2).sum() + 1e-10
+
+    def calc_slope(y):
         y_mean = y.mean()
-        slope = (x * (y - y_mean)).sum() / ((x * x).sum() + 1e-10)
-        slopes[i] = slope / (y_mean + 1e-10)   # normalize by price level
-    return slopes
+        slope = (x_centered * (y - y_mean)).sum() / var_x
+        return slope / (y_mean + 1e-10)
+        
+    return s.rolling(period).apply(calc_slope, raw=True).fillna(0.0).values
 
 
 def _hurst_approx(close: np.ndarray, lag_max: int = 16) -> np.ndarray:
     """Approximate rolling Hurst exponent (simplified, window=lag_max*2)."""
-    result = np.full(len(close), 0.5)
+    s = pd.Series(close)
     win = lag_max * 2
-    for i in range(win, len(close)):
-        seg = close[i - win: i]
-        try:
-            changes2 = np.diff(seg, n=2)
-            changes16 = seg[16:] - seg[:-16]
-            std2 = np.std(changes2) + 1e-12
-            std16 = np.std(changes16) + 1e-12
-            h = np.log(std16 / std2) / np.log(8)
-            if not np.isnan(h) and not np.isinf(h):
-                result[i] = float(np.clip(h, 0.0, 1.0))
-            else:
-                result[i] = 0.5
-        except Exception:
-            result[i] = 0.5
-    return result
+    
+    diff2 = s.diff(2)
+    diff16 = s.diff(16)
+    
+    std2 = diff2.rolling(win).std() + 1e-12
+    std16 = diff16.rolling(win).std() + 1e-12
+    
+    h = np.log(std16 / std2) / np.log(8)
+    return h.clip(0.0, 1.0).fillna(0.5).values
 
 
 def _order_flow_features(o: np.ndarray, h: np.ndarray, lo: np.ndarray, c: np.ndarray, v: np.ndarray, vol_ma: np.ndarray) -> tuple:
@@ -103,17 +63,18 @@ def _order_flow_features(o: np.ndarray, h: np.ndarray, lo: np.ndarray, c: np.nda
 
 
 def _fvg_features(h: np.ndarray, lo: np.ndarray) -> tuple:
-    """Fair Value Gaps: Returns arrays for Bullish and Bearish FVG sizes."""
+    """Fair Value Gaps: Returns arrays for Bullish and Bearish FVG sizes via NumPy vectorization."""
     fvg_bullish = np.zeros(len(h))
     fvg_bearish = np.zeros(len(h))
     
-    for i in range(2, len(h)):
-        # Bullish FVG: Low of current candle > High of i-2 candle
-        if lo[i] > h[i-2]:
-            fvg_bullish[i] = lo[i] - h[i-2]
-        # Bearish FVG: High of current candle < Low of i-2 candle
-        elif h[i] < lo[i-2]:
-            fvg_bearish[i] = lo[i-2] - h[i]
+    if len(h) < 3:
+        return fvg_bullish, fvg_bearish
+        
+    bullish_mask = lo[2:] > h[:-2]
+    fvg_bullish[2:][bullish_mask] = lo[2:][bullish_mask] - h[:-2][bullish_mask]
+    
+    bearish_mask = h[2:] < lo[:-2]
+    fvg_bearish[2:][bearish_mask] = lo[:-2][bearish_mask] - h[2:][bearish_mask]
             
     return fvg_bullish, fvg_bearish
 
@@ -135,29 +96,40 @@ def build_features(candles: List[Dict]) -> pd.DataFrame:
 
     feats = {}
 
-    # ── Trend / Momentum ──
-    feats['ema9']       = _ema(c, 9)
-    feats['ema21']      = _ema(c, 21)
-    feats['ema50']      = _ema(c, 50)
+    # ── Trend / Momentum (Using ta library) ──
+    df['ema9'] = ta.trend.ema_indicator(df['close'], window=9)
+    df['ema21'] = ta.trend.ema_indicator(df['close'], window=21)
+    df['ema50'] = ta.trend.ema_indicator(df['close'], window=50)
+    
+    feats['ema9']       = df['ema9'].values
+    feats['ema21']      = df['ema21'].values
+    feats['ema50']      = df['ema50'].values
     feats['ema_ratio_9_21']  = feats['ema9'] / (feats['ema21'] + 1e-10) - 1
     feats['close_vs_ema9']   = c / (feats['ema9'] + 1e-10) - 1
     feats['close_vs_ema21']  = c / (feats['ema21'] + 1e-10) - 1
     feats['close_vs_ema50']  = c / (feats['ema50'] + 1e-10) - 1
 
-    macd_line, macd_sig = _macd(c)
+    macd = ta.trend.MACD(df['close'], window_slow=26, window_fast=12, window_sign=9)
+    macd_line = macd.macd().values
+    macd_hist = macd.macd_diff().values
+    
     feats['macd']       = macd_line / (np.abs(c) + 1e-10)
-    feats['macd_hist']  = (macd_line - macd_sig) / (np.abs(c) + 1e-10)
+    feats['macd_hist']  = macd_hist / (np.abs(c) + 1e-10)
 
     feats['linreg_slope'] = _linreg_slope(c, 20)
     feats['hurst']        = _hurst_approx(c, 16)
 
-    # ── Oscillators ──
-    feats['rsi14'] = _rsi(c, 14) / 100.0 - 0.5   # centered on 0
-    feats['rsi7']  = _rsi(c, 7)  / 100.0 - 0.5
-    feats['bb_z']  = _bollinger_z(c, 20)
+    # ── Oscillators (Using ta library) ──
+    feats['rsi14'] = ta.momentum.rsi(df['close'], window=14).values / 100.0 - 0.5
+    feats['rsi7']  = ta.momentum.rsi(df['close'], window=7).values / 100.0 - 0.5
+    
+    bb = ta.volatility.BollingerBands(df['close'], window=20, window_dev=2)
+    bb_mavg = bb.bollinger_mavg().values
+    bb_std = pd.Series(c).rolling(20).std().values
+    feats['bb_z']  = ((c - bb_mavg) / (bb_std + 1e-10))
 
     # ── Volatility ──
-    atr = _atr(h, lo, c, 14)
+    atr = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=14).values
     feats['atr_norm']     = atr / (c + 1e-10)
     feats['rolling_std']  = _rolling_std(c, 10) / (c + 1e-10)
 

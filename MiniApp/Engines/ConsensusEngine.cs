@@ -1,4 +1,4 @@
-namespace ValutaBot.MiniApp;
+﻿namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Decision Consensus Engine: Implements Soft Voting & Dynamic Extreme Weighting.
@@ -37,33 +37,34 @@ public static class ConsensusEngine
         double volRatioVal = 1.0,
         string smcReasoning = "",
         string orderFlowReasoning = "",
-        string aiModelName = "ИИ Анализ",
+        string aiModelName = "РР РђРЅР°Р»РёР·",
         double wfWeightMultiplier = 1.0)
     {
-        // ─── 1. Market-Regime Aware Auto-Calibrated Weights ───
+        // в”Ђв”Ђв”Ђ 1. Market-Regime Aware Auto-Calibrated Weights в”Ђв”Ђв”Ђ
         double weightLgbm = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.8);
         double weightMath = AutoCalibrationEngine.GetCalibratedRegimeWeight("SKENDER_MATH", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.2);
+        // ONNX is also regime-aware now вЂ” base weight 2.2 is scaled by market regime + win-rate
+        double weightOnnx = AutoCalibrationEngine.GetCalibratedRegimeWeight("ONNX", asset, timeframe, adxVal, volRatioVal, rsiVal, 2.2);
+        double weightMl   = AutoCalibrationEngine.GetCalibratedRegimeWeight("NATIVE_ML", asset, timeframe, adxVal, volRatioVal, rsiVal, 1.0);
 
-        // ─── 2. Removed Extreme RSI multiplier to prevent counter-trend shorting ───
-        // (Deleted the weightMath *= 2.5 block)
+        // в”Ђв”Ђв”Ђ 3. HFT Soft Voting Vector Calculation (0% LLM Weight in Decision Pipeline) в”Ђв”Ђв”Ђ
+        // Fix: Normalize [0.5, 1.0] confidence to [0.0, 1.0] vector magnitude. 50% confidence means 0 pull.
+        double normLgbm = Math.Max(0, (lgbmConfidence - 0.5) * 2.0);
+        double normMl   = Math.Max(0, (mlConfidence - 0.5) * 2.0);
+        double normOnnx = Math.Max(0, (onnxConfidence - 0.5) * 2.0);
 
-        // ─── 3. HFT Soft Voting Vector Calculation (0% LLM Weight in Decision Pipeline) ───
-        double scoreLgbm = lgbmDirection == "BUY" ? lgbmConfidence : lgbmDirection == "PUT" ? -lgbmConfidence : 0;
-        double scoreMl = mlDirection == "BUY" ? (mlConfidence / 100.0) : mlDirection == "PUT" ? -(mlConfidence / 100.0) : 0;
-        double scoreOnnx = onnxDirection == "BUY" ? onnxConfidence : onnxDirection == "PUT" ? -onnxConfidence : 0;
-        double scoreMath = Math.Clamp(totalScore, -2.5, 2.5);
+        double scoreLgbm = lgbmDirection == "BUY" ? normLgbm : lgbmDirection == "PUT" ? -normLgbm : 0;
+        double scoreMl   = mlDirection   == "BUY" ? normMl   : mlDirection   == "PUT" ? -normMl   : 0;
+        double scoreOnnx = onnxDirection == "BUY" ? normOnnx : onnxDirection == "PUT" ? -normOnnx : 0;
+        double scoreMath = Math.Clamp(totalScore, -2.5, 2.5) / 2.5; // Normalize Math score to [-1.0, 1.0]
 
-        double weightMl = 1.0;
-        double weightOnnx = 2.2;
-        
         // Only include weights for models that actually provided a directional opinion.
         // Apply Walk-Forward Anti-Overfitting Multiplier to ML engines
         double activeWeightLgbm = (lgbmDirection == "BUY" || lgbmDirection == "PUT") ? weightLgbm * wfWeightMultiplier : 0;
-        double activeWeightMl = (mlDirection == "BUY" || mlDirection == "PUT") ? weightMl * wfWeightMultiplier : 0;
-        
-        double activeWeightOnnx = (onnxDirection == "BUY" || onnxDirection == "PUT") ? weightOnnx : 0;
+        double activeWeightMl   = (mlDirection   == "BUY" || mlDirection   == "PUT") ? weightMl   * wfWeightMultiplier : 0;
+        double activeWeightOnnx = (onnxDirection == "BUY" || onnxDirection == "PUT") ? weightOnnx * wfWeightMultiplier : 0;
         // Math is always active since it produces a continuous score
-        double activeWeightMath = weightMath; 
+        double activeWeightMath = weightMath;
         
         double totalWeightSum = activeWeightLgbm + activeWeightMl + activeWeightOnnx + activeWeightMath;
         if (totalWeightSum < 1e-9) totalWeightSum = 1.0;
@@ -79,30 +80,30 @@ public static class ConsensusEngine
 
         string finalDirection = candidateDir;
 
-        // ─── 5. Format 4 Pillars of Analysis Breakdown ───
+        // в”Ђв”Ђв”Ђ 5. Format 4 Pillars of Analysis Breakdown в”Ђв”Ђв”Ђ
         string modelAccText = lgbmAccuracy.HasValue 
-            ? $" [обученность: {Math.Round(lgbmAccuracy.Value * 100, 1)}%]" 
+            ? $" [РѕР±СѓС‡РµРЅРЅРѕСЃС‚СЊ: {Math.Round(lgbmAccuracy.Value * 100, 1)}%]" 
             : "";
 
         string smcText = !string.IsNullOrEmpty(smcReasoning)
-            ? $"• 🏛️ SMC Структура: {smcReasoning}"
-            : "• 🏛️ SMC Структура: Балансовая консолидация диапазона";
+            ? $"вЂў рџЏ›пёЏ SMC РЎС‚СЂСѓРєС‚СѓСЂР°: {smcReasoning}"
+            : "вЂў рџЏ›пёЏ SMC РЎС‚СЂСѓРєС‚СѓСЂР°: Р‘Р°Р»Р°РЅСЃРѕРІР°СЏ РєРѕРЅСЃРѕР»РёРґР°С†РёСЏ РґРёР°РїР°Р·РѕРЅР°";
 
         string flowText = !string.IsNullOrEmpty(orderFlowReasoning)
-            ? $"• 🌊 Order Flow & CVD: {orderFlowReasoning}"
-            : "• 🌊 Order Flow & CVD: Поток ордеров сбалансирован";
+            ? $"вЂў рџЊЉ Order Flow & CVD: {orderFlowReasoning}"
+            : "вЂў рџЊЉ Order Flow & CVD: РџРѕС‚РѕРє РѕСЂРґРµСЂРѕРІ СЃР±Р°Р»Р°РЅСЃРёСЂРѕРІР°РЅ";
 
         string lgbmText = !string.IsNullOrEmpty(lgbmDirection) && lgbmDirection != "NEUTRAL"
-            ? $"• ⚡ Нейросеть (LightGBM): {(lgbmDirection == "BUY" ? "ВВЕРХ ⬆" : "ВНИЗ ⬇")} ({Math.Round(lgbmConfidence * 100)}% уверенность){modelAccText}"
-            : $"• ⚡ Нейросеть (LightGBM): {(mlDirection == "BUY" ? "ВВЕРХ ⬆" : mlDirection == "PUT" ? "ВНИЗ ⬇" : "НЕЙТРАЛЬНО")} ({Math.Round(mlConfidence)}% уверенность){modelAccText}";
+            ? $"вЂў вљЎ РќРµР№СЂРѕСЃРµС‚СЊ (LightGBM): {(lgbmDirection == "BUY" ? "Р’Р’Р•Р РҐ в¬†" : "Р’РќРР— в¬‡")} ({Math.Round(lgbmConfidence * 100)}% СѓРІРµСЂРµРЅРЅРѕСЃС‚СЊ){modelAccText}"
+            : $"вЂў вљЎ РќРµР№СЂРѕСЃРµС‚СЊ (LightGBM): {(mlDirection == "BUY" ? "Р’Р’Р•Р РҐ в¬†" : mlDirection == "PUT" ? "Р’РќРР— в¬‡" : "РќР•Р™РўР РђР›Р¬РќРћ")} ({Math.Round(mlConfidence)}% СѓРІРµСЂРµРЅРЅРѕСЃС‚СЊ){modelAccText}";
 
-        string effectiveModelName = string.IsNullOrEmpty(aiModelName) ? "Математический ИИ" : aiModelName;
+        string effectiveModelName = string.IsNullOrEmpty(aiModelName) ? "РњР°С‚РµРјР°С‚РёС‡РµСЃРєРёР№ РР" : aiModelName;
 
         string baseClaudeReasoning = string.IsNullOrEmpty(claudeReasoningText)
-            ? $"Матем. анализ Skender (RSI: {Math.Round(rsiVal, 1)}, EMA: {Math.Round(emaVal, 2)})"
+            ? $"РњР°С‚РµРј. Р°РЅР°Р»РёР· Skender (RSI: {Math.Round(rsiVal, 1)}, EMA: {Math.Round(emaVal, 2)})"
             : claudeReasoningText;
 
-        string claudeText = $"• 🧠 {effectiveModelName}: {baseClaudeReasoning}";
+        string claudeText = $"вЂў рџ§  {effectiveModelName}: {baseClaudeReasoning}";
 
         string combinedReasoning = $"{smcText}\n{flowText}\n{lgbmText}\n{claudeText}";
 

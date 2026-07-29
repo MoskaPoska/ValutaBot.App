@@ -16,13 +16,7 @@ namespace ValutaBot.MiniApp;
 
 public static partial class MiniAppController
 {
-    private static readonly HttpClient _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
-    // Random.Shared is used directly for thread-safety.
-    private static readonly AsyncRetryPolicy _retryPolicy = Policy
-        .Handle<HttpRequestException>()
-        .Or<TaskCanceledException>()
-        .WaitAndRetryAsync(3, attempt => TimeSpan.FromMilliseconds(500 * attempt));
 
     public static string? LastExceptionMessage { get; set; }
 
@@ -91,22 +85,22 @@ public static partial class MiniAppController
         app.MapGet("/api/analyze", async (HttpContext context, string? asset, string? timeframe) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!IsRequestAuthorized(context, out string? authError))
+            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
 
-            if (IsRateLimited(context, out string? limitError))
+            if (context.RequestServices.GetRequiredService<IAuthService>().IsRateLimited(context, out string? limitError))
                 return Results.Json(new { error = limitError }, statusCode: 429);
 
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
 
-            string cleanAsset = SanitizeAsset(asset);
+            string cleanAsset = AssetSanitizer.Sanitize(asset);
             string tf = timeframe.ToLower().Trim();
             Console.WriteLine($"[ANALYZE] {cleanAsset} | TF: {timeframe}");
 
             try
             {
-                var result = await ExecuteBinanceAnalysis(cleanAsset, tf);
+                var result = await context.RequestServices.GetRequiredService<IAnalysisOrchestrator>().ExecuteBinanceAnalysis(cleanAsset, tf);
                 // Serialize manually to catch float.NaN or reference errors during serialization
                 var options = new JsonSerializerOptions
                 {
@@ -133,7 +127,7 @@ public static partial class MiniAppController
         app.MapGet("/api/fear-greed", async (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!IsRequestAuthorized(context, out string? authError))
+            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
 
             var fng = await GetFearGreedIndex();
@@ -143,7 +137,7 @@ public static partial class MiniAppController
         app.MapGet("/api/market-status", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!IsRequestAuthorized(context, out string? authError))
+            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
 
             var latest = MarketDataService.GetLatestPrices();
@@ -154,7 +148,7 @@ public static partial class MiniAppController
         app.MapGet("/api/liquidations", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!IsRequestAuthorized(context, out string? authError))
+            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
 
             return Results.Json(LiquidationHeatmapService.GetHeatmapData());
@@ -267,7 +261,7 @@ public static partial class MiniAppController
         app.Run($"http://0.0.0.0:{port}");
     }
 
-    private static async Task<(double[] prices, double[] volumes)> GetSubMinuteCandles(string? symbol, string asset, string timeframe, int limit)
+    public static async Task<(double[] prices, double[] volumes)> GetSubMinuteCandles(string? symbol, string asset, string timeframe, int limit)
     {
         string tdSymbol = TwelveDataService.ConvertToTwelveSymbol(asset) ?? asset;
         var ticks = TwelveDataWebSocketStream.GetTicks(tdSymbol);
@@ -320,7 +314,7 @@ public static partial class MiniAppController
 
             try
             {
-                var m1Result = await FetchBinanceWithFallback(symbol, "1m", asset, fetchLimit, 10);
+                var m1Result = await MarketDataFetcher.Instance.FetchBinanceWithFallback(symbol, "1m", asset, fetchLimit, 10);
                 string ohlcKey = symbol != null ? $"{symbol}_1m" : $"{asset}_1m";
                 var m1Ohlc = GetOhlcCandles(ohlcKey);
 
@@ -441,144 +435,12 @@ public static partial class MiniAppController
         "d1" => "h4", _ => null
     };
 
-    private const int RsiPeriod = 14;
-    private const int EmaShort = 9;
-    private const int EmaLong = 21;
 
-    /* ─── Cached fetch with retry ─── */
-
-    private static async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50)
-    {
-        string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
-        var response = await _retryPolicy.ExecuteAsync(() => _httpClient.GetStringAsync(url));
-        using var doc = JsonDocument.Parse(response);
-        var arr = doc.RootElement.EnumerateArray().ToList();
-
-        if (arr.Count > 0)
-        {
-            var lastCandle = arr[^1];
-            long openTimeMs = lastCandle[0].GetInt64();
-            var openTime = DateTimeOffset.FromUnixTimeMilliseconds(openTimeMs).UtcDateTime;
-
-            // If data is older than 5 days, it means the symbol is delisted/inactive on Binance.
-            // Throw exception so we fall back to TwelveData (for forex/commodities).
-            if (DateTime.UtcNow - openTime > TimeSpan.FromDays(5))
-            {
-                throw new Exception($"Binance symbol {symbol} data is extremely stale ({openTime}). Symbol is likely delisted/inactive.");
-            }
-
-            bool isHighTf = interval.EndsWith("h") || interval.EndsWith("d");
-            if (DateTime.UtcNow - openTime > TimeSpan.FromMinutes(30) && !isHighTf)
-            {
-                bool isWeekend = DateTime.UtcNow.DayOfWeek == DayOfWeek.Saturday || 
-                                 DateTime.UtcNow.DayOfWeek == DayOfWeek.Sunday || 
-                                 DateTime.UtcNow.DayOfWeek == DayOfWeek.Friday;
-                if (isWeekend)
-                {
-                    Console.WriteLine($"[Weekend] Proceeding with stale weekend data for {symbol} ({openTime})");
-                }
-                else
-                {
-                    Console.WriteLine($"[Stale Data Warning] Binance symbol {symbol} has stale data from {openTime}. Proceeding anyway.");
-                }
-            }
-        }
-
-        var prices = arr.Select(k => double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture)).ToArray();
-        var volumes = arr.Select(k => double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)).ToArray();
-
-        // Cache full OHLC for Claude pattern analysis
-        var ohlc = arr.Select(k => new OhlcCandle(
-            double.Parse(k[1].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[2].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[3].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[4].GetString()!, CultureInfo.InvariantCulture),
-            double.Parse(k[5].GetString()!, CultureInfo.InvariantCulture)
-        )).ToArray();
-        _ohlcCache[$"{symbol}_{interval}"] = ohlc;
-
-        return (prices, volumes);
-    }
-
-    private static async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string interval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
-    {
-
-
-        if (symbol != null)
-        {
-            string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
-            if (cacheTtlSeconds > 0 && _cache.TryGetValue(binanceCacheKey, out object? cachedVal) && cachedVal is ValueTuple<double[], double[]> cachedTuple)
-            {
-                return cachedTuple;
-            }
-        }
-
-        // Skip Binance for forex pairs not listed on Binance (symbol == null)
-        if (symbol == null)
-        {
-            if (originalAsset != null)
-            {
-                var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit, cacheTtlSeconds);
-                if (tdResult != null)
-                    return tdResult.Value;
-            }
-            throw new Exception($"No Binance symbol for {originalAsset}");
-        }
-
-        try
-        {
-            var res = await FetchBinanceCandles(symbol, interval, limit);
-            if (cacheTtlSeconds > 0)
-            {
-                string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
-                _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(cacheTtlSeconds));
-            }
-            return res;
-        }
-        catch
-        {
-            // Try Twelve Data for forex pairs
-            if (originalAsset != null)
-            {
-                var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit, cacheTtlSeconds);
-                if (tdResult != null)
-                {
-                    Console.WriteLine($"[Fetch] Binance {symbol} not found, got from TwelveData ({originalAsset})");
-                    return tdResult.Value;
-                }
-            }
-
-            var fallback = symbol switch
-            {
-                "EURJPYUSDT" or "EURGBPUSDT" or "EURNZDUSDT" or "EURCHFUSDT" => "EURUSDT",
-                "GBPJPYUSDT" or "GBPAUDUSDT" or "GBPCADUSDT" or "GBPCHFUSDT" => "GBPUSDT",
-                "NZDJPYUSDT" or "NZDCADUSDT" or "NZDCHFUSDT" => "NZDUSDT",
-                "AUDCADUSDT" or "AUDCHFUSDT" or "AUDNZDUSDT" => "AUDUSDT",
-                "CADCHFUSDT" or "USDCADUSDT" or "CADJPYUSDT" => "EURUSDT",
-                "USDCHFUSDT" or "CHFJPYUSDT" => "EURUSDT",
-                "USDBRLUSDT" or "USDIDRUSDT" or "USDPKRUSDT" or "USDDZDUSDT" => "GBPUSDT",
-                "NGNUSDUSDT" or "LBPUSDUSDT" or "TNDUSDUSDT" or "JODCNYUSDT" or "OMRCNYUSDT" or "SARCNYUSDT" => "EURUSDT",
-                "BRENTUSDT" or "OILUSDT" => "EURUSDT",
-                _ => null
-            };
-
-            if (fallback != null)
-            {
-                Console.WriteLine($"[Fetch] {symbol} not found, fallback to {fallback}");
-                var res = await FetchBinanceCandles(fallback, interval, limit);
-                string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
-                _cache.Set(binanceCacheKey, res, TimeSpan.FromSeconds(2));
-                return res;
-            }
-
-            throw;
-        }
-    }
 
     /* ─── Indicators ─── */
 
 
-    private static object GetMomentumPrediction(string asset, string tf)
+    public static object GetMomentumPrediction(string asset, string tf)
     {
         int expiryCandles = GetExpiryCandles(tf);
 

@@ -7,7 +7,8 @@ namespace ValutaBot.MiniApp;
 
 public static class TradeOutcomeTracker
 {
-    private static bool _initialized = false;
+    public static IWalkForwardValidationEngine WfEngine { get; set; }
+    private static volatile bool _initialized = false;
     private static readonly object _initLock = new();
 
     /// <summary>
@@ -70,6 +71,16 @@ public static class TradeOutcomeTracker
             bool wasCorrect = record.WasCorrect ?? false;
             double exitPriceVal = record.ExitPrice ?? record.EntryPrice;
 
+            double priceDiffAbs = Math.Abs(exitPriceVal - record.EntryPrice);
+            double priceDiffPct = priceDiffAbs / (record.EntryPrice + 1e-9);
+
+            // Minimum threshold (0.5 bps) for W/L to prevent ML reward hacking / noise fitting
+            if (priceDiffPct < 0.00005)
+            {
+                BotLogger.Info($"[TradeOutcomeTracker] Trade {record.Id} diff {priceDiffPct*10000:F2} bps is below noise threshold. Skipping ML RL update.");
+                return;
+            }
+
             // 2. Continuous Online RL for AutoCalibration Engine
             if (record.SourceDirections != null && record.SourceDirections.Count > 0)
             {
@@ -85,13 +96,15 @@ public static class TradeOutcomeTracker
             }
             else
             {
-                AutoCalibrationEngine.RecordSourceOutcome("GLOBAL", record.Asset, record.Timeframe, wasCorrect);
-                AutoCalibrationEngine.RecordSourceOutcome("LIGHTGBM", record.Asset, record.Timeframe, wasCorrect);
+                AutoCalibrationEngine.RecordSourceOutcome("GLOBAL",       record.Asset, record.Timeframe, wasCorrect);
+                AutoCalibrationEngine.RecordSourceOutcome("LIGHTGBM",    record.Asset, record.Timeframe, wasCorrect);
                 AutoCalibrationEngine.RecordSourceOutcome("SKENDER_MATH", record.Asset, record.Timeframe, wasCorrect);
-                AutoCalibrationEngine.RecordSourceOutcome("SMC", record.Asset, record.Timeframe, wasCorrect);
+                AutoCalibrationEngine.RecordSourceOutcome("SMC",          record.Asset, record.Timeframe, wasCorrect);
+                AutoCalibrationEngine.RecordSourceOutcome("ONNX",         record.Asset, record.Timeframe, wasCorrect);
+                AutoCalibrationEngine.RecordSourceOutcome("NATIVE_ML",    record.Asset, record.Timeframe, wasCorrect);
             }
 
-            // 3. Auto-Trading functionality has been removed. 
+            // 3. Auto-Trading functionality has been removed.
             // DailyRiskCircuitBreaker now only needs to track global PnL if needed, or can be removed entirely later.
 
             // 4. Continuous Online RL for Python LightGBM ML Service
@@ -114,8 +127,8 @@ public static class TradeOutcomeTracker
                 }
             });
 
-            // 4. Update Walk-Forward Anti-Overfitting Drawdown Protection
-            WalkForwardValidationEngine.RecordTradeOutcome(record.Asset, record.Timeframe, wasCorrect);
+            // 5. Update Walk-Forward Anti-Overfitting Drawdown Protection
+            WfEngine?.RecordTradeOutcome(record.Asset, record.Timeframe, wasCorrect);
 
             BotLogger.Info($"[TradeOutcomeTracker] Verified trade {record.Id} ({record.Asset} {record.Timeframe}) -> {(wasCorrect ? "WIN ✅" : "LOSS ❌")}. Online RL weights & Walk-Forward state updated.");
         }
@@ -125,3 +138,5 @@ public static class TradeOutcomeTracker
         }
     }
 }
+
+

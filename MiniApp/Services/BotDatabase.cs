@@ -13,63 +13,67 @@ public static class BotDatabase
 {
     private static readonly string DbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bot_data.db");
     private static readonly string ConnectionString = $"Data Source={DbPath}";
+    private static readonly object _dbWriteLock = new();
 
     public static SqliteConnection GetConnection() => new SqliteConnection(ConnectionString);
 
     public static void Initialize()
     {
-        using var conn = GetConnection();
-        conn.Open();
+        lock (_dbWriteLock)
+        {
+            using var conn = GetConnection();
+            conn.Open();
 
-        // Enable WAL mode for concurrent multi-threaded writes without locking
-        conn.Execute("PRAGMA journal_mode=WAL;");
-        conn.Execute("PRAGMA synchronous=NORMAL;");
+            // Enable WAL mode for concurrent multi-threaded writes without locking
+            conn.Execute("PRAGMA journal_mode=WAL;");
+            conn.Execute("PRAGMA synchronous=NORMAL;");
 
-        // ─── 1. Create Tables ───
-        conn.Execute(@"
-            CREATE TABLE IF NOT EXISTS allowed_users (
-                chat_id INTEGER PRIMARY KEY,
-                created_at TEXT NOT NULL
-            );
+            // ─── 1. Create Tables ───
+            conn.Execute(@"
+                CREATE TABLE IF NOT EXISTS allowed_users (
+                    chat_id INTEGER PRIMARY KEY,
+                    created_at TEXT NOT NULL
+                );
 
-            CREATE TABLE IF NOT EXISTS admins (
-                chat_id INTEGER PRIMARY KEY
-            );
+                CREATE TABLE IF NOT EXISTS admins (
+                    chat_id INTEGER PRIMARY KEY
+                );
 
-            CREATE TABLE IF NOT EXISTS all_users (
-                chat_id INTEGER PRIMARY KEY,
-                created_at TEXT NOT NULL
-            );
+                CREATE TABLE IF NOT EXISTS all_users (
+                    chat_id INTEGER PRIMARY KEY,
+                    created_at TEXT NOT NULL
+                );
 
-            CREATE TABLE IF NOT EXISTS registrations (
-                chat_id INTEGER PRIMARY KEY,
-                pocket_id TEXT NOT NULL,
-                has_registered INTEGER NOT NULL DEFAULT 0,
-                has_deposited INTEGER NOT NULL DEFAULT 0,
-                deposit_amount REAL NOT NULL DEFAULT 0.0
-            );
+                CREATE TABLE IF NOT EXISTS registrations (
+                    chat_id INTEGER PRIMARY KEY,
+                    pocket_id TEXT NOT NULL,
+                    has_registered INTEGER NOT NULL DEFAULT 0,
+                    has_deposited INTEGER NOT NULL DEFAULT 0,
+                    deposit_amount REAL NOT NULL DEFAULT 0.0
+                );
 
-            CREATE TABLE IF NOT EXISTS trade_outcomes (
-                id TEXT PRIMARY KEY,
-                asset TEXT NOT NULL,
-                timeframe TEXT NOT NULL,
-                direction TEXT NOT NULL,
-                entry_price REAL NOT NULL,
-                exit_price REAL NOT NULL,
-                pnl_bps REAL NOT NULL,
-                was_win INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                verified_at TEXT NOT NULL
-            );
-        ");
+                CREATE TABLE IF NOT EXISTS trade_outcomes (
+                    id TEXT PRIMARY KEY,
+                    asset TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    entry_price REAL NOT NULL,
+                    exit_price REAL NOT NULL,
+                    pnl_bps REAL NOT NULL,
+                    was_win INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    verified_at TEXT NOT NULL
+                );
+            ");
 
-        BotLogger.Info("[SQLite DB] Database tables initialized successfully.");
+            BotLogger.Info("[SQLite DB] Database tables initialized successfully.");
 
-        // Initialize Trade Outcome Online Learning Engine
-        TradeOutcomeTracker.Initialize();
+            // Initialize Trade Outcome Online Learning Engine
+            TradeOutcomeTracker.Initialize();
 
-        // ─── 2. Auto-Migrate Legacy JSON Files if Present ───
-        MigrateLegacyJsonFiles(conn);
+            // ─── 2. Auto-Migrate Legacy JSON Files if Present ───
+            MigrateLegacyJsonFiles(conn);
+        }
     }
 
     private static void MigrateLegacyJsonFiles(SqliteConnection conn)
@@ -146,45 +150,57 @@ public static class BotDatabase
 
     public static void AddAllowedUser(long chatId)
     {
-        using var conn = GetConnection();
-        conn.Execute("INSERT OR IGNORE INTO allowed_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
+        lock (_dbWriteLock)
+        {
+            using var conn = GetConnection();
+            conn.Execute("INSERT OR IGNORE INTO allowed_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
+        }
     }
 
     public static void AddAdmin(long chatId)
     {
-        using var conn = GetConnection();
-        conn.Execute("INSERT OR IGNORE INTO admins (chat_id) VALUES (@chatId)", new { chatId });
-        conn.Execute("INSERT OR IGNORE INTO allowed_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
+        lock (_dbWriteLock)
+        {
+            using var conn = GetConnection();
+            conn.Execute("INSERT OR IGNORE INTO admins (chat_id) VALUES (@chatId)", new { chatId });
+            conn.Execute("INSERT OR IGNORE INTO allowed_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
+        }
     }
 
     public static void RemoveAdmin(long chatId)
     {
-        using var conn = GetConnection();
-        conn.Execute("DELETE FROM admins WHERE chat_id = @chatId", new { chatId });
+        lock (_dbWriteLock)
+        {
+            using var conn = GetConnection();
+            conn.Execute("DELETE FROM admins WHERE chat_id = @chatId", new { chatId });
+        }
     }
 
     public static void SaveTradeOutcome(TradeOutcomeRecord outcome)
     {
         try
         {
-            using var conn = GetConnection();
-            conn.Execute(@"
-                INSERT OR REPLACE INTO trade_outcomes 
-                (id, asset, timeframe, direction, entry_price, exit_price, pnl_bps, was_win, created_at, verified_at)
-                VALUES (@Id, @Asset, @Timeframe, @Direction, @EntryPrice, @ExitPrice, @PnlBps, @WasWinInt, @CreatedAt, @VerifiedAt)
-            ", new
+            lock (_dbWriteLock)
             {
-                outcome.Id,
-                outcome.Asset,
-                outcome.Timeframe,
-                outcome.Direction,
-                outcome.EntryPrice,
-                outcome.ExitPrice,
-                outcome.PnlBps,
-                WasWinInt = outcome.WasWin ? 1 : 0,
-                outcome.CreatedAt,
-                outcome.VerifiedAt
-            });
+                using var conn = GetConnection();
+                conn.Execute(@"
+                    INSERT OR REPLACE INTO trade_outcomes 
+                    (id, asset, timeframe, direction, entry_price, exit_price, pnl_bps, was_win, created_at, verified_at)
+                    VALUES (@Id, @Asset, @Timeframe, @Direction, @EntryPrice, @ExitPrice, @PnlBps, @WasWinInt, @CreatedAt, @VerifiedAt)
+                ", new
+                {
+                    outcome.Id,
+                    outcome.Asset,
+                    outcome.Timeframe,
+                    outcome.Direction,
+                    outcome.EntryPrice,
+                    outcome.ExitPrice,
+                    outcome.PnlBps,
+                    WasWinInt = outcome.WasWin ? 1 : 0,
+                    outcome.CreatedAt,
+                    outcome.VerifiedAt
+                });
+            }
         }
         catch (Exception ex)
         {
@@ -229,14 +245,20 @@ public static class BotDatabase
 
     public static void RemoveAllowedUser(long chatId)
     {
-        using var conn = GetConnection();
-        conn.Execute("DELETE FROM allowed_users WHERE chat_id = @chatId", new { chatId });
+        lock (_dbWriteLock)
+        {
+            using var conn = GetConnection();
+            conn.Execute("DELETE FROM allowed_users WHERE chat_id = @chatId", new { chatId });
+        }
     }
 
     public static void AddAllUser(long chatId)
     {
-        using var conn = GetConnection();
-        conn.Execute("INSERT OR IGNORE INTO all_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
+        lock (_dbWriteLock)
+        {
+            using var conn = GetConnection();
+            conn.Execute("INSERT OR IGNORE INTO all_users (chat_id, created_at) VALUES (@chatId, @now)", new { chatId, now = DateTime.UtcNow.ToString("o") });
+        }
     }
 }
 

@@ -1,3 +1,7 @@
+using System;
+using System.Linq;
+using Skender.Stock.Indicators;
+
 namespace ValutaBot.MiniApp;
 
 /// <summary>
@@ -15,22 +19,30 @@ public static class MLForecastService
         if (lastPrice <= 0 || double.IsNaN(lastPrice) || double.IsInfinity(lastPrice))
             return ("NEUTRAL", 50, Array.Empty<double>());
 
-        // Holt's Double Exponential Smoothing for trend and level
-        double alpha = 0.3; // Level smoothing coefficient
-        double beta  = 0.2; // Trend smoothing coefficient
-
-        double level = prices[0];
-        double trend = prices[1] - prices[0];
-
-        for (int i = 1; i < n; i++)
+        // Replace manual Holt smoothing with Skender Double Exponential Moving Average (DEMA)
+        int period = Math.Min(14, n / 2);
+        if (period < 2) period = 2;
+        
+        var quotes = prices.Select((p, i) => new Quote { Date = DateTime.UtcNow.AddMinutes(i - n), Close = (decimal)p }).ToList();
+        var demaResults = quotes.GetDema(period).ToList();
+        
+        // Find the last valid DEMA value
+        double level = prices[^1];
+        double prevLevel = prices.Length > 1 ? prices[^2] : level;
+        
+        var lastValid = demaResults.LastOrDefault(x => x.Dema != null);
+        var prevValid = demaResults.Count > 1 ? demaResults[^2] : lastValid;
+        
+        if (lastValid != null && lastValid.Dema.HasValue)
         {
-            double p = prices[i];
-            if (double.IsNaN(p) || double.IsInfinity(p)) continue;
-
-            double lastLevel = level;
-            level = alpha * p + (1 - alpha) * (level + trend);
-            trend = beta * (level - lastLevel) + (1 - beta) * trend;
+            level = (double)lastValid.Dema.Value;
+            if (prevValid != null && prevValid.Dema.HasValue)
+            {
+                prevLevel = (double)prevValid.Dema.Value;
+            }
         }
+        
+        double trend = level - prevLevel;
 
         var predicted = new double[horizon];
         for (int h = 1; h <= horizon; h++)

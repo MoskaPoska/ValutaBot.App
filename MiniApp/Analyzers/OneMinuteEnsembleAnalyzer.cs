@@ -26,7 +26,7 @@ public class OneMinuteEnsembleAnalyzer : ITimeframeAnalyzer
         }
 
         // ─── 1. Technical Analysis & RSI ───
-        var mainResult = TechnicalAnalysisEngine.ScoreTimeframe(prices, volumes, candles: ohlcCandles, adxOverride: adx, atrOverride: atr, isForex: isForex);
+        var mainResult = TechnicalAnalysisEngine.Instance.ScoreTimeframe(prices, volumes, candles: ohlcCandles, adxOverride: adx, atrOverride: atr, isForex: isForex);
         double rsiVal = mainResult.rsiVal;
 
         // ─── 2. Order Flow & SMC ───
@@ -89,3 +89,4 @@ public class OneMinuteEnsembleAnalyzer : ITimeframeAnalyzer
         ));
     }
 }
+

@@ -1,7 +1,12 @@
+using System;
 using System.Collections.Concurrent;
-using System.Text;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
+using System.Threading.RateLimiting;
 
 namespace ValutaBot.MiniApp;
 
@@ -12,32 +17,20 @@ public static partial class TwelveDataService
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
         EnableMultipleHttp2Connections = true
     }) { Timeout = TimeSpan.FromSeconds(10) };
+    
     private static readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions());
     private static string? _apiKey;
 
-    private static readonly ConcurrentQueue<DateTime> _apiCallTimestamps = new();
-    private static readonly object _rateLimitLock = new();
-
-    private static bool CheckAndRegisterRateLimit()
-    {
-        lock (_rateLimitLock)
+    private static readonly SlidingWindowRateLimiter _rateLimiter = new(
+        new SlidingWindowRateLimiterOptions
         {
-            DateTime now = DateTime.UtcNow;
-            while (_apiCallTimestamps.TryPeek(out var oldest) && (now - oldest).TotalSeconds > 60)
-            {
-                _apiCallTimestamps.TryDequeue(out _);
-            }
-
-            // TwelveData rate limit is 8 requests per minute. We limit to 7 for safety.
-            if (_apiCallTimestamps.Count >= 7)
-            {
-                return false;
-            }
-
-            _apiCallTimestamps.Enqueue(now);
-            return true;
-        }
-    }
+            PermitLimit = 7,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0,
+            Window = TimeSpan.FromMinutes(1),
+            SegmentsPerWindow = 6,
+            AutoReplenishment = true
+        });
 
     public static string GetApiKey()
     {
@@ -47,9 +40,8 @@ public static partial class TwelveDataService
 
     public static async Task<(double[] prices, double[] volumes)?> FetchCandlesAsync(string rawAsset, string interval, int limit = 100, int cacheTtlSeconds = 10)
     {
-        string key = $"TWELVE_DATA_{rawAsset.ToUpper()}_{interval.ToLower()}";
+        string key = $"TWELVE_DATA_{AssetSanitizer.Sanitize(rawAsset)}_{interval.ToLower()}";
 
-        // 1. Check IMemoryCache first for fresh data
         if (cacheTtlSeconds > 0 && _memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) cachedData))
         {
             BotLogger.Info($"[TwelveData] Using IMemoryCache data for {rawAsset} ({interval})");
@@ -59,8 +51,8 @@ public static partial class TwelveDataService
         string apiKey = GetApiKey();
         if (string.IsNullOrEmpty(apiKey)) return null;
 
-        // 2. Check rolling rate limiter before making the HTTP API call
-        if (!CheckAndRegisterRateLimit())
+        var lease = _rateLimiter.AttemptAcquire();
+        if (!lease.IsAcquired)
         {
             if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
             {
@@ -78,22 +70,21 @@ public static partial class TwelveDataService
             if (string.IsNullOrEmpty(symbol) || string.IsNullOrEmpty(tdInterval)) return null;
 
             string url = $"https://api.twelvedata.com/time_series?symbol={Uri.EscapeDataString(symbol)}&interval={tdInterval}&outputsize={limit}&apikey={apiKey}";
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.UserAgent.ParseAdd("ValutaBot/1.0");
 
-            var response = await _http.SendAsync(request);
-            string body = await response.Content.ReadAsStringAsync();
+            using var response = await _http.SendAsync(request);
+            
+            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString };
+            var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<TwelveDataResponse>(response.Content, opts);
 
-            using var doc = JsonDocument.Parse(body);
-
-            if (doc.RootElement.TryGetProperty("status", out var status) && status.GetString() == "error")
+            if (doc?.Status == "error")
             {
-                var msg = doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() : "";
-                BotLogger.Warn($"[TwelveData] API error for {rawAsset}: {msg}");
-                throw new Exception($"TwelveData API error: {msg}");
+                BotLogger.Warn($"[TwelveData] API error for {rawAsset}: {doc.Message}");
+                throw new Exception($"TwelveData API error: {doc.Message}");
             }
 
-            if (!doc.RootElement.TryGetProperty("values", out var values))
+            if (doc?.Values == null)
             {
                 if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
                 {
@@ -103,38 +94,34 @@ public static partial class TwelveDataService
                 return null;
             }
 
-            var arr = values.EnumerateArray().ToList();
-            if (arr.Count < 10)
+            var arr = doc.Values;
+            int count = arr.Count;
+            if (count < 10)
             {
                 if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
                 {
-                    BotLogger.Warn($"[TwelveData] Too few candles ({arr.Count}), serving IMemoryCache for {rawAsset}");
+                    BotLogger.Warn($"[TwelveData] Too few candles ({count}), serving IMemoryCache for {rawAsset}");
                     return lastData;
                 }
                 return null;
             }
 
-            var prices = arr
-                .Select(v => double.Parse(v.GetProperty("close").GetString()!, System.Globalization.CultureInfo.InvariantCulture))
-                .Reverse()
-                .ToArray();
+            var prices = new double[count];
+            var volumes = new double[count];
+            var ohlc = new MiniAppController.OhlcCandle[count];
 
-            var volumes = arr
-                .Select(v => v.TryGetProperty("volume", out var volProp) && double.TryParse(volProp.GetString(), System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var vol) ? vol : 0.0)
-                .Reverse()
-                .ToArray();
+            for (int i = 0; i < count; i++)
+            {
+                int revIdx = count - 1 - i;
+                var v = arr[i];
+                
+                prices[revIdx] = v.Close;
+                volumes[revIdx] = v.Volume;
+                ohlc[revIdx] = new MiniAppController.OhlcCandle(v.Open, v.High, v.Low, v.Close, v.Volume);
+            }
 
             try
             {
-                var ohlc = arr.Select(v => new MiniAppController.OhlcCandle(
-                    double.Parse(v.GetProperty("open").GetString()!, System.Globalization.CultureInfo.InvariantCulture),
-                    v.TryGetProperty("high", out var h) ? double.Parse(h.GetString()!, System.Globalization.CultureInfo.InvariantCulture) : 0,
-                    v.TryGetProperty("low", out var l) ? double.Parse(l.GetString()!, System.Globalization.CultureInfo.InvariantCulture) : 0,
-                    double.Parse(v.GetProperty("close").GetString()!, System.Globalization.CultureInfo.InvariantCulture),
-                    v.TryGetProperty("volume", out var vl) && double.TryParse(vl.GetString(), System.Globalization.NumberStyles.Any,
-                        System.Globalization.CultureInfo.InvariantCulture, out var volVal) ? volVal : 0
-                )).Reverse().ToArray();
                 MiniAppController.SetOhlcCandles($"{rawAsset}_{interval}", ohlc);
             }
             catch (Exception ohlcEx)
@@ -175,16 +162,13 @@ public static partial class TwelveDataService
 
     public static string? ConvertToTwelveSymbol(string raw)
     {
-
-        string original = raw.ToUpper()
-            .Replace("OTC", "")
-            .Replace("ОТС", "") // Cyrillic
-            .Trim();
+        string original = AssetSanitizer.Sanitize(raw);
+        if (string.IsNullOrEmpty(original)) return null;
 
         if (original.Contains("GOLD") || original.Contains("XAUUSD")) return "XAU/USD";
         if (original.Contains("SILVER") || original.Contains("XAGUSD")) return "XAG/USD";
 
-        string cleanTicker = original.Replace(" ", "").Replace("/", "").Replace("-", "").Replace("_", "");
+        string cleanTicker = original;
         string[] knownStocks = { "AAPL", "TSLA", "AMZN", "GOOGL", "MSFT", "NVDA", "META" };
         if (knownStocks.Contains(cleanTicker))
         {
@@ -229,4 +213,19 @@ public static partial class TwelveDataService
         _ => "1min"
     };
 
+    public class TwelveDataResponse
+    {
+        public string? Status { get; set; }
+        public string? Message { get; set; }
+        public List<TwelveDataCandle>? Values { get; set; }
+    }
+
+    public class TwelveDataCandle
+    {
+        public double Open { get; set; }
+        public double High { get; set; }
+        public double Low { get; set; }
+        public double Close { get; set; }
+        public double Volume { get; set; }
+    }
 }

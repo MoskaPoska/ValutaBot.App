@@ -7,11 +7,11 @@ using Microsoft.AspNetCore.Http;
 
 namespace ValutaBot.MiniApp;
 
-public static partial class MiniAppController
+public class AuthService : IAuthService
 {
     private static readonly ConcurrentDictionary<long, DateTime> UserLastRequestTime = new();
 
-    public static bool IsRequestAuthorized(HttpContext context, out string? errorMessage)
+    public bool IsRequestAuthorized(HttpContext context, out string? errorMessage)
     {
         errorMessage = null;
 
@@ -80,7 +80,7 @@ public static partial class MiniAppController
         return true;
     }
 
-    public static bool IsRateLimited(HttpContext context, out string? errorMessage)
+    public bool IsRateLimited(HttpContext context, out string? errorMessage)
     {
         errorMessage = null;
         if (context.Items.TryGetValue("userId", out var obj) && obj is long userId && userId > 0)
@@ -100,7 +100,7 @@ public static partial class MiniAppController
         return false;
     }
 
-    public static string GetSignedWebAppUrl(long chatId, string webAppUrl, string token)
+    public string GetSignedWebAppUrl(long chatId, string webAppUrl, string token)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(token));
         byte[] hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(chatId.ToString()));
@@ -114,3 +114,4 @@ public static partial class MiniAppController
         return AssetSanitizer.Sanitize(asset);
     }
 }
+

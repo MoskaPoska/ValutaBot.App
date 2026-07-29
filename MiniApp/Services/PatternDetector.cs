@@ -1,3 +1,5 @@
+using Skender.Stock.Indicators;
+
 namespace ValutaBot.MiniApp;
 
 public static class PatternDetector
@@ -60,21 +62,16 @@ public static class PatternDetector
         double currentPrice = prices[^1];
         if (currentPrice <= 0) return ([], []);
 
-        // Swing highs / lows
-        for (int i = swingLookback; i < prices.Length - swingLookback; i++)
+        // Use Skender for Fractals to eliminate manual O(n^2) loop and standardize
+        var quotes = prices.Select((p, i) => new Skender.Stock.Indicators.Quote { Date = DateTime.UtcNow.AddMinutes(i - prices.Length), Close = (decimal)p, High = (decimal)p, Low = (decimal)p, Open = (decimal)p }).ToList();
+        var fractals = quotes.GetFractal(swingLookback).ToList();
+
+        foreach (var f in fractals)
         {
-            bool isSwingHigh = true;
-            bool isSwingLow = true;
-            for (int j = i - swingLookback; j <= i + swingLookback; j++)
-            {
-                if (j < 0 || j >= prices.Length) continue;
-                if (prices[j] > prices[i]) isSwingHigh = false;
-                if (prices[j] < prices[i]) isSwingLow = false;
-            }
-            if (isSwingHigh && prices[i] < currentPrice * 1.1)
-                resistances.Add(prices[i]);
-            if (isSwingLow && prices[i] > currentPrice * 0.9)
-                supports.Add(prices[i]);
+            if (f.FractalBear != null && (double)f.FractalBear.Value < currentPrice * 1.1)
+                resistances.Add((double)f.FractalBear.Value);
+            if (f.FractalBull != null && (double)f.FractalBull.Value > currentPrice * 0.9)
+                supports.Add((double)f.FractalBull.Value);
         }
 
         // Psychological levels (round numbers)

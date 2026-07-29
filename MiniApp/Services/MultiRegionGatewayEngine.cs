@@ -68,7 +68,6 @@ public static class MultiRegionGatewayEngine
         foreach (var node in _gatewayNodes)
         {
             var sw = Stopwatch.StartNew();
-            bool success = true;
 
             try
             {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 
 namespace ValutaBot.MiniApp;
@@ -19,39 +19,52 @@ public record ContinuousStateResult(
 /// </summary>
 public static class ContinuousStateEngine
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (double estimate, double errorEstimate)> _kalmanState = new();
+
     /// <summary>
     /// Computes continuous physical velocity, acceleration, and Kalman state vector.
     /// </summary>
-    public static ContinuousStateResult EvaluateContinuousState(double[] prices)
+    public static ContinuousStateResult EvaluateContinuousState(double[] prices, string asset = "GLOBAL", string timeframe = "m1")
     {
         if (prices == null || prices.Length < 10)
         {
-            return new ContinuousStateResult(0, 0, 0, "STABLE", 0, "Недостаточно тиков для непрерывного вектора состояния.");
+            return new ContinuousStateResult(0, 0, 0, "STABLE", 0, "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ С‚РёРєРѕРІ РґР»СЏ РЅРµРїСЂРµСЂС‹РІРЅРѕРіРѕ РІРµРєС‚РѕСЂР° СЃРѕСЃС‚РѕСЏРЅРёСЏ.");
         }
 
         int n = prices.Length;
         double currentPrice = prices[^1];
 
-        // 1. Calculate 1st Derivative: Instantaneous Velocity dp/dt (Basis points per step)
-        double[] velocities = new double[n - 1];
-        for (int i = 0; i < n - 1; i++)
+        // 1. Calculate 1st Derivative: Instantaneous Velocity dp/dt using Savitzky-Golay filter (5-point)
+        double instantVelocity = 0;
+        if (n >= 5)
         {
-            velocities[i] = ((prices[i + 1] - prices[i]) / Math.Max(1e-8, prices[i])) * 10_000.0; // Bps
+            // SG 1st derivative coefficients: [-2, -1, 0, 1, 2] / 10
+            double sgVelocity = (-2.0 * prices[^5] - 1.0 * prices[^4] + 0.0 * prices[^3] + 1.0 * prices[^2] + 2.0 * prices[^1]) / 10.0;
+            instantVelocity = (sgVelocity / Math.Max(1e-8, prices[^3])) * 10_000.0; // Bps relative to center point
+        }
+        else
+        {
+            instantVelocity = ((prices[^1] - prices[^2]) / Math.Max(1e-8, prices[^2])) * 10_000.0;
         }
 
-        double instantVelocity = velocities.TakeLast(5).Average();
-
-        // 2. Calculate 2nd Derivative: Instantaneous Acceleration d2p/dt2
-        double[] accelerations = new double[velocities.Length - 1];
-        for (int i = 0; i < velocities.Length - 1; i++)
+        // 2. Calculate 2nd Derivative: Instantaneous Acceleration d2p/dt2 using Savitzky-Golay filter (5-point)
+        double instantAcceleration = 0;
+        if (n >= 5)
         {
-            accelerations[i] = velocities[i + 1] - velocities[i];
+            // SG 2nd derivative coefficients: [2, -1, -2, -1, 2] / 7
+            double sgAccel = (2.0 * prices[^5] - 1.0 * prices[^4] - 2.0 * prices[^3] - 1.0 * prices[^2] + 2.0 * prices[^1]) / 7.0;
+            instantAcceleration = (sgAccel / Math.Max(1e-8, prices[^3])) * 10_000.0; // Bps
         }
-
-        double instantAcceleration = accelerations.TakeLast(5).Average();
+        else
+        {
+            double v1 = ((prices[^2] - prices[^3]) / Math.Max(1e-8, prices[^3])) * 10_000.0;
+            double v2 = ((prices[^1] - prices[^2]) / Math.Max(1e-8, prices[^2])) * 10_000.0;
+            instantAcceleration = v2 - v1;
+        }
 
         // 3. 4th-Order Continuous Kalman State Filtering
-        double kalmanState = FilterKalmanContinuous(prices);
+        string stateKey = $"{asset}_{timeframe}";
+        double kalmanState = FilterKalmanContinuous(prices, stateKey);
 
         string regime;
         double momentumContribution = 0;
@@ -61,25 +74,25 @@ public static class ContinuousStateEngine
         {
             regime = "HYPER_ACCELERATING_UP";
             momentumContribution = 0.45;
-            desc = $"Непрерывный вектор: Гипер-ускорение ВВЕРХ (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/s²).";
+            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: Р“РёРїРµСЂ-СѓСЃРєРѕСЂРµРЅРёРµ Р’Р’Р•Р РҐ (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/sВІ).";
         }
         else if (instantVelocity < -3.0 && instantAcceleration < -0.5)
         {
             regime = "HYPER_ACCELERATING_DOWN";
             momentumContribution = -0.45;
-            desc = $"Непрерывный вектор: Гипер-ускорение ВНИЗ (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/s²).";
+            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: Р“РёРїРµСЂ-СѓСЃРєРѕСЂРµРЅРёРµ Р’РќРР— (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/sВІ).";
         }
         else if (Math.Sign(instantVelocity) != Math.Sign(instantAcceleration) && Math.Abs(instantVelocity) > 2.0)
         {
             regime = "DECELERATING";
             momentumContribution = -Math.Sign(instantVelocity) * 0.20;
-            desc = $"Непрерывный вектор: Замедление импульса перед разворотом (Deceleration Phase).";
+            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: Р—Р°РјРµРґР»РµРЅРёРµ РёРјРїСѓР»СЊСЃР° РїРµСЂРµРґ СЂР°Р·РІРѕСЂРѕС‚РѕРј (Deceleration Phase).";
         }
         else
         {
             regime = "STABLE";
             momentumContribution = 0;
-            desc = $"Непрерывный вектор: Стабильное ламинарное движение (Velocity={instantVelocity:F1} bps/s).";
+            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: РЎС‚Р°Р±РёР»СЊРЅРѕРµ Р»Р°РјРёРЅР°СЂРЅРѕРµ РґРІРёР¶РµРЅРёРµ (Velocity={instantVelocity:F1} bps/s).";
         }
 
         return new ContinuousStateResult(
@@ -92,20 +105,32 @@ public static class ContinuousStateEngine
         );
     }
 
-    private static double FilterKalmanContinuous(double[] prices)
+    private static double FilterKalmanContinuous(double[] prices, string stateKey)
     {
-        double estimate = prices[0];
-        double errorEstimate = 1.0;
         double processNoise = 0.01;
         double measurementNoise = 0.1;
 
-        foreach (double p in prices)
+        if (!_kalmanState.TryGetValue(stateKey, out var state))
         {
-            double kalmanGain = errorEstimate / (errorEstimate + measurementNoise);
-            estimate = estimate + kalmanGain * (p - estimate);
-            errorEstimate = (1.0 - kalmanGain) * errorEstimate + processNoise;
+            double est = prices[0];
+            double err = 1.0;
+            foreach (double p in prices)
+            {
+                double k = err / (err + measurementNoise);
+                est = est + k * (p - est);
+                err = (1.0 - k) * err + processNoise;
+            }
+            state = (est, err);
+        }
+        else
+        {
+            double p = prices[^1];
+            double k = state.errorEstimate / (state.errorEstimate + measurementNoise);
+            state.estimate = state.estimate + k * (p - state.estimate);
+            state.errorEstimate = (1.0 - k) * state.errorEstimate + processNoise;
         }
 
-        return estimate;
+        _kalmanState[stateKey] = state;
+        return state.estimate;
     }
 }

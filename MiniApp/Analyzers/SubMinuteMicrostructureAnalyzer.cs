@@ -62,7 +62,7 @@ public class SubMinuteMicrostructureAnalyzer : ITimeframeAnalyzer
         else
         {
             // Calculate Micro-Price Momentum & Trend Direction for balanced order flow
-            var mainResult = TechnicalAnalysisEngine.ScoreTimeframe(prices, volumes, candles: ohlcCandles, adxOverride: adx, atrOverride: atr, isForex: isForex);
+            var mainResult = TechnicalAnalysisEngine.Instance.ScoreTimeframe(prices, volumes, candles: ohlcCandles, adxOverride: adx, atrOverride: atr, isForex: isForex);
             double totalMicroScore = mainResult.score + orderFlow.ScoreContribution;
             
             if (totalMicroScore > 0.10)
@@ -100,3 +100,4 @@ public class SubMinuteMicrostructureAnalyzer : ITimeframeAnalyzer
         ));
     }
 }
+

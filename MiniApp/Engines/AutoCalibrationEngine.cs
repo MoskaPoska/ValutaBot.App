@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 
 namespace ValutaBot.MiniApp;
@@ -21,6 +21,7 @@ public static class AutoCalibrationEngine
     {
         public int Wins { get; set; }
         public int Losses { get; set; }
+        public int TotalTrades { get; set; }
         public int Total => Wins + Losses;
         public double WinRate => Total > 0 ? (double)Wins / Total : 0.50;
     }
@@ -57,34 +58,40 @@ public static class AutoCalibrationEngine
 
         var regime = DetectMarketRegime(adx, volRatio, rsi);
 
-        // ─── 1. Apply Market Regime Preset Base Weight ───
+        // в”Ђв”Ђв”Ђ 1. Apply Market Regime Preset Base Weight в”Ђв”Ђв”Ђ
         double regimeBaseWeight = (regime, sourceName.ToUpper(CultureInfo.InvariantCulture)) switch
         {
             // TRENDING IMPULSE: SMC & OrderFlow dominate
-            (MarketRegime.TrendingImpulse, "SMC") => 2.20,
-            (MarketRegime.TrendingImpulse, "ORDERFLOW") => 2.00,
-            (MarketRegime.TrendingImpulse, "LIGHTGBM") => 1.50,
-            (MarketRegime.TrendingImpulse, "CLAUDE_AI") => 1.40,
+            (MarketRegime.TrendingImpulse, "SMC")          => 2.20,
+            (MarketRegime.TrendingImpulse, "ORDERFLOW")    => 2.00,
+            (MarketRegime.TrendingImpulse, "LIGHTGBM")     => 1.50,
+            (MarketRegime.TrendingImpulse, "ONNX")         => 1.40,
+            (MarketRegime.TrendingImpulse, "NATIVE_ML")    => 1.20,
             (MarketRegime.TrendingImpulse, "SKENDER_MATH") => 0.80,
+            // Note: CLAUDE_AI removed вЂ” engine deprecated
 
-            // RANGING FLAT: Skender Math (Connors RSI/HMA) & Claude AI dominate
-            (MarketRegime.RangingFlat, "SKENDER_MATH") => 2.20,
-            (MarketRegime.RangingFlat, "CLAUDE_AI") => 1.60,
-            (MarketRegime.RangingFlat, "SMC") => 1.20,
-            (MarketRegime.RangingFlat, "ORDERFLOW") => 0.50,
-            (MarketRegime.RangingFlat, "LIGHTGBM") => 0.60,
+            // RANGING FLAT: Skender Math (Connors RSI/HMA) & ONNX dominate
+            (MarketRegime.RangingFlat, "SKENDER_MATH")     => 2.20,
+            (MarketRegime.RangingFlat, "ONNX")             => 1.50,
+            (MarketRegime.RangingFlat, "NATIVE_ML")        => 0.80,
+            (MarketRegime.RangingFlat, "LIGHTGBM")         => 0.60,
+            (MarketRegime.RangingFlat, "SMC")              => 1.20,
+            (MarketRegime.RangingFlat, "ORDERFLOW")        => 0.50,
+            // Note: CLAUDE_AI removed вЂ” engine deprecated
 
             // HIGH VOLATILITY CHAOS: OrderFlow Absorption & Skender Math dominate
-            (MarketRegime.HighVolatilityChaos, "ORDERFLOW") => 2.20,
+            (MarketRegime.HighVolatilityChaos, "ORDERFLOW")    => 2.20,
             (MarketRegime.HighVolatilityChaos, "SKENDER_MATH") => 1.80,
-            (MarketRegime.HighVolatilityChaos, "SMC") => 1.00,
-            (MarketRegime.HighVolatilityChaos, "CLAUDE_AI") => 1.00,
-            (MarketRegime.HighVolatilityChaos, "LIGHTGBM") => 0.50,
+            (MarketRegime.HighVolatilityChaos, "SMC")          => 1.00,
+            (MarketRegime.HighVolatilityChaos, "ONNX")         => 0.80,
+            (MarketRegime.HighVolatilityChaos, "LIGHTGBM")     => 0.50,
+            (MarketRegime.HighVolatilityChaos, "NATIVE_ML")    => 0.50,
+            // Note: CLAUDE_AI removed вЂ” engine deprecated
 
             _ => defaultBaseWeight
         };
 
-        // ─── 2. Apply Rolling Empirical Win Rate Multiplier ───
+        // в”Ђв”Ђв”Ђ 2. Apply Rolling Empirical Win Rate Multiplier в”Ђв”Ђв”Ђ
         string key = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_{asset.ToUpper(CultureInfo.InvariantCulture)}_{timeframe.ToLower(CultureInfo.InvariantCulture)}";
         if (!_statsMap.TryGetValue(key, out var stats) || stats.Total < 5)
         {
@@ -124,13 +131,16 @@ public static class AutoCalibrationEngine
     {
         lock (stats)
         {
+            stats.TotalTrades++;
             if (isWin) stats.Wins++;
             else stats.Losses++;
 
-            if (stats.Total > 50)
+            // Apply exponential forgetting factor every 10 records (not every record).
+            // This keeps recent performance more relevant without wiping old data instantly.
+            if (stats.TotalTrades > 0 && stats.TotalTrades % 10 == 0 && stats.TotalTrades >= 50)
             {
-                stats.Wins = (int)Math.Round(stats.Wins * 0.9);
-                stats.Losses = (int)Math.Round(stats.Losses * 0.9);
+                stats.Wins   = Math.Max(stats.Wins   > 0 ? 1 : 0, (int)Math.Round(stats.Wins   * 0.9));
+                stats.Losses = Math.Max(stats.Losses > 0 ? 1 : 0, (int)Math.Round(stats.Losses * 0.9));
             }
         }
     }

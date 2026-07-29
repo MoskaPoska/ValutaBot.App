@@ -15,6 +15,7 @@ import logging
 import os
 import time
 import threading
+import sqlite3
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -276,10 +277,34 @@ def feedback(req: TrainFeedback):
     log.info(f"[Online RL] Received feedback for {req.asset} ({req.timeframe}): {'WIN' if req.was_win else 'LOSS'} "
              f"| Dir: {req.direction} Entry: {req.entry_price} Exit: {req.exit_price}")
     
-    # In a fully productionized version, we would append this to a local CSV/DB 
-    # to heavily weight this sample during the next background retrain.
-    # For now, we acknowledge receipt to close the loop with C# and verify network path.
-    return {"status": "ok", "message": "Feedback recorded for RL"}
+    db_path = os.path.join(os.path.dirname(__file__), "data", "ValutaTicks.db")
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS OnlineFeedback (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Asset TEXT NOT NULL,
+                Interval TEXT NOT NULL,
+                Direction TEXT NOT NULL,
+                EntryPrice REAL NOT NULL,
+                ExitPrice REAL NOT NULL,
+                WasWin INTEGER NOT NULL,
+                Timestamp TEXT NOT NULL
+            )
+        ''')
+        cursor.execute('''
+            INSERT INTO OnlineFeedback (Asset, Interval, Direction, EntryPrice, ExitPrice, WasWin, Timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (req.asset, req.timeframe, req.direction, req.entry_price, req.exit_price, int(req.was_win), req.timestamp))
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "message": "Feedback saved to ValutaTicks.db for RL."}
+    except Exception as e:
+        log.error(f"[Online RL] DB Error: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 

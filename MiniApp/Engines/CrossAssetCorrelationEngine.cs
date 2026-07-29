@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Linq;
 
@@ -29,8 +29,15 @@ public static class CrossAssetCorrelationEngine
         string key = symbol.ToUpper();
         _intermarketPrices.AddOrUpdate(
             key,
-            new[] { price },
-            (_, existing) => existing.Concat(new[] { price }).TakeLast(100).ToArray()
+            _ => new[] { price },
+            (_, existing) =>
+            {
+                var newArr = new double[Math.Min(100, existing.Length + 1)];
+                int copyStart = existing.Length >= 100 ? 1 : 0;
+                Array.Copy(existing, copyStart, newArr, 0, newArr.Length - 1);
+                newArr[^1] = price;
+                return newArr;
+            }
         );
     }
 
@@ -45,7 +52,8 @@ public static class CrossAssetCorrelationEngine
         // 1. Analyze US Dollar Index (DXY Proxy using inverse EUR/USD or BTC/USDT lead-lag)
         if (_intermarketPrices.TryGetValue("EURUSDT", out var eurPrices) && eurPrices.Length >= 5)
         {
-            double eurChange = (eurPrices[^1] - eurPrices[0]) / eurPrices[0];
+            int lookback = Math.Max(0, eurPrices.Length - 20); // only use recent momentum
+            double eurChange = (eurPrices[^1] - eurPrices[lookback]) / eurPrices[lookback];
             // EUR/USD is inverse to DXY (~80% negative correlation)
             dxyScore = -Math.Sign(eurChange) * Math.Min(1.0, Math.Abs(eurChange) * 5000.0);
         }
@@ -53,12 +61,13 @@ public static class CrossAssetCorrelationEngine
         // 2. Analyze Risk Asset Sentiment (S&P 500 / BTC Proxy)
         if (_intermarketPrices.TryGetValue("BTCUSDT", out var btcPrices) && btcPrices.Length >= 5)
         {
-            double btcChange = (btcPrices[^1] - btcPrices[0]) / btcPrices[0];
+            int lookback = Math.Max(0, btcPrices.Length - 20);
+            double btcChange = (btcPrices[^1] - btcPrices[lookback]) / btcPrices[lookback];
             riskScore = Math.Sign(btcChange) * Math.Min(1.0, Math.Abs(btcChange) * 2000.0);
         }
 
         double scoreContribution = 0.0;
-        string desc = "Межрыночный вектор находится в балансе.";
+        string desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РІРµРєС‚РѕСЂ РЅР°С…РѕРґРёС‚СЃСЏ РІ Р±Р°Р»Р°РЅСЃРµ.";
 
         if (isForex)
         {
@@ -68,12 +77,12 @@ public static class CrossAssetCorrelationEngine
                 if (dxyScore < -0.3)
                 {
                     scoreContribution = 0.45;
-                    desc = "Межрыночный имбаланс: Падение DXY (Индекс Доллара) даёт бычий импульс (+0.45).";
+                    desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: РџР°РґРµРЅРёРµ DXY (РРЅРґРµРєСЃ Р”РѕР»Р»Р°СЂР°) РґР°С‘С‚ Р±С‹С‡РёР№ РёРјРїСѓР»СЊСЃ (+0.45).";
                 }
                 else if (dxyScore > 0.3)
                 {
                     scoreContribution = -0.45;
-                    desc = "Межрыночный имбаланс: Рост DXY давит на пару ВНИЗ (-0.45).";
+                    desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: Р РѕСЃС‚ DXY РґР°РІРёС‚ РЅР° РїР°СЂСѓ Р’РќРР— (-0.45).";
                 }
             }
         }
@@ -83,12 +92,12 @@ public static class CrossAssetCorrelationEngine
             if (riskScore > 0.3)
             {
                 scoreContribution = 0.40;
-                desc = "Межрыночный имбаланс: Сильный бычий аппетит к риску (Risk-On Sentiment +0.40).";
+                desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: РЎРёР»СЊРЅС‹Р№ Р±С‹С‡РёР№ Р°РїРїРµС‚РёС‚ Рє СЂРёСЃРєСѓ (Risk-On Sentiment +0.40).";
             }
             else if (riskScore < -0.3)
             {
                 scoreContribution = -0.40;
-                desc = "Межрыночный имбаланс: Бегство из рисковых активов (Risk-Off Sentiment -0.40).";
+                desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: Р‘РµРіСЃС‚РІРѕ РёР· СЂРёСЃРєРѕРІС‹С… Р°РєС‚РёРІРѕРІ (Risk-Off Sentiment -0.40).";
             }
         }
 

@@ -183,8 +183,7 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
                     symbols = symbol
                 }
             };
-            string json = JsonSerializer.Serialize(subMsg);
-            byte[] bytes = Encoding.UTF8.GetBytes(json);
+            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(subMsg);
             await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
             Console.WriteLine($"[TwelveData WS] Requested subscription for {symbol}");
         }
@@ -224,11 +223,10 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
                 continue;
             }
 
-            ClientWebSocket? ws = null;
             try
             {
                 string url = $"wss://ws.twelvedata.com/v1/quotes/price?apikey={apiKey}";
-                ws = new ClientWebSocket();
+                using var ws = new ClientWebSocket();
                 ws.Options.SetRequestHeader("User-Agent", "ValutaBot/2.0-ZeroAlloc");
                 ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
 
@@ -241,59 +239,63 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
                 var allSymbols = new HashSet<string>(defaultSymbols);
                 foreach (var s in _clients.Keys) allSymbols.Add(s);
 
-                var subMsg = JsonSerializer.Serialize(new
+                var subMsgDto = new
                 {
                     action = "subscribe",
                     @params = new
                     {
                         symbols = string.Join(",", allSymbols)
                     }
-                });
+                };
+                byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(subMsgDto);
+                await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
 
-                await ws.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(subMsg)), WebSocketMessageType.Text, true, ct);
-
-                byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(65536);
+                using var memoryStream = new System.IO.MemoryStream();
 
                 while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
                 {
                     ValueWebSocketReceiveResult result = default;
-                    int offset = 0;
+                    memoryStream.SetLength(0);
 
-                    do
+                    try
                     {
-                        if (offset >= receiveBuffer.Length)
+                        byte[] tempBuffer = ArrayPool<byte>.Shared.Rent(8192);
+                        try
                         {
-                            var newBuffer = ArrayPool<byte>.Shared.Rent(receiveBuffer.Length * 2);
-                            Array.Copy(receiveBuffer, newBuffer, offset);
-                            ArrayPool<byte>.Shared.Return(receiveBuffer);
-                            receiveBuffer = newBuffer;
+                            do
+                            {
+                                result = await ws.ReceiveAsync(tempBuffer.AsMemory(), ct);
+                                if (result.MessageType == WebSocketMessageType.Close) break;
+                                memoryStream.Write(tempBuffer, 0, result.Count);
+                            }
+                            while (!result.EndOfMessage && !ct.IsCancellationRequested);
                         }
-
-                        result = await ws.ReceiveAsync(receiveBuffer.AsMemory(offset, receiveBuffer.Length - offset), ct);
-                        if (result.MessageType == WebSocketMessageType.Close) break;
-
-                        offset += result.Count;
+                        finally
+                        {
+                            ArrayPool<byte>.Shared.Return(tempBuffer);
+                        }
                     }
-                    while (!result.EndOfMessage && !ct.IsCancellationRequested);
+                    catch
+                    {
+                        break;
+                    }
 
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         break;
                     }
 
-                    if (offset > 0)
+                    if (memoryStream.Length > 0)
                     {
-                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent(offset);
-                        Array.Copy(receiveBuffer, channelBuffer, offset);
+                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent((int)memoryStream.Length);
+                        Array.Copy(memoryStream.GetBuffer(), channelBuffer, (int)memoryStream.Length);
 
-                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, offset)))
+                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, (int)memoryStream.Length)))
                         {
                             ArrayPool<byte>.Shared.Return(channelBuffer);
                         }
                     }
                 }
-                
-                ArrayPool<byte>.Shared.Return(receiveBuffer);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -301,8 +303,7 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
             }
             finally
             {
-                lock (_wsLock) { if (_activeWs == ws) _activeWs = null; }
-                try { ws?.Dispose(); } catch { }
+                lock (_wsLock) { _activeWs = null; }
             }
 
             if (!ct.IsCancellationRequested)
@@ -345,38 +346,33 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
         }
     }
 
+    private struct TwelveDataTickDto
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("event")]
+        public string Event { get; set; }
+        
+        [System.Text.Json.Serialization.JsonPropertyName("symbol")]
+        public string Symbol { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("price")]
+        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)]
+        public double Price { get; set; }
+    }
+
     private static void ParseTick(ReadOnlySpan<byte> jsonData)
     {
         try
         {
-            var readerOptions = new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip };
-            var reader = new Utf8JsonReader(jsonData, readerOptions);
+            var dto = System.Text.Json.JsonSerializer.Deserialize<TwelveDataTickDto>(jsonData);
 
-            using var doc = JsonDocument.ParseValue(ref reader);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("event", out var evProp) && evProp.ValueEquals("price"))
+            if (dto.Event == "price" && dto.Price > 0 && !string.IsNullOrEmpty(dto.Symbol))
             {
-                if (root.TryGetProperty("symbol", out var symProp) && root.TryGetProperty("price", out var priceProp))
-                {
-                    string symbol = symProp.GetString() ?? "";
-                    double price = 0;
-
-                    if (priceProp.ValueKind == JsonValueKind.Number)
-                        price = priceProp.GetDouble();
-                    else if (priceProp.ValueKind == JsonValueKind.String)
-                        double.TryParse(priceProp.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out price);
-
-                    if (price > 0 && !string.IsNullOrEmpty(symbol))
-                    {
-                        string cleanKey = NormalizeKey(symbol);
-                        var buffer = _realtimeTicks.GetOrAdd(cleanKey, _ => new TickRingBuffer(100));
-                        buffer.AddTick(price);
-                        
-                        // Fire-and-forget broadcast to all connected frontend clients
-                        _ = BroadcastToClientsAsync(symbol, price);
-                    }
-                }
+                string cleanKey = NormalizeKey(dto.Symbol);
+                var buffer = _realtimeTicks.GetOrAdd(cleanKey, _ => new TickRingBuffer(100));
+                buffer.AddTick(dto.Price);
+                
+                // Fire-and-forget broadcast to all connected frontend clients
+                _ = BroadcastToClientsAsync(dto.Symbol, dto.Price);
             }
         }
         catch { /* skip malformed ticks */ }
@@ -412,26 +408,35 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
                 if (dict.TryRemove(id, out var deadWs))
                 {
                     _clientLocks.TryRemove(deadWs, out _);
+                    deadWs.Dispose();
                 }
             }
         }
     }
 
+    private struct ClientTickDto
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("s")]
+        public string Symbol { get; set; }
+        
+        [System.Text.Json.Serialization.JsonPropertyName("p")]
+        public double Price { get; set; }
+    }
+
     private static async Task SendToClientAsync(WebSocket ws, string symbol, double price)
     {
-        // Minimal json allocation for broadcasting
-        string json = $"{{\"symbol\":\"{symbol}\",\"price\":{price.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}";
-        byte[] bytes = Encoding.UTF8.GetBytes(json);
+        var dto = new ClientTickDto { Symbol = symbol, Price = price };
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(dto);
         
-        var sem = _clientLocks.GetOrAdd(ws, _ => new SemaphoreSlim(1, 1));
-        await sem.WaitAsync();
+        var lockObj = _clientLocks.GetOrAdd(ws, _ => new SemaphoreSlim(1, 1));
+        await lockObj.WaitAsync();
         try
         {
             await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
         }
         finally
         {
-            sem.Release();
+            lockObj.Release();
         }
     }
 
@@ -439,9 +444,6 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
 
     private static string NormalizeKey(string asset)
     {
-        if (_keyCache.TryGetValue(asset, out var cached)) return cached;
-        var clean = asset.ToUpper().Replace("/", "").Replace("OTC", "").Replace("_OTC", "").Replace(" ", "").Replace("-", "").Trim();
-        _keyCache[asset] = clean;
-        return clean;
+        return AssetSanitizer.Sanitize(asset);
     }
 }

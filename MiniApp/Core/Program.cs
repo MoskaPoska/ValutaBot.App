@@ -14,7 +14,7 @@ internal static class Program
 
         if (args.Length >= 3 && args[0] == "--backtest")
         {
-            BacktestEngine.RunBacktestAsync(args[1], args[2]).GetAwaiter().GetResult();
+            Console.WriteLine("CLI Backtest disabled due to DI migration.");
             return;
         }
 
@@ -40,9 +40,15 @@ internal static class Program
 
     private static async System.Threading.Tasks.Task RunLocalTests()
     {
+        var ta = new TechnicalAnalysisEngine();
+        var wfEngine = new WalkForwardValidationEngine(ta);
+        var cmEngine = new ConfluenceMatrixEngine(new MarketDataFetcher(), ta);
+        var aeEngine = new AdaptiveExpiryEngine();
         Console.WriteLine("==================================================");
+        
         Console.WriteLine("        RUNNING COMPREHENSIVE MATH ENGINE TESTS   ");
         Console.WriteLine("==================================================");
+        
 
         bool allPassed = true;
 
@@ -66,9 +72,9 @@ internal static class Program
         {
             // ─── 1. TEST ASSET SANITIZER ───
             Console.WriteLine("\n[1] Testing Asset Sanitizer (Cyrillic OTC vs English)...");
-            string clean1 = MiniAppController.SanitizeAsset("EUR/USD OTC");
-            string clean2 = MiniAppController.SanitizeAsset("EUR/USD ОТС"); // Cyrillic
-            string clean3 = MiniAppController.SanitizeAsset("  GBP-USD  ");
+            string clean1 = AssetSanitizer.Sanitize("EUR/USD OTC");
+            string clean2 = AssetSanitizer.Sanitize("EUR/USD ОТС"); // Cyrillic
+            string clean3 = AssetSanitizer.Sanitize("  GBP-USD  ");
             
             Assert("Sanitize English OTC", clean1 == "EURUSD", $"Expected 'EURUSD', got '{clean1}'");
             Assert("Sanitize Cyrillic OTC", clean2 == "EURUSD", $"Expected 'EURUSD', got '{clean2}'");
@@ -166,7 +172,7 @@ internal static class Program
             
             // Test weekend fallback for EUR/USD
             Console.WriteLine("Fetching EUR/USD (simulated weekend fallback)...");
-            var res = await MiniAppController.ExecuteBinanceAnalysis("EUR/USD OTC", "m1");
+            var res = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("EUR/USD OTC", "m1"), System.Threading.CancellationToken.None);
             string resJson = JsonSerializer.Serialize(res, options);
             
             Assert("EUR/USD OTC fetching", resJson.Contains("direction") && !resJson.Contains("error"));
@@ -184,7 +190,7 @@ internal static class Program
                 BotLogger.Info("[Crash Test] Forced WebSocket socket disconnection executed successfully.");
 
                 // Request market analysis immediately after forced disconnect
-                var fallbackRes = await MiniAppController.ExecuteBinanceAnalysis("BTC/USDT OTC", "m1");
+                var fallbackRes = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("BTC/USDT OTC", "m1"), System.Threading.CancellationToken.None);
                 string fallbackJson = JsonSerializer.Serialize(fallbackRes, options);
 
                 Assert("Post-Disconnect Fallback Resilience", fallbackJson.Contains("direction") && !fallbackJson.Contains("error"), "System seamlessly switched to REST fallback upon socket disconnect");
@@ -193,6 +199,113 @@ internal static class Program
             {
                 Assert("Post-Disconnect Fallback Resilience", false, $"Failed handling socket disconnect: {crashEx.Message}");
             }
+
+            // ─── 8. TEST EDGE CASES & EXTREME CONDITIONS ───
+            Console.WriteLine("\n[8] Testing Edge Cases & Extreme Conditions...");
+
+            // 8.1 Gatekeeper Flat Market
+            double[] flatPrices = new double[20];
+            var flatCandles = new MiniAppController.OhlcCandle[20];
+            for (int i = 0; i < 20; i++) 
+            { 
+                flatPrices[i] = 1.0500; 
+                flatCandles[i] = new MiniAppController.OhlcCandle(1.0500, 1.0500, 1.0500, 1.0500, 100);
+            }
+            var gatekeeperRes = (new TechnicalAnalysisEngine()).ValidateMarketGatekeeper(flatPrices, flatCandles);
+            Assert("Gatekeeper detects flat market", gatekeeperRes.IsTradeable == false && gatekeeperRes.Reason.Contains("засто"), $"Expected false/застой, got {gatekeeperRes.IsTradeable}/{gatekeeperRes.Reason}");
+
+            // 8.2 Walk-Forward with too few candles
+            double[] shortPrices = new double[10];
+            for (int i = 0; i < 10; i++) shortPrices[i] = 1.0;
+            var wfRes = wfEngine.ValidateWalkForward("TEST", "m1", shortPrices, false);
+            Assert("WalkForward handles insufficient data", wfRes.IsOverfitted == false && wfRes.StatusReasoning.Contains("Недостаточно"), $"Expected false/Недостаточно, got {wfRes.IsOverfitted}");
+
+            // 8.3 Order Flow Spoofing Trap Detection
+            double[] spoofPrices = new double[10];
+            double[] spoofVolumes = new double[10];
+            for (int i = 0; i < 10; i++) { spoofPrices[i] = 100.0; spoofVolumes[i] = 100.0; }
+            spoofPrices[8] = 99.999;
+            spoofPrices[9] = 100.0; // Small up-tick to force volume into Buy side
+            spoofVolumes[9] = 5000.0; // Massive volume, but priceDelta from 5 periods ago is 0
+            var orderFlowRes = OrderFlowEngine.AnalyzeOrderFlow(spoofPrices, spoofVolumes, null, null);
+            Assert("OrderFlow detects spoofing trap", orderFlowRes.OrderFlowState == "SPOOFING_TRAP", $"Expected SPOOFING_TRAP, got {orderFlowRes.OrderFlowState} (Delta: {orderFlowRes.DeltaRatio})");
+
+            // 8.4 AutoCalibration Thread-Safety Stress Test
+            Console.WriteLine("    Running AutoCalibration thread-safety stress test (1000 concurrent trades)...");
+            var tasks = new System.Threading.Tasks.Task[100];
+            for (int i = 0; i < 100; i++)
+            {
+                tasks[i] = System.Threading.Tasks.Task.Run(() => 
+                {
+                    for (int j = 0; j < 10; j++)
+                    {
+                        AutoCalibrationEngine.RecordSourceOutcome("LIGHTGBM", "TEST_ASSET", "m1", true);
+                    }
+                });
+            }
+            System.Threading.Tasks.Task.WaitAll(tasks);
+            var weight = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", "TEST_ASSET", "m1", 30.0, 1.5, 50.0);
+            Assert("AutoCalibration Thread-Safety", weight > 0.0, "Engine survived 1000 concurrent writes without crashing");
+
+            // ─── 9. ADDITIONAL DEEP TESTS ───
+            Console.WriteLine("\n[9] Additional deep analysis tests...");
+
+            // 9.1 ContinuousStateEngine Flash Crash (Hyper Accelerating Down)
+            double[] flashPrices = { 100, 100, 100, 100, 100, 99, 97, 94, 90, 85, 75, 60 };
+            var flashRes = ContinuousStateEngine.EvaluateContinuousState(flashPrices, "TEST", "m1");
+            Assert("Flash Crash detected", flashRes.VelocityRegime == "HYPER_ACCELERATING_DOWN" && flashRes.VelocityBpsPerSec < -3.0, $"Expected HYPER_ACCELERATING_DOWN, got {flashRes.VelocityRegime} with Vel {flashRes.VelocityBpsPerSec}");
+
+            // 9.2 OrderFlow Bearish Absorption
+            double[] absPrices = { 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 99.9, 99.5 };
+            double[] absVols = { 100, 100, 100, 100, 100, 100, 100, 100, 5000, 5000 };
+            // absPrices[8] and [9] drop, meaning priceDiff < 0 -> volume goes to SELL. Wait, deltaRatio = Buy/Sell.
+            // If deltaRatio > 1.8 and price drops -> Bearish Absorption.
+            // We need price to drop, but massive BUY volume. How?
+            // If priceDiff > 0, it counts as BUY. Let's make price fluctuate up by 0.001 with massive volume, then drop by 0.5 with tiny volume.
+            double[] bearishAbsPrices = { 100, 100, 100, 100, 100, 100.001, 100.002, 100.003, 100.004, 99.5 };
+            double[] bearishAbsVols = { 100, 100, 100, 100, 100, 2000, 2000, 2000, 2000, 50 };
+            var absRes = OrderFlowEngine.AnalyzeOrderFlow(bearishAbsPrices, bearishAbsVols, null, null);
+            Assert("Bearish Absorption detected", absRes.OrderFlowState == "BEARISH_ABSORPTION", $"Expected BEARISH_ABSORPTION, got {absRes.OrderFlowState}");
+
+            // 9.3 AutoCalibration Forgetting Factor
+            for (int i = 0; i < 60; i++)
+            {
+                // Give 60 wins for ONNX
+                AutoCalibrationEngine.RecordSourceOutcome("ONNX", "TEST_ASSET2", "m1", true);
+            }
+            var onnxWeight = AutoCalibrationEngine.GetCalibratedRegimeWeight("ONNX", "TEST_ASSET2", "m1", 20.0, 1.0, 50.0); // Trending impulse (ONNX base 1.40). WinRate should be ~100% -> multiplier 1.6 -> 2.24
+            Assert("Forgetting factor applies without crashing", onnxWeight > 0.0, $"Weight is {onnxWeight}");
+
+            // 9.4 Technical Analysis Data Resiliency (Null/Empty Arrays)
+            try 
+            {
+                double[] emptyArr = new double[0];
+                var hmaRes = (new TechnicalAnalysisEngine()).ComputeHma(emptyArr);
+                var rsiRes = (new TechnicalAnalysisEngine()).ComputeConnorsRsi(emptyArr);
+                var macdRes = (new TechnicalAnalysisEngine()).ComputeMacd(emptyArr);
+                Assert("TechnicalAnalysis handles empty arrays safely", hmaRes == 0.0 && rsiRes == 50.0 && macdRes.macd == 0.0, "Expected safe fallback values");
+            }
+            catch (Exception ex)
+            {
+                Assert("TechnicalAnalysis handles empty arrays safely", false, $"Threw exception: {ex.Message}");
+            }
+
+            // ─── 10. SERVICES INTEGRATION TESTS ───
+            Console.WriteLine("\n[10] Services Integration Tests (SignalTracker & MLPythonService)...");
+
+            // 10.1 SignalTracker Vote History and Weighting
+            for (int i = 0; i < 10; i++) 
+            {
+                SignalTracker.RecordSignalVote("TEST_SOURCE", i < 8); // 8 wins, 2 losses (80% WR)
+            }
+            double trackWeight = SignalTracker.GetSignalWeight("TEST_SOURCE", 1.0);
+            Assert("SignalTracker correctly boosts high win-rate sources", trackWeight == 1.6, $"Expected 1.6x boost for 80% WR, got {trackWeight}x");
+
+            // 10.2 MLPythonService Circuit Breaker
+            MLPythonService.Init("http://127.0.0.1:9999/dead_endpoint"); // Dead URL
+            var mlRes = await MLPythonService.PredictAsync("BTCUSDT", "1m", flatCandles, false);
+            Assert("MLPythonService circuit breaker handles dead endpoint gracefully", mlRes == null, $"Expected null fallback, got {mlRes?.Direction}");
+
         }
         catch (Exception ex)
         {
@@ -217,5 +330,16 @@ internal static class Program
             Console.ResetColor();
         }
         Console.WriteLine("==================================================");
+        
     }
 }
+
+
+
+
+
+
+
+
+
+

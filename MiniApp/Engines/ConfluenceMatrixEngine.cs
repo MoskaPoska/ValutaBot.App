@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -6,21 +6,29 @@ using System.Threading.Tasks;
 namespace ValutaBot.MiniApp;
 
 public record ConfluenceMatrixResult(
-    double ConfluenceRatio,      // 0.0 – 1.0 (e.g., 1.0 = 100% agreement across all 4 timeframes)
+    double ConfluenceRatio,      // 0.0 вЂ“ 1.0 (e.g., 1.0 = 100% agreement across all 4 timeframes)
     bool IsGoldenSetup,          // true if 4D alignment >= 0.85 (85%+ agreement)
     int ProbabilityBoost,        // +5% to +15% win rate boost for consensus
-    string ConfluenceLabel,      // "🌟 ЗОЛОТОЙ СЕТАП (4D 100%)" | "⚡ СИЛЬНАЯ КОНФЛЮЭНЦИЯ (75%)" | "📊 СТАНДАРТ"
+    string ConfluenceLabel,      // "рџЊџ Р—РћР›РћРўРћР™ РЎР•РўРђРџ (4D 100%)" | "вљЎ РЎРР›Р¬РќРђРЇ РљРћРќР¤Р›Р®Р­РќР¦РРЇ (75%)" | "рџ“Љ РЎРўРђРќР”РђР Рў"
     string SummaryReasoning,     // Formatted text summary for AI consensus card
     Dictionary<string, string> TimeframeDirections // TF -> "BUY" | "PUT"
 );
 
-public static class ConfluenceMatrixEngine
+public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
 {
+    private readonly IMarketDataFetcher _fetcher;
+    private readonly ITechnicalAnalysisEngine _taEngine;
+
+    public ConfluenceMatrixEngine(IMarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine)
+    {
+        _fetcher = fetcher;
+        _taEngine = taEngine;
+    }
     /// <summary>
     /// Evaluates 4D Multi-Timeframe Confluence Matrix across 4 synchronized timeframes in parallel.
     /// Returns Golden Setup alignment score and win-rate probability boost.
     /// </summary>
-    public static async Task<ConfluenceMatrixResult> Evaluate4DMatrixAsync(
+    public async Task<ConfluenceMatrixResult> Evaluate4DMatrixAsync(
         string asset,
         string primaryTimeframe,
         bool isForex = false,
@@ -32,10 +40,10 @@ public static class ConfluenceMatrixEngine
         try
         {
             // 2. Fetch candles for all 4 timeframes in parallel (< 10ms execution)
-            var microTask   = MarketDataFetcher.FetchBinanceWithFallback(binanceSymbol, microTf, asset, 40, 10);
-            var primaryTask = MarketDataFetcher.FetchBinanceWithFallback(binanceSymbol, primaryTf, asset, 40, 10);
-            var macroTask   = MarketDataFetcher.FetchBinanceWithFallback(binanceSymbol, macroTf, asset, 40, 10);
-            var globalTask  = MarketDataFetcher.FetchBinanceWithFallback(binanceSymbol, globalTf, asset, 40, 10);
+            var microTask   = _fetcher.FetchBinanceWithFallback(binanceSymbol, microTf, asset, 40, 10);
+            var primaryTask = _fetcher.FetchBinanceWithFallback(binanceSymbol, primaryTf, asset, 40, 10);
+            var macroTask   = _fetcher.FetchBinanceWithFallback(binanceSymbol, macroTf, asset, 40, 10);
+            var globalTask  = _fetcher.FetchBinanceWithFallback(binanceSymbol, globalTf, asset, 40, 10);
 
             await Task.WhenAll(microTask, primaryTask, macroTask, globalTask);
 
@@ -77,12 +85,12 @@ public static class ConfluenceMatrixEngine
 
             string label = confluenceRatio switch
             {
-                >= 0.99 => "🌟 ЗОЛОТОЙ СЕТАП (4D 100%)",
-                >= 0.75 => "⚡ СИЛЬНОЕ СОВПАДЕНИЕ (3D 75%)",
-                _ => "📊 СТАНДАРТНЫЙ АНАЛИЗ (50%)"
+                >= 0.99 => "рџЊџ Р—РћР›РћРўРћР™ РЎР•РўРђРџ (4D 100%)",
+                >= 0.75 => "вљЎ РЎРР›Р¬РќРћР• РЎРћР’РџРђР”Р•РќРР• (3D 75%)",
+                _ => "рџ“Љ РЎРўРђРќР”РђР РўРќР«Р™ РђРќРђР›РР— (50%)"
             };
 
-            string summary = $"• 🎯 4D Матрица ({microTf.ToUpper()}+{primaryTf.ToUpper()}+{macroTf.ToUpper()}+{globalTf.ToUpper()}): {label}";
+            string summary = $"вЂў рџЋЇ 4D РњР°С‚СЂРёС†Р° ({microTf.ToUpper()}+{primaryTf.ToUpper()}+{macroTf.ToUpper()}+{globalTf.ToUpper()}): {label}";
 
             BotLogger.Info($"[Confluence 4D] {asset} | Ratio: {confluenceRatio * 100}% ({maxAgree}/4 {dominantDir}) | Boost: +{boost}% | Golden: {isGoldenSetup}");
 
@@ -102,14 +110,14 @@ public static class ConfluenceMatrixEngine
                 ConfluenceRatio: 0.5,
                 IsGoldenSetup: false,
                 ProbabilityBoost: 0,
-                ConfluenceLabel: "📊 СТАНДАРТ",
-                SummaryReasoning: "• 🎯 4D Матрица: Стандартный режим",
+                ConfluenceLabel: "рџ“Љ РЎРўРђРќР”РђР Рў",
+                SummaryReasoning: "вЂў рџЋЇ 4D РњР°С‚СЂРёС†Р°: РЎС‚Р°РЅРґР°СЂС‚РЅС‹Р№ СЂРµР¶РёРј",
                 TimeframeDirections: new()
             );
         }
     }
 
-    private static (string micro, string primary, string macro, string global) Resolve4DTimeframes(string tf)
+    private (string micro, string primary, string macro, string global) Resolve4DTimeframes(string tf)
     {
         return tf.ToLower() switch
         {
@@ -122,20 +130,27 @@ public static class ConfluenceMatrixEngine
         };
     }
 
-    private static string ScoreDirection(double[] prices)
+    /// <summary>
+    /// Scores directional bias for a single timeframe using the full
+    /// TechnicalAnalysisEngine pipeline (HMA, ConnorsRSI, ADX, Volume) вЂ”
+    /// replacing the former primitive 3-condition heuristic.
+    /// </summary>
+    private string ScoreDirection(double[] prices)
     {
         if (prices == null || prices.Length < 10) return "NEUTRAL";
 
-        double first = prices[0];
-        double last  = prices[^1];
-        double sma   = prices.Average();
-        double rsi   = TechnicalAnalysisEngine.ComputeRsi(prices, 14);
+        // Reuse the authoritative scoring function with its HMA + Connors RSI + ADX + Volume weighting.
+        // Volumes are not available here, so we pass an empty array вЂ” the engine handles this gracefully.
+        var (score, _, _, _, _, _) = _taEngine.ScoreTimeframe(
+            prices,
+            volumes: Array.Empty<double>(),
+            candles: null
+        );
 
-        int score = 0;
-        if (last > first) score++; else if (last < first) score--;
-        if (last > sma) score++; else if (last < sma) score--;
-        if (rsi > 52) score++; else if (rsi < 48) score--;
-
-        return score > 0 ? "BUY" : score < 0 ? "PUT" : "NEUTRAL";
+        // Threshold: require at least В±0.10 to avoid noise-induced signals
+        return score > 0.10 ? "BUY" : score < -0.10 ? "PUT" : "NEUTRAL";
     }
 }
+
+
+

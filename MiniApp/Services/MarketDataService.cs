@@ -55,10 +55,9 @@ public sealed class MarketDataService : BackgroundService
 
         while (!ct.IsCancellationRequested)
         {
-            ClientWebSocket? ws = null;
             try
             {
-                ws = new ClientWebSocket();
+                using var ws = new ClientWebSocket();
                 ws.Options.SetRequestHeader("User-Agent", "ValutaBot/2.0-ZeroAlloc");
                 ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
                 await ws.ConnectAsync(new Uri(url), ct);
@@ -111,10 +110,7 @@ public sealed class MarketDataService : BackgroundService
             {
                 Console.WriteLine($"[MDS] WS error: {ex.Message}, reconnecting in 5s");
             }
-            finally
-            {
-                try { ws?.Dispose(); } catch { }
-            }
+
 
             if (!ct.IsCancellationRequested)
             {
@@ -157,41 +153,43 @@ public sealed class MarketDataService : BackgroundService
     {
         try
         {
-            var readerOptions = new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip };
-            var reader = new Utf8JsonReader(jsonData, readerOptions);
+            var dto = System.Text.Json.JsonSerializer.Deserialize<BinanceStreamEventDto>(jsonData);
 
-            using var doc = JsonDocument.ParseValue(ref reader);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("data", out var data))
+            if (dto.Data.EventType == "24hrTicker" && !string.IsNullOrEmpty(dto.Data.Symbol) && dto.Data.ClosePrice > 0)
             {
-                if (data.TryGetProperty("e", out var eventTypeProp) && eventTypeProp.ValueEquals("24hrTicker"))
-                {
-                    if (data.TryGetProperty("s", out var sProp) &&
-                        data.TryGetProperty("c", out var cProp) &&
-                        data.TryGetProperty("v", out var vProp))
-                    {
-                        string symbol = sProp.GetString() ?? "";
-                        string cStr = cProp.GetString() ?? "";
-                        string vStr = vProp.GetString() ?? "";
-
-                        if (double.TryParse(cStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double price) &&
-                            double.TryParse(vStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double volume))
-                        {
-                            var key = symbol.Replace("USDT", "/USDT");
-                            LatestPrices[key] = (price, volume, DateTime.UtcNow);
-                            
-                            // Check for volume anomalies using zero-allocation memory instead of HTTP polling
-                            CheckVolumeAnomaly(symbol, price, volume);
-                            
-                            // Update signal tracker
-                            SignalTracker.UpdatePrice(symbol, price);
-                        }
-                    }
-                }
+                var cleanSymbol = ValutaBot.MiniApp.AssetSanitizer.Sanitize(dto.Data.Symbol);
+                var displayKey = dto.Data.Symbol.ToUpper().Replace("USDT", "/USDT"); // for display dictionary
+                
+                LatestPrices[displayKey] = (dto.Data.ClosePrice, dto.Data.Volume, DateTime.UtcNow);
+                
+                CheckVolumeAnomaly(cleanSymbol, dto.Data.ClosePrice, dto.Data.Volume);
+                SignalTracker.UpdatePrice(cleanSymbol, dto.Data.ClosePrice);
             }
         }
         catch { /* skip malformed ticks */ }
+    }
+
+    private struct BinanceStreamEventDto
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("data")]
+        public Binance24hrTickerDto Data { get; set; }
+    }
+
+    private struct Binance24hrTickerDto
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("e")]
+        public string EventType { get; set; }
+        
+        [System.Text.Json.Serialization.JsonPropertyName("s")]
+        public string Symbol { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("c")]
+        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)]
+        public double ClosePrice { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("v")]
+        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)]
+        public double Volume { get; set; }
     }
 
     private static readonly ConcurrentDictionary<string, TickRingBuffer> _volumeHistory = new();

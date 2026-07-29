@@ -1,4 +1,4 @@
-namespace ValutaBot.MiniApp;
+﻿namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Order Flow & Volume Delta Imbalance Engine for Forex & OTC market pairs.
@@ -25,12 +25,12 @@ public static class OrderFlowEngine
     {
         if (prices == null || prices.Length < 5 || volumes == null || volumes.Length < 5)
         {
-            return new OrderFlowResult(0, 0, 1.0, "BALANCED", 0, false, "Недостаточно свечей для анализа потока ордеров.");
+            return new OrderFlowResult(0, 0, 1.0, "BALANCED", 0, false, "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЃРІРµС‡РµР№ РґР»СЏ Р°РЅР°Р»РёР·Р° РїРѕС‚РѕРєР° РѕСЂРґРµСЂРѕРІ.");
         }
 
         int n = Math.Min(prices.Length, volumes.Length);
         
-        // ─── 1. Calculate Volume Baseline & Threshold for Block Trades ───
+        // в”Ђв”Ђв”Ђ 1. Calculate Volume Baseline & Threshold for Block Trades в”Ђв”Ђв”Ђ
         double avgVolume = volumes.Take(n - 1).TakeLast(20).Where(v => v > 0).DefaultIfEmpty(1.0).Average();
         double noiseThreshold = avgVolume * 0.60;      // Filter out micro-trade noise
         double blockTradeThreshold = avgVolume * 1.70;  // Threshold for Institutional Anomaly Clusters
@@ -47,11 +47,11 @@ public static class OrderFlowEngine
                 var c = candles[i];
                 double totalVol = c.Volume > 0 ? c.Volume : 1.0;
 
-                // ─── Filter 1: Ignore Noise Micro-Trades ───
+                // в”Ђв”Ђв”Ђ Filter 1: Ignore Noise Micro-Trades в”Ђв”Ђв”Ђ
                 if (totalVol < noiseThreshold)
                     continue;
 
-                // ─── Filter 2: Flag Institutional Block Trades ───
+                // в”Ђв”Ђв”Ђ Filter 2: Flag Institutional Block Trades в”Ђв”Ђв”Ђ
                 if (totalVol >= blockTradeThreshold)
                     hasInstitutionalBlockTrade = true;
 
@@ -102,34 +102,37 @@ public static class OrderFlowEngine
         double scoreContribution = 0;
         string desc;
 
-        // ─── 2. Spoofing & Passive Limit Absorption Detection ───
-        if (deltaRatio > 1.8 && priceDelta < -1e-6)
+        // в”Ђв”Ђв”Ђ 2. Spoofing Detection (must come FIRST вЂ” overlaps with Absorption on deltaRatio > 1.8) в”Ђв”Ђв”Ђ
+        // Spoofing: high buy volume but price goes NOWHERE в†’ artificial order book manipulation
+        if (deltaRatio > 1.8 && Math.Abs(priceDelta) < 1e-7)
+        {
+            state = "SPOOFING_TRAP";
+            scoreContribution = 0;
+            desc = "Р—Р°С„РёРєСЃРёСЂРѕРІР°РЅР° Р»РѕРІСѓС€РєР° СЃРїСѓС„РёРЅРіР° (Spoofing Trap): РѕР±СЉРµРј Р±РµР· РґРІРёР¶РµРЅРёСЏ С†РµРЅС‹.";
+        }
+        // в”Ђв”Ђв”Ђ 3. Passive Limit Absorption Detection в”Ђв”Ђв”Ђ
+        // Bearish Absorption: high buy volume but price FALLS в†’ huge sell wall absorbing all buys
+        else if (deltaRatio > 1.8 && priceDelta < -1e-6)
         {
             state = "BEARISH_ABSORPTION";
             scoreContribution = -0.35;
-            desc = "Поглощение покупок пассивным лимитным барьером продавца (Bearish Absorption).";
+            desc = "РџРѕРіР»РѕС‰РµРЅРёРµ РїРѕРєСѓРїРѕРє РїР°СЃСЃРёРІРЅС‹Рј Р»РёРјРёС‚РЅС‹Рј Р±Р°СЂСЊРµСЂРѕРј РїСЂРѕРґР°РІС†Р° (Bearish Absorption).";
         }
+        // Bullish Absorption: high sell volume but price RISES в†’ huge buy wall absorbing all sells
         else if (deltaRatio < 0.55 && priceDelta > 1e-6)
         {
             state = "BULLISH_ABSORPTION";
             scoreContribution = 0.35;
-            desc = "Поглощение продаж пассивным лимитным барьером покупателя (Bullish Absorption).";
+            desc = "РџРѕРіР»РѕС‰РµРЅРёРµ РїСЂРѕРґР°Р¶ РїР°СЃСЃРёРІРЅС‹Рј Р»РёРјРёС‚РЅС‹Рј Р±Р°СЂСЊРµСЂРѕРј РїРѕРєСѓРїР°С‚РµР»СЏ (Bullish Absorption).";
         }
-        else if (deltaRatio > 1.8 && Math.Abs(priceDelta) < 1e-7)
-        {
-            // High buy volume but zero price movement -> Spoofing Trap
-            state = "SPOOFING_TRAP";
-            scoreContribution = 0;
-            desc = "Зафиксирована ловушка спуфинга (Spoofing Trap): объем без движения цены.";
-        }
-        // ─── 3. Real Institutional Momentum Flow ───
+        // в”Ђв”Ђв”Ђ 4. Real Institutional Momentum Flow в”Ђв”Ђв”Ђ
         else if (deltaRatio >= 1.6 && priceDelta > 0)
         {
             state = "STRONG_BULLISH_FLOW";
             scoreContribution = hasInstitutionalBlockTrade ? 0.5 : 0.35;
             desc = hasInstitutionalBlockTrade
-                ? $"Аномальный институциональный блок покупок (Order Flow Ratio: {deltaRatio:F2}x)."
-                : $"Преобладание покупателей (Order Flow Ratio: {deltaRatio:F2}x).";
+                ? $"РђРЅРѕРјР°Р»СЊРЅС‹Р№ РёРЅСЃС‚РёС‚СѓС†РёРѕРЅР°Р»СЊРЅС‹Р№ Р±Р»РѕРє РїРѕРєСѓРїРѕРє (Order Flow Ratio: {deltaRatio:F2}x)."
+                : $"РџСЂРµРѕР±Р»Р°РґР°РЅРёРµ РїРѕРєСѓРїР°С‚РµР»РµР№ (Order Flow Ratio: {deltaRatio:F2}x).";
         }
         else if (deltaRatio <= 0.62 && priceDelta < 0)
         {
@@ -137,28 +140,28 @@ public static class OrderFlowEngine
             scoreContribution = hasInstitutionalBlockTrade ? -0.5 : -0.35;
             double invRatio = 1.0 / Math.Max(0.01, deltaRatio);
             desc = hasInstitutionalBlockTrade
-                ? $"Аномальный институциональный блок продаж (Order Flow Ratio: {invRatio:F2}x)."
-                : $"Преобладание продавцов (Order Flow Ratio: {invRatio:F2}x).";
+                ? $"РђРЅРѕРјР°Р»СЊРЅС‹Р№ РёРЅСЃС‚РёС‚СѓС†РёРѕРЅР°Р»СЊРЅС‹Р№ Р±Р»РѕРє РїСЂРѕРґР°Р¶ (Order Flow Ratio: {invRatio:F2}x)."
+                : $"РџСЂРµРѕР±Р»Р°РґР°РЅРёРµ РїСЂРѕРґР°РІС†РѕРІ (Order Flow Ratio: {invRatio:F2}x).";
         }
         else
         {
             state = "BALANCED";
             scoreContribution = 0;
-            desc = "Поток ордеров очищен от шума и находится в балансе.";
+            desc = "РџРѕС‚РѕРє РѕСЂРґРµСЂРѕРІ РѕС‡РёС‰РµРЅ РѕС‚ С€СѓРјР° Рё РЅР°С…РѕРґРёС‚СЃСЏ РІ Р±Р°Р»Р°РЅСЃРµ.";
         }
 
-        // ─── 4. Live Real-Time Orderbook Depth Imbalance (@depth20@100ms) ───
+        // в”Ђв”Ђв”Ђ 4. Live Real-Time Orderbook Depth Imbalance (@depth20@100ms) в”Ђв”Ђв”Ђ
         if (liveDepth != null)
         {
             if (liveDepth.ImbalanceRatio > 0.25)
             {
                 scoreContribution += 0.25;
-                desc += $" | Живой стакан ордеров: Преобладание лимитных покупок (+{liveDepth.ImbalanceRatio * 100:F0}% Imbalance).";
+                desc += $" | Р–РёРІРѕР№ СЃС‚Р°РєР°РЅ РѕСЂРґРµСЂРѕРІ: РџСЂРµРѕР±Р»Р°РґР°РЅРёРµ Р»РёРјРёС‚РЅС‹С… РїРѕРєСѓРїРѕРє (+{liveDepth.ImbalanceRatio * 100:F0}% Imbalance).";
             }
             else if (liveDepth.ImbalanceRatio < -0.25)
             {
                 scoreContribution -= 0.25;
-                desc += $" | Живой стакан ордеров: Преобладание лимитных продаж ({liveDepth.ImbalanceRatio * 100:F0}% Imbalance).";
+                desc += $" | Р–РёРІРѕР№ СЃС‚Р°РєР°РЅ РѕСЂРґРµСЂРѕРІ: РџСЂРµРѕР±Р»Р°РґР°РЅРёРµ Р»РёРјРёС‚РЅС‹С… РїСЂРѕРґР°Р¶ ({liveDepth.ImbalanceRatio * 100:F0}% Imbalance).";
             }
         }
 

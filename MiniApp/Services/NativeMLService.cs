@@ -1,23 +1,22 @@
 using System;
 using System.Linq;
-using Microsoft.ML;
-using Microsoft.ML.Data;
 
 namespace ValutaBot.MiniApp;
 
+/// <summary>
+/// Feature vector for in-process decision ensemble scoring.
+/// Note: Microsoft.ML / FastTree is not used at runtime — scoring is a pure
+/// mathematical ensemble (RSI boundaries, Kalman slope, Hurst regime, BB Z-Score).
+/// The ML.NET attributes were removed to reflect the actual implementation honestly.
+/// </summary>
 public class MarketFeatureInput
 {
-    [LoadColumn(0)] public float Rsi { get; set; }
-    [LoadColumn(1)] public float EmaSpread { get; set; }
-    [LoadColumn(2)] public float BbZScore { get; set; }
-    [LoadColumn(3)] public float HurstExponent { get; set; }
-    [LoadColumn(4)] public float KalmanSlope { get; set; }
-    [LoadColumn(5)] public float VolatilityRatio { get; set; }
-}
-
-public class MarketPredictionOutput
-{
-    [ColumnName("Score")] public float Score { get; set; }
+    public float Rsi { get; set; }
+    public float EmaSpread { get; set; }
+    public float BbZScore { get; set; }
+    public float HurstExponent { get; set; }
+    public float KalmanSlope { get; set; }
+    public float VolatilityRatio { get; set; }
 }
 
 /// <summary>

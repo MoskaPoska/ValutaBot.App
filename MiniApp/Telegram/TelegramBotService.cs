@@ -146,7 +146,7 @@ public partial class TelegramBotService : BackgroundService
                             {
                                 try { await HandleMessage(token, chatId, text, username, _webAppUrl); }
                                 catch (Exception ex) { Console.WriteLine($"[TG Bot] HandleMessage error ({chatId}): {ex.Message}"); }
-                            });
+                            }, stoppingToken);
                         }
                         else if (update.TryGetProperty("callback_query", out var callbackQuery))
                         {
@@ -165,7 +165,7 @@ public partial class TelegramBotService : BackgroundService
                             {
                                 try { await HandleCallback(token, queryId, chatId, data, messageId, username, _webAppUrl); }
                                 catch (Exception ex) { Console.WriteLine($"[TG Bot] HandleCallback error ({chatId}): {ex.Message}"); }
-                            });
+                            }, stoppingToken);
                         }
                     }
                 }
@@ -201,7 +201,7 @@ public partial class TelegramBotService : BackgroundService
         {
             var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
             var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
             var resp = await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
             if (!resp.IsSuccessStatusCode)
             {
@@ -379,7 +379,7 @@ public partial class TelegramBotService : BackgroundService
                 menu_button = new { type = "default" }
             };
             var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
             await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/setChatMenuButton", content);
         }
         catch { }

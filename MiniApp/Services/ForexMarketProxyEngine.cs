@@ -98,16 +98,27 @@ public static class ForexMarketProxyEngine
             return new ForexProxyAnalysis(pair, proxySymbol, 0, 0, 0, 1.0, "BALANCED", 0.0);
         }
 
-        var trades = queue.Where(t => (DateTime.UtcNow - t.Timestamp).TotalMinutes <= 3).ToList();
-        if (trades.Count < 5)
+        DateTime cutoff = DateTime.UtcNow.AddMinutes(-3);
+        double buyVol = 0;
+        double sellVol = 0;
+        int tradesCount = 0;
+
+        foreach (var t in queue)
+        {
+            if (t.Timestamp >= cutoff)
+            {
+                if (t.IsAggressiveBuy) buyVol += t.Volume;
+                else sellVol += t.Volume;
+                tradesCount++;
+            }
+        }
+
+        if (tradesCount < 5)
         {
             return new ForexProxyAnalysis(pair, proxySymbol, 0, 0, 0, 1.0, "BALANCED", 0.0);
         }
 
-        double buyVol = trades.Where(t => t.IsAggressiveBuy).Sum(t => t.Volume);
-        double sellVol = trades.Where(t => !t.IsAggressiveBuy).Sum(t => t.Volume);
         double cvd = buyVol - sellVol; // Cumulative Volume Delta
-
         double totalVol = buyVol + sellVol;
         double imbalanceRatio = totalVol > 0 ? (buyVol - sellVol) / totalVol : 0.0;
 

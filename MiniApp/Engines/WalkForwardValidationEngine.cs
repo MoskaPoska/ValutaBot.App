@@ -9,36 +9,33 @@ namespace ValutaBot.MiniApp;
 /// Prevents ML over-fitting drawdowns during sudden market regime shifts & news events
 /// by running in-memory Out-of-Sample (OOS) backtesting and tracking drawdown cooloff phases.
 /// </summary>
-public static class WalkForwardValidationEngine
+public class WalkForwardValidationEngine : IWalkForwardValidationEngine
 {
-    public record WalkForwardResult(
-        double InSampleWinRate,
-        double OutOfSampleWinRate,
-        bool IsOverfitted,
-        bool IsCooloffActive,
-        double WeightMultiplier,
-        string StatusReasoning
-    );
-
     private class CooloffState
     {
         public int ConsecutiveLosses { get; set; }
         public DateTime CooloffUntil { get; set; } = DateTime.MinValue;
     }
 
-    private static readonly ConcurrentDictionary<string, CooloffState> _cooloffMap = new();
+    private readonly ConcurrentDictionary<string, CooloffState> _cooloffMap = new();
+    private readonly ITechnicalAnalysisEngine _taEngine;
+
+    public WalkForwardValidationEngine(ITechnicalAnalysisEngine taEngine)
+    {
+        _taEngine = taEngine;
+    }
 
     /// <summary>
     /// Evaluates Walk-Forward Out-Of-Sample performance on historical candles
     /// to detect overfitting and prevent drawdown losses during regime shifts.
     /// </summary>
-    public static WalkForwardResult ValidateWalkForward(
+    public WalkForwardValidationEngine.WalkForwardResult ValidateWalkForward(
         string asset,
         string timeframe,
         double[] prices,
         bool isNewsActive = false)
     {
-        string key = $"{asset.ToUpper()}_{timeframe.ToLower()}";
+        string key = "${asset.ToUpper()}_${timeframe.ToLower()}";
         var cooloff = _cooloffMap.GetOrAdd(key, _ => new CooloffState());
 
         // 1. Check if Cooloff Phase is active (triggered after 3 consecutive losses)
@@ -46,7 +43,7 @@ public static class WalkForwardValidationEngine
         if (isCooloffActive)
         {
             BotLogger.Warn($"[Walk-Forward] Cooloff active for {key} until {cooloff.CooloffUntil:HH:mm:ss}. ML weight suppressed to 0.1x.");
-            return new WalkForwardResult(
+            return new WalkForwardValidationEngine.WalkForwardResult(
                 InSampleWinRate: 0.65,
                 OutOfSampleWinRate: 0.40,
                 IsOverfitted: true,
@@ -60,7 +57,7 @@ public static class WalkForwardValidationEngine
         if (isNewsActive)
         {
             BotLogger.Warn($"[Walk-Forward] High-Impact News Blackout active for {key}. Clamping ML weight.");
-            return new WalkForwardResult(
+            return new WalkForwardValidationEngine.WalkForwardResult(
                 InSampleWinRate: 0.70,
                 OutOfSampleWinRate: 0.45,
                 IsOverfitted: true,
@@ -72,34 +69,65 @@ public static class WalkForwardValidationEngine
 
         if (prices == null || prices.Length < 30)
         {
-            return new WalkForwardResult(0.65, 0.60, false, false, 1.0, "Недостаточно свечей для Walk-Forward анализа.");
+            return new WalkForwardValidationEngine.WalkForwardResult(0.65, 0.60, false, false, 1.0, "Недостаточно свечей для Walk-Forward анализа.");
         }
 
         // 3. Walk-Forward Split: 70% In-Sample (IS), 30% Out-of-Sample (OOS)
         int total = prices.Length;
         int inSampleCount = (int)(total * 0.70);
-        int outSampleCount = total - inSampleCount;
-
+        
         int inSampleWins = 0;
         int inSampleTotal = 0;
+        
+        // 4. Batch Process O(N) strictly isolated to prevent look-ahead bias
+        // Since HMA and RSI only look backwards, we only need to compute this once for the full array.
+        var (fullHma, fullRsi) = _taEngine.ComputeWalkForwardBatch(prices);
 
-        for (int i = 5; i < inSampleCount - 1; i++)
+        // Start from 15 to ensure enough history for HMA/RSI lookbacks
+        for (int i = 15; i < inSampleCount - 1; i++)
         {
-            double diff = prices[i + 1] - prices[i];
-            double prevDiff = prices[i] - prices[i - 1];
-            if (diff != 0 && Math.Sign(diff) == Math.Sign(prevDiff)) inSampleWins++;
-            inSampleTotal++;
+            double hma = fullHma[i];
+            double rsi = fullRsi[i];
+            
+            double score = (rsi - 50) / 40.0;
+            if (prices[i] > hma) score += 0.15;
+            else if (prices[i] < hma) score -= 0.15;
+
+            // Only trade if signal is strong enough (>0.15)
+            if (score > 0.15)
+            {
+                if (prices[i + 1] > prices[i]) inSampleWins++;
+                inSampleTotal++;
+            }
+            else if (score < -0.15)
+            {
+                if (prices[i + 1] < prices[i]) inSampleWins++;
+                inSampleTotal++;
+            }
         }
 
         int outSampleWins = 0;
         int outSampleTotal = 0;
 
-        for (int i = inSampleCount; i < total - 1; i++)
+        for (int i = Math.Max(15, inSampleCount); i < total - 1; i++)
         {
-            double diff = prices[i + 1] - prices[i];
-            double prevDiff = prices[i] - prices[i - 1];
-            if (diff != 0 && Math.Sign(diff) == Math.Sign(prevDiff)) outSampleWins++;
-            outSampleTotal++;
+            double hma = fullHma[i];
+            double rsi = fullRsi[i];
+            
+            double score = (rsi - 50) / 40.0;
+            if (prices[i] > hma) score += 0.15;
+            else if (prices[i] < hma) score -= 0.15;
+
+            if (score > 0.15)
+            {
+                if (prices[i + 1] > prices[i]) outSampleWins++;
+                outSampleTotal++;
+            }
+            else if (score < -0.15)
+            {
+                if (prices[i + 1] < prices[i]) outSampleWins++;
+                outSampleTotal++;
+            }
         }
 
         double isWinRate = inSampleTotal > 0 ? (double)inSampleWins / inSampleTotal : 0.65;
@@ -110,10 +138,10 @@ public static class WalkForwardValidationEngine
 
         double weightMult = isOverfitted ? 0.35 : (oosWinRate >= 0.60 ? 1.25 : 1.0);
         string reasoning = isOverfitted
-            ? $"Обнаружен перекос модели (IS WR={isWinRate * 100:F0}%, OOS WR={oosWinRate * 100:F0}%). Понижение веса ML."
-            : $"Walk-Forward проверка успешна (OOS WR={oosWinRate * 100:F0}%).";
+            ? "Обнаружен перекос модели (IS WR=${isWinRate * 100:F0}%, OOS WR=${oosWinRate * 100:F0}%). Понижение веса ML."
+            : "Walk-Forward проверка успешна (OOS WR=${oosWinRate * 100:F0}%).";
 
-        return new WalkForwardResult(
+        return new WalkForwardValidationEngine.WalkForwardResult(
             InSampleWinRate: Math.Round(isWinRate, 2),
             OutOfSampleWinRate: Math.Round(oosWinRate, 2),
             IsOverfitted: isOverfitted,
@@ -127,9 +155,9 @@ public static class WalkForwardValidationEngine
     /// Records trade outcome to manage drawdown cooloff phase.
     /// Triggers 15-minute cooloff if 3 consecutive losses occur.
     /// </summary>
-    public static void RecordTradeOutcome(string asset, string timeframe, bool isWin)
+    public void RecordTradeOutcome(string asset, string timeframe, bool isWin)
     {
-        string key = $"{asset.ToUpper()}_{timeframe.ToLower()}";
+        string key = "${asset.ToUpper()}_${timeframe.ToLower()}";
         var state = _cooloffMap.GetOrAdd(key, _ => new CooloffState());
 
         lock (state)
@@ -150,4 +178,13 @@ public static class WalkForwardValidationEngine
             }
         }
     }
+
+    public record WalkForwardResult(
+        double InSampleWinRate,
+        double OutOfSampleWinRate,
+        bool IsOverfitted,
+        bool IsCooloffActive,
+        double WeightMultiplier,
+        string StatusReasoning
+    );
 }

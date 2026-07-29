@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import requests
 import joblib
+import sqlite3
 
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
@@ -107,7 +108,50 @@ def _interpolate_subminute(m1_candles: List[Dict], interval: str) -> List[Dict]:
             
     return interpolated
 
+def _fetch_local_sqlite(symbol: str, interval: str, limit: int) -> List[Dict]:
+    db_path = os.path.join(os.path.dirname(__file__), "data", "ValutaTicks.db")
+    if not os.path.exists(db_path):
+        return []
+    try:
+        conn = sqlite3.connect(db_path)
+        query = '''
+            SELECT OpenTime as openTime, Open as open, High as high, Low as low, Close as close, Volume as volume 
+            FROM SubminuteCandles 
+            WHERE Asset = ? AND Interval = ? 
+            ORDER BY OpenTime DESC 
+            LIMIT ?
+        '''
+        df = pd.read_sql_query(query, conn, params=(symbol, interval, limit))
+        conn.close()
+        
+        # DataFrame is fetched descending, we reverse it to ascending time order
+        return df.iloc[::-1].to_dict(orient='records')
+    except Exception as e:
+        log.error(f"SQLite Fetch Error: {e}")
+        return []
 
+def _fetch_rl_feedback(symbol: str, interval: str) -> List[Dict]:
+    db_path = os.path.join(os.path.dirname(__file__), "data", "ValutaTicks.db")
+    if not os.path.exists(db_path):
+        return []
+    try:
+        conn = sqlite3.connect(db_path)
+        
+        # Check if table exists
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='OnlineFeedback'")
+        if not cursor.fetchone():
+            conn.close()
+            return []
+            
+        query = "SELECT EntryPrice as entry, Direction as dir, WasWin as win FROM OnlineFeedback WHERE Asset=? AND Interval=?"
+        df = pd.read_sql_query(query, conn, params=(symbol, interval))
+        conn.close()
+        
+        return df.to_dict(orient='records')
+    except Exception as e:
+        log.error(f"SQLite RL Fetch Error: {e}")
+        return []
 
 # ── Timeframe → Binance interval string ──
 TF_MAP = {
@@ -227,18 +271,28 @@ class ForexPredictor:
         log.info(f"[Train] Starting training for {self._key}")
         try:
             if candles is None:
-                # 1500 sub-minute candles require at least 750 1-minute candles
-                limit = 750 if self.interval.startswith("s") else 1500
-                if is_forex_symbol(self.symbol):
-                    candles = self._fetch_twelvedata(limit)
+                if self.interval.startswith("s"):
+                    # Try local SQLite tick database first
+                    candles = _fetch_local_sqlite(self.symbol, self.interval, 1500)
+                    if len(candles) < 150:
+                        log.warning(f"[Train] Not enough SQLite ticks for {self._key} (found {len(candles)}). Falling back to interpolation.")
+                        limit = 750
+                        if is_forex_symbol(self.symbol):
+                            candles = self._fetch_twelvedata(limit)
+                        else:
+                            candles = self._fetch_binance(limit)
+                            
+                        if len(candles) > 0:
+                            candles = _interpolate_subminute(candles, self.interval)
+                            if len(candles) > 1500:
+                                candles = candles[-1500:]
                 else:
-                    candles = self._fetch_binance(limit)
-
-            # If sub-minute timeframe, interpolate 1-minute history
-            if self.interval.startswith("s") and len(candles) > 0:
-                candles = _interpolate_subminute(candles, self.interval)
-                if len(candles) > 1500:
-                    candles = candles[-1500:]
+                    # Regular API fetch
+                    limit = 1500
+                    if is_forex_symbol(self.symbol):
+                        candles = self._fetch_twelvedata(limit)
+                    else:
+                        candles = self._fetch_binance(limit)
 
             if len(candles) < 150:
                 return {"error": f"Not enough candles: {len(candles)} < 150"}
@@ -269,9 +323,41 @@ class ForexPredictor:
 
             X = feats.values.astype(np.float32)
             y = target_aligned
+            
+            # --- Online Reinforcement Learning Integration ---
+            sample_weights = np.ones(len(y), dtype=np.float32)
+            rl_feedbacks = _fetch_rl_feedback(self.symbol, self.interval)
+            
+            if rl_feedbacks:
+                # Group by rounded entry price (6 decimals)
+                feedback_entries = {round(f["entry"], 6): f for f in rl_feedbacks}
+                match_count = 0
+                
+                for i, orig_idx in enumerate(feat_indices_valid):
+                    c_close = round(candles[orig_idx]["close"], 6)
+                    if c_close in feedback_entries:
+                        match_count += 1
+                        fb = feedback_entries[c_close]
+                        # Heavily weight real trades
+                        sample_weights[i] = 10.0
+                        
+                        # Force label correction based on real outcome
+                        if fb["win"] == 0:
+                            # If we lost a BUY, price went down -> label 0
+                            if fb["dir"] == "BUY": y[i] = 0
+                            # If we lost a PUT, price went up -> label 1
+                            elif fb["dir"] == "PUT": y[i] = 1
+                        else:
+                            # If we won, reinforce the correct label
+                            if fb["dir"] == "BUY": y[i] = 1
+                            elif fb["dir"] == "PUT": y[i] = 0
+                
+                if match_count > 0:
+                    log.info(f"[Online RL] Applied {match_count} real feedback samples to {self._key} with x10 weight.")
+            # -------------------------------------------------
 
-            # TimeSeriesSplit CV
-            tscv = TimeSeriesSplit(n_splits=5)
+            # Train/val split
+            tscv = TimeSeriesSplit(n_splits=3)
             val_accs, val_aucs = [], []
 
             for train_idx, val_idx in tscv.split(X):
@@ -281,6 +367,7 @@ class ForexPredictor:
                 m = lgb.LGBMClassifier(**LGBM_PARAMS)
                 m.fit(
                     X_tr, y_tr,
+                    sample_weight=sample_weights[train_idx],
                     eval_set=[(X_val, y_val)],
                     callbacks=[lgb.early_stopping(50, verbose=False),
                                lgb.log_evaluation(period=-1)]
@@ -298,7 +385,7 @@ class ForexPredictor:
 
             # Final model on all data
             final_model = lgb.LGBMClassifier(**LGBM_PARAMS)
-            final_model.fit(X, y, callbacks=[lgb.log_evaluation(period=-1)])
+            final_model.fit(X, y, sample_weight=sample_weights, callbacks=[lgb.log_evaluation(period=-1)])
 
             version = f"lgbm-v1-{self._key}-{int(time.time())}"
             meta = ModelMeta(

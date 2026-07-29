@@ -1,25 +1,33 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace ValutaBot.MiniApp;
 
-public static class BacktestEngine
+public class BacktestEngine : IBacktestEngine
 {
-    public static async Task RunBacktestAsync(string asset, string timeframe, int limit = 1000)
+    private readonly IMarketDataFetcher _fetcher;
+    private readonly ITechnicalAnalysisEngine _taEngine;
+
+    public BacktestEngine(IMarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine)
+    {
+        _fetcher = fetcher;
+        _taEngine = taEngine;
+    }
+    public async Task RunBacktestAsync(string asset, string timeframe, int limit = 1000)
     {
         Console.WriteLine($"[Backtest] Starting historical simulation for {asset} on {timeframe}...");
-        string interval = MarketDataFetcher.IntervalMap(timeframe);
+        string interval = _fetcher.IntervalMap(timeframe);
         
         // Fetch historical data
-        var (prices, volumes) = await MarketDataFetcher.FetchBinanceCandles(asset, interval, limit);
+        var (prices, volumes) = await _fetcher.FetchBinanceCandles(asset, interval, limit);
         if (prices.Length < 100)
         {
             Console.WriteLine("[Backtest] Not enough data fetched.");
             return;
         }
 
-        var ohlcAll = MarketDataFetcher.GetOhlcCandles($"{asset}_{interval}");
+        var ohlcAll = _fetcher.GetOhlcCandles($"{asset}_{interval}");
         if (ohlcAll == null || ohlcAll.Length != prices.Length)
         {
             Console.WriteLine("[Backtest] OHLC Cache missing or mismatched length. Cannot run backtest without real OHLC data.");
@@ -32,7 +40,7 @@ public static class BacktestEngine
         int losses = 0;
         int neutral = 0;
 
-        int expiryCandles = MarketDataFetcher.GetExpiryCandles(timeframe);
+        int expiryCandles = _fetcher.GetExpiryCandles(timeframe);
 
         for (int i = 50; i < prices.Length - expiryCandles; i++)
         {
@@ -43,10 +51,10 @@ public static class BacktestEngine
             // Use real historical OHLC window without Look-Ahead Bias
             var ohlcWindow = ohlcAll[..i];
 
-            var gatekeeper = TechnicalAnalysisEngine.ValidateMarketGatekeeper(windowPrices, ohlcWindow);
+            var gatekeeper = _taEngine.ValidateMarketGatekeeper(windowPrices, ohlcWindow);
             if (!gatekeeper.IsTradeable) continue;
 
-            var ta = TechnicalAnalysisEngine.ScoreTimeframe(windowPrices, windowVolumes, ohlcWindow);
+            var ta = _taEngine.ScoreTimeframe(windowPrices, windowVolumes, ohlcWindow);
             var smc = SmcEngine.AnalyzeSmcStructure(ohlcWindow, windowPrices[^1]);
             
             int smcScore = 0;
@@ -66,17 +74,19 @@ public static class BacktestEngine
 
             // Mock ML as NEUTRAL for deterministic core testing
             var consensus = ConsensusEngine.EvaluateConsensus(
-                combinedScore, 
-                combinedScore > 0 ? 1 : combinedScore < 0 ? -1 : 0, 
-                "NEUTRAL", 50, "", 
-                "NEUTRAL", 0.5, null, 
-                "NEUTRAL", 50, 
-                "NEUTRAL", 50, 
-                ta.rsiVal, ta.emaVal, 
+                combinedScore,
+                combinedScore > 0 ? 1 : combinedScore < 0 ? -1 : 0,
+                "NEUTRAL", 50, "",
+                // Pass 0.5 (normalized [0..1]) вЂ” not 50 (which was incorrectly treated as int,
+                // making normLgbm = ((50/100.0) - 0.5) * 2 = 0 в†’ zero ML weight in backtest)
+                "NEUTRAL", 0.5, null,
+                "NEUTRAL", 50.0,
+                "NEUTRAL", 0.5,
+                ta.rsiVal, ta.emaVal,
                 timeframe.StartsWith("s"),
                 asset, timeframe,
-                20.0, 1.0, 
-                smc.SummaryReasoning, 
+                20.0, 1.0,
+                smc.SummaryReasoning,
                 "", "Backtest"
             );
 
@@ -119,3 +129,7 @@ public static class BacktestEngine
         Console.WriteLine("==================================================");
     }
 }
+
+
+
+

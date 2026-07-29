@@ -64,7 +64,7 @@ public static class ExchangeDataResilience
         {
             return await _resiliencePipeline.ExecuteAsync(async token =>
             {
-                var result = await MarketDataFetcher.FetchBinanceWithFallback(symbol, interval, rawAsset, limit, cacheTtlSeconds);
+                var result = await MarketDataFetcher.Instance.FetchBinanceWithFallback(symbol, interval, rawAsset, limit, cacheTtlSeconds);
 
                 if (result.prices == null || result.prices.Length == 0)
                 {
@@ -102,3 +102,4 @@ public static class ExchangeDataResilience
         }
     }
 }
+

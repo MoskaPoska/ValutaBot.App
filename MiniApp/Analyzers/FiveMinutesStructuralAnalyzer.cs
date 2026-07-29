@@ -34,9 +34,9 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
         SmcEngine.SmcAnalysisResult? htfSmc = null;
         if (higherTfData != null && higherTfData.Value.prices.Length >= 10)
         {
-            string htfTf = MarketDataFetcher.HigherTf(timeframe) ?? "h1";
+            string htfTf = MarketDataFetcher.Instance.HigherTf(timeframe) ?? "h1";
             var higherOhlcKey = $"{asset}_{htfTf.ToLower(CultureInfo.InvariantCulture)}";
-            var higherOhlc = MarketDataFetcher.GetOhlcCandles(higherOhlcKey);
+            var higherOhlc = MarketDataFetcher.Instance.GetOhlcCandles(higherOhlcKey);
             if (higherOhlc != null && higherOhlc.Length >= 10)
             {
                 htfSmc = SmcEngine.AnalyzeSmcStructure(higherOhlc, higherTfData.Value.prices[^1]);
@@ -102,3 +102,4 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
         ));
     }
 }
+

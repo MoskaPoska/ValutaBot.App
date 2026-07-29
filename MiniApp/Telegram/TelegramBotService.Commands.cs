@@ -326,7 +326,7 @@ public partial class TelegramBotService
                                 reply_markup = depositKeyboard 
                             };
                             var json = JsonSerializer.Serialize(payload);
-                            var content = new StringContent(json, Encoding.UTF8, "application/json");
+                            using var content = new StringContent(json, Encoding.UTF8, "application/json");
                             await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
                         }
                     }
@@ -412,7 +412,7 @@ public partial class TelegramBotService
                 reply_markup = inlineKeyboard 
             };
             var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
             await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
         }
         catch (Exception ex)
@@ -427,7 +427,7 @@ public partial class TelegramBotService
 
         string text = "✅ <b>Доступ открыт!</b>\n\nИспользуйте кнопку <b>📊 Открыть TradeAI</b> в меню внизу чата, чтобы запустить анализатор.";
 
-        string cacheBustedUrl = MiniAppController.GetSignedWebAppUrl(chatId, webAppUrl, token);
+        string cacheBustedUrl = new AuthService().GetSignedWebAppUrl(chatId, webAppUrl, token);
 
         var keyboard = new
         {
@@ -450,7 +450,7 @@ public partial class TelegramBotService
         {
             var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
             var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
             await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
         }
         catch (Exception ex)
@@ -465,7 +465,7 @@ public partial class TelegramBotService
 
         string text = "👑 <b>Панель администратора TradeAI</b>\n\nИспользуйте меню внизу экрана для управления ботом.";
 
-        string cacheBustedUrl = MiniAppController.GetSignedWebAppUrl(chatId, webAppUrl, token);
+        string cacheBustedUrl = new AuthService().GetSignedWebAppUrl(chatId, webAppUrl, token);
 
         var keyboard = new
         {
@@ -489,7 +489,7 @@ public partial class TelegramBotService
         {
             var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
             var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
             await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
         }
         catch (Exception ex)
@@ -529,3 +529,4 @@ public partial class TelegramBotService
         }
     }
 }
+

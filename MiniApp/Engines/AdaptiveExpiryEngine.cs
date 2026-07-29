@@ -1,19 +1,22 @@
-namespace ValutaBot.MiniApp;
+﻿namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Adaptive Expiry Calculation Engine for Forex & OTC Currency Pairs.
 /// Dynamically calculates the optimal trade duration (expiry time in seconds and minutes)
 /// based on ATR volatility, SMC pattern type (FVG vs OB vs Sweep), active Forex session, and timeframe.
 /// </summary>
-public static class AdaptiveExpiryEngine
+public class AdaptiveExpiryEngine : IAdaptiveExpiryEngine
 {
+    public AdaptiveExpiryEngine()
+    {
+    }
     public record OptimalExpiryResult(
         int ExpirySeconds,
         string ExpiryText,
         string Reasoning
     );
 
-    public static OptimalExpiryResult CalculateOptimalExpiry(
+    public OptimalExpiryResult CalculateOptimalExpiry(
         string asset,
         string timeframe,
         double atr,
@@ -32,38 +35,50 @@ public static class AdaptiveExpiryEngine
 
         // Dynamic adjustment based on ATR / Volatility
         double multiplier = 1.0;
-        string dynamicReason = "Стандартная волатильность.";
+        string dynamicReason = "РЎС‚Р°РЅРґР°СЂС‚РЅР°СЏ РІРѕР»Р°С‚РёР»СЊРЅРѕСЃС‚СЊ.";
 
         if (volRatio > 1.5)
         {
             multiplier = 2.0;
-            dynamicReason = "Рынок турбулентный (VolRatio > 1.5) — удвоенная экспирация.";
+            dynamicReason = "Р С‹РЅРѕРє С‚СѓСЂР±СѓР»РµРЅС‚РЅС‹Р№ (VolRatio > 1.5) вЂ” СѓРґРІРѕРµРЅРЅР°СЏ СЌРєСЃРїРёСЂР°С†РёСЏ.";
         }
         else if (smc != null && (smc.HasOrderBlock || smc.HasFvg))
         {
             multiplier = 1.5;
-            dynamicReason = "Цена в зоне SMC (Ордерблок/FVG) — увеличено время на отработку.";
+            dynamicReason = "Р¦РµРЅР° РІ Р·РѕРЅРµ SMC (РћСЂРґРµСЂР±Р»РѕРє/FVG) вЂ” СѓРІРµР»РёС‡РµРЅРѕ РІСЂРµРјСЏ РЅР° РѕС‚СЂР°Р±РѕС‚РєСѓ.";
         }
 
         int totalSeconds = (int)(baseSeconds * multiplier);
         if (totalSeconds < 5) totalSeconds = 5;
         if (totalSeconds > 14400) totalSeconds = 14400;
 
-        string expiryText = totalSeconds switch
+        string expiryText;
+        if (totalSeconds < 60)
         {
-            < 60 => $"{totalSeconds} сек",
-            60 => "1 минута",
-            120 => "2 минуты",
-            180 => "3 минуты",
-            240 => "4 минуты",
-            300 => "5 минут",
-            900 => "15 минут",
-            1800 => "30 минут",
-            3600 => "1 час",
-            _ => $"{totalSeconds / 60} мин"
-        };
+            expiryText = $"{totalSeconds} СЃРµРє";
+        }
+        else
+        {
+            int m = totalSeconds / 60;
+            int s = totalSeconds % 60;
+            expiryText = s > 0 ? $"{m} РјРёРЅ {s} СЃРµРє" : m switch
+            {
+                1 => "1 РјРёРЅСѓС‚Р°",
+                2 => "2 РјРёРЅСѓС‚С‹",
+                3 => "3 РјРёРЅСѓС‚С‹",
+                4 => "4 РјРёРЅСѓС‚С‹",
+                5 => "5 РјРёРЅСѓС‚",
+                15 => "15 РјРёРЅСѓС‚",
+                30 => "30 РјРёРЅСѓС‚",
+                60 => "1 С‡Р°СЃ",
+                _ => $"{m} РјРёРЅ"
+            };
+        }
 
-        string reasoning = $"Экспирация {expiryText} под таймфрейм {timeframe.ToUpper()}. {dynamicReason}";
+        string reasoning = $"Р­РєСЃРїРёСЂР°С†РёСЏ {expiryText} РїРѕРґ С‚Р°Р№РјС„СЂРµР№Рј {timeframe.ToUpper()}. {dynamicReason}";
         return new OptimalExpiryResult(totalSeconds, expiryText, reasoning);
     }
 }
+
+
+

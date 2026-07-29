@@ -1,4 +1,4 @@
-namespace ValutaBot.MiniApp;
+﻿namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Smart Money Concepts (SMC) & Institutional Liquidity Engine.
@@ -36,33 +36,34 @@ public static class SmcEngine
         if (candles == null || candles.Length < 10)
         {
             return new SmcAnalysisResult(
-                false, "NONE", false, "NONE", 0, 0, 0, false, "NONE", 0, false, false, "NONE", "Недостаточно свечей для SMC-анализа."
+                false, "NONE", false, "NONE", 0, 0, 0, false, "NONE", 0, false, false, "NONE", "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЃРІРµС‡РµР№ РґР»СЏ SMC-Р°РЅР°Р»РёР·Р°."
             );
         }
 
         int n = candles.Length;
-        var currentCandle = candles[^1];
-        var prevCandle = candles[^2];
+        // Use only closed candles to prevent repainting
+        var closedCandle = candles[^2];
+        var prevClosedCandle = candles[^3];
 
-        // ─── 1. Liquidity Sweep Detection (Снятие ликвидности над/под свинг-уровнями) ───
-        double recentHigh = candles.Take(n - 2).TakeLast(15).Max(c => c.High);
-        double recentLow = candles.Take(n - 2).TakeLast(15).Min(c => c.Low);
+        // в”Ђв”Ђв”Ђ 1. Liquidity Sweep Detection (РЎРЅСЏС‚РёРµ Р»РёРєРІРёРґРЅРѕСЃС‚Рё РЅР°Рґ/РїРѕРґ СЃРІРёРЅРі-СѓСЂРѕРІРЅСЏРјРё) в”Ђв”Ђв”Ђ
+        double recentHigh = candles.Take(n - 3).TakeLast(15).Max(c => c.High);
+        double recentLow = candles.Take(n - 3).TakeLast(15).Min(c => c.Low);
 
-        bool bullishSweep = prevCandle.Low < recentLow && currentCandle.Close > recentLow;
-        bool bearishSweep = prevCandle.High > recentHigh && currentCandle.Close < recentHigh;
+        bool bullishSweep = prevClosedCandle.Low < recentLow && closedCandle.Close > recentLow;
+        bool bearishSweep = prevClosedCandle.High > recentHigh && closedCandle.Close < recentHigh;
 
         string sweepDir = bullishSweep ? "BULLISH_SWEEP" : bearishSweep ? "BEARISH_SWEEP" : "NONE";
 
-        // ─── 2. Fair Value Gap (FVG / Разрыв имбаланса ликвидности) ───
+        // в”Ђв”Ђв”Ђ 2. Fair Value Gap (FVG / Р Р°Р·СЂС‹РІ РёРјР±Р°Р»Р°РЅСЃР° Р»РёРєРІРёРґРЅРѕСЃС‚Рё) в”Ђв”Ђв”Ђ
         bool bullishFvg = false;
         bool bearishFvg = false;
         double fvgTop = 0, fvgBottom = 0, fvgGapSize = 0;
 
-        if (n >= 3)
+        if (n >= 4)
         {
-            var c1 = candles[^3];
-            var c2 = candles[^2];
-            var c3 = candles[^1];
+            var c1 = candles[^4];
+            var c2 = candles[^3];
+            var c3 = candles[^2]; // Closed candle
 
             if (c3.Low > c1.High)
             {
@@ -82,7 +83,7 @@ public static class SmcEngine
 
         string fvgType = bullishFvg ? "BULLISH_FVG" : bearishFvg ? "BEARISH_FVG" : "NONE";
 
-        // ─── 3. Unmitigated Order Block (Свежий, несмягченный блок ордеров) ───
+        // в”Ђв”Ђв”Ђ 3. Unmitigated Order Block (РЎРІРµР¶РёР№, РЅРµСЃРјСЏРіС‡РµРЅРЅС‹Р№ Р±Р»РѕРє РѕСЂРґРµСЂРѕРІ) в”Ђв”Ђв”Ђ
         bool bullishOb = false;
         bool bearishOb = false;
         double obLevel = 0;
@@ -143,28 +144,28 @@ public static class SmcEngine
 
         string obType = bullishOb ? "BULLISH_OB" : bearishOb ? "BEARISH_OB" : "NONE";
 
-        // ─── 4. Break of Structure (BOS / Излом структуры) ───
-        bool bullishBos = currentCandle.Close > recentHigh;
-        bool bearishBos = currentCandle.Close < recentLow;
+        // в”Ђв”Ђв”Ђ 4. Break of Structure (BOS / РР·Р»РѕРј СЃС‚СЂСѓРєС‚СѓСЂС‹) в”Ђв”Ђв”Ђ
+        bool bullishBos = closedCandle.Close > recentHigh;
+        bool bearishBos = closedCandle.Close < recentLow;
         string bosDir = bullishBos ? "BULLISH_BOS" : bearishBos ? "BEARISH_BOS" : "NONE";
 
-        // ─── 5. Summary Reasoning Construction ───
+        // в”Ђв”Ђв”Ђ 5. Summary Reasoning Construction в”Ђв”Ђв”Ђ
         var summaryParts = new List<string>();
-        if (bullishSweep) summaryParts.Add("Снятие ликвидности покупателей (Bullish Sweep)");
-        else if (bearishSweep) summaryParts.Add("Снятие ликвидности продавцов (Bearish Sweep)");
+        if (bullishSweep) summaryParts.Add("РЎРЅСЏС‚РёРµ Р»РёРєРІРёРґРЅРѕСЃС‚Рё РїРѕРєСѓРїР°С‚РµР»РµР№ (Bullish Sweep)");
+        else if (bearishSweep) summaryParts.Add("РЎРЅСЏС‚РёРµ Р»РёРєРІРёРґРЅРѕСЃС‚Рё РїСЂРѕРґР°РІС†РѕРІ (Bearish Sweep)");
 
-        if (bullishFvg) summaryParts.Add($"Бычий FVG имбаланс [{fvgBottom:F5} - {fvgTop:F5}]");
-        else if (bearishFvg) summaryParts.Add($"Медвежий FVG имбаланс [{fvgBottom:F5} - {fvgTop:F5}]");
+        if (bullishFvg) summaryParts.Add($"Р‘С‹С‡РёР№ FVG РёРјР±Р°Р»Р°РЅСЃ [{fvgBottom:F5} - {fvgTop:F5}]");
+        else if (bearishFvg) summaryParts.Add($"РњРµРґРІРµР¶РёР№ FVG РёРјР±Р°Р»Р°РЅСЃ [{fvgBottom:F5} - {fvgTop:F5}]");
 
-        if (bullishOb) summaryParts.Add($"Свежий бычий Order Block ({obLevel:F5}) [Unmitigated]");
-        else if (bearishOb) summaryParts.Add($"Свежий медвежий Order Block ({obLevel:F5}) [Unmitigated]");
+        if (bullishOb) summaryParts.Add($"РЎРІРµР¶РёР№ Р±С‹С‡РёР№ Order Block ({obLevel:F5}) [Unmitigated]");
+        else if (bearishOb) summaryParts.Add($"РЎРІРµР¶РёР№ РјРµРґРІРµР¶РёР№ Order Block ({obLevel:F5}) [Unmitigated]");
 
-        if (bullishBos) summaryParts.Add("Пробой структуры ВВЕРХ (BOS)");
-        else if (bearishBos) summaryParts.Add("Пробой структуры ВНИЗ (BOS)");
+        if (bullishBos) summaryParts.Add("РџСЂРѕР±РѕР№ СЃС‚СЂСѓРєС‚СѓСЂС‹ Р’Р’Р•Р РҐ (BOS)");
+        else if (bearishBos) summaryParts.Add("РџСЂРѕР±РѕР№ СЃС‚СЂСѓРєС‚СѓСЂС‹ Р’РќРР— (BOS)");
 
         string summaryText = summaryParts.Count > 0
             ? string.Join(" | ", summaryParts)
-            : "Структура консолидируется в нейтральном диапазоне.";
+            : "РЎС‚СЂСѓРєС‚СѓСЂР° РєРѕРЅСЃРѕР»РёРґРёСЂСѓРµС‚СЃСЏ РІ РЅРµР№С‚СЂР°Р»СЊРЅРѕРј РґРёР°РїР°Р·РѕРЅРµ.";
 
         return new SmcAnalysisResult(
             bullishSweep || bearishSweep, sweepDir,
@@ -183,7 +184,7 @@ public static class SmcEngine
     {
         if (htfSmc == null)
         {
-            return new MtfSmcValidationResult(true, 1.0, "NEUTRAL", "Старший таймфрейм недоступен, проверка сопоставлена нейтрально.");
+            return new MtfSmcValidationResult(true, 1.0, "NEUTRAL", "РЎС‚Р°СЂС€РёР№ С‚Р°Р№РјС„СЂРµР№Рј РЅРµРґРѕСЃС‚СѓРїРµРЅ, РїСЂРѕРІРµСЂРєР° СЃРѕРїРѕСЃС‚Р°РІР»РµРЅР° РЅРµР№С‚СЂР°Р»СЊРЅРѕ.");
         }
 
         // Compute HTF net directional score (+ for Bullish, - for Bearish)
@@ -219,7 +220,7 @@ public static class SmcEngine
             BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local BUY signal opposes HTF BEARISH structure. Signal penalized.");
             return new MtfSmcValidationResult(
                 false, 0.30, "COUNTER_TREND_CONFLICT",
-                "⚠️ Конфликт со старшим таймфреймом: бычий сетап локальной структуры против глобального медвежьего тренда."
+                "вљ пёЏ РљРѕРЅС„Р»РёРєС‚ СЃРѕ СЃС‚Р°СЂС€РёРј С‚Р°Р№РјС„СЂРµР№РјРѕРј: Р±С‹С‡РёР№ СЃРµС‚Р°Рї Р»РѕРєР°Р»СЊРЅРѕР№ СЃС‚СЂСѓРєС‚СѓСЂС‹ РїСЂРѕС‚РёРІ РіР»РѕР±Р°Р»СЊРЅРѕРіРѕ РјРµРґРІРµР¶СЊРµРіРѕ С‚СЂРµРЅРґР°."
             );
         }
         if (mainBearish && htfBullish)
@@ -227,7 +228,7 @@ public static class SmcEngine
             BotLogger.Warn("[MTF SMC Filter] Counter-Trend Conflict! Local PUT signal opposes HTF BULLISH structure. Signal penalized.");
             return new MtfSmcValidationResult(
                 false, 0.30, "COUNTER_TREND_CONFLICT",
-                "⚠️ Конфликт со старшим таймфреймом: медвежий сетап локальной структуры против глобального бычьего тренда."
+                "вљ пёЏ РљРѕРЅС„Р»РёРєС‚ СЃРѕ СЃС‚Р°СЂС€РёРј С‚Р°Р№РјС„СЂРµР№РјРѕРј: РјРµРґРІРµР¶РёР№ СЃРµС‚Р°Рї Р»РѕРєР°Р»СЊРЅРѕР№ СЃС‚СЂСѓРєС‚СѓСЂС‹ РїСЂРѕС‚РёРІ РіР»РѕР±Р°Р»СЊРЅРѕРіРѕ Р±С‹С‡СЊРµРіРѕ С‚СЂРµРЅРґР°."
             );
         }
 
@@ -237,10 +238,10 @@ public static class SmcEngine
             BotLogger.Info("[MTF SMC Filter] High Confluence Alignment! Local SMC signal perfectly matches HTF structure.");
             return new MtfSmcValidationResult(
                 true, 1.40, "ALIGNED",
-                "✅ Высокое совпадение: локальный сетап строго по тренду старшей структуры."
+                "вњ… Р’С‹СЃРѕРєРѕРµ СЃРѕРІРїР°РґРµРЅРёРµ: Р»РѕРєР°Р»СЊРЅС‹Р№ СЃРµС‚Р°Рї СЃС‚СЂРѕРіРѕ РїРѕ С‚СЂРµРЅРґСѓ СЃС‚Р°СЂС€РµР№ СЃС‚СЂСѓРєС‚СѓСЂС‹."
             );
         }
 
-        return new MtfSmcValidationResult(true, 1.0, "NEUTRAL", "Нейтральное совпадение со старшей структурой.");
+        return new MtfSmcValidationResult(true, 1.0, "NEUTRAL", "РќРµР№С‚СЂР°Р»СЊРЅРѕРµ СЃРѕРІРїР°РґРµРЅРёРµ СЃРѕ СЃС‚Р°СЂС€РµР№ СЃС‚СЂСѓРєС‚СѓСЂРѕР№.");
     }
 }

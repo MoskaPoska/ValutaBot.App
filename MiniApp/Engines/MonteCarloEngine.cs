@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using MathNet.Numerics.Distributions;
 
 namespace ValutaBot.MiniApp;
 
@@ -38,9 +39,12 @@ public static class MonteCarloEngine
         double totalTimeStep = Math.Max(10, timeInSeconds);
         double totalVol = volPerSec * Math.Sqrt(totalTimeStep);
 
+        // Ito's drift correction for Geometric Brownian Motion
+        double itoDrift = -0.5 * totalVol * totalVol;
+
         // Directional drift based on probability
         double driftSign = isBuy ? 1.0 : -1.0;
-        double directionalDrift = driftSign * (prob - 0.5) * 2.0 * totalVol;
+        double directionalDrift = (driftSign * (prob - 0.5) * 2.0 * totalVol) + itoDrift;
 
         int successCount = 0;
         var rand = Random.Shared;
@@ -48,10 +52,8 @@ public static class MonteCarloEngine
         // 1,000 Stochastic Monte Carlo iterations
         for (int i = 0; i < iterations; i++)
         {
-            // Box-Muller transformation for standard normal Gaussian random numbers
-            double u1 = 1.0 - rand.NextDouble();
-            double u2 = 1.0 - rand.NextDouble();
-            double randNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+            // MathNet.Numerics generation for standard normal Gaussian random numbers
+            double randNormal = Normal.Sample(rand, 0.0, 1.0);
 
             // Geometric Brownian Motion step
             double simulatedReturn = directionalDrift + (totalVol * randNormal);
@@ -84,14 +86,14 @@ public static class MonteCarloEngine
         double kellyRiskPct = Math.Round(fractionalKelly * 100.0, 1);
 
         string evLabel = evPct > 0 
-            ? $"+{evPct:F1}% EV (Высокая выгода)" 
-            : $"{evPct:F1}% EV (Низкое матожидание)";
+            ? $"+{evPct:F1}% EV (Р’С‹СЃРѕРєР°СЏ РІС‹РіРѕРґР°)" 
+            : $"{evPct:F1}% EV (РќРёР·РєРѕРµ РјР°С‚РѕР¶РёРґР°РЅРёРµ)";
 
         string kellyLabel = kellyRiskPct > 0 
-            ? $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% от депозита"
-            : "0% (Не рекомендуется открывать сделку)";
+            ? $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% РѕС‚ РґРµРїРѕР·РёС‚Р°"
+            : "0% (РќРµ СЂРµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РѕС‚РєСЂС‹РІР°С‚СЊ СЃРґРµР»РєСѓ)";
 
-        string summary = $"🎰 Монте-Карло ({iterations} прогонов ATR): {successCount}/{iterations} успехов | EV: {(evPct > 0 ? "+" : "")}{evPct:F1}% | Риск Келли: {kellyRiskPct:F1}%";
+        string summary = $"рџЋ° РњРѕРЅС‚Рµ-РљР°СЂР»Рѕ ({iterations} РїСЂРѕРіРѕРЅРѕРІ ATR): {successCount}/{iterations} СѓСЃРїРµС…РѕРІ | EV: {(evPct > 0 ? "+" : "")}{evPct:F1}% | Р РёСЃРє РљРµР»Р»Рё: {kellyRiskPct:F1}%";
 
         return new MonteCarloResult(
             iterations,

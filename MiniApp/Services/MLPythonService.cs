@@ -2,26 +2,24 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Polly;
+using Polly.Timeout;
 
 namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Calls the Python LightGBM ML microservice via HTTP.
 /// Static service using the shared HttpClient from MiniAppController.
-/// Falls back gracefully if the service is unavailable.
+/// Falls back gracefully using Polly Resilience Pipeline if the service is unavailable.
 /// </summary>
 public static class MLPythonService
 {
-    private static readonly HttpClient _client = new HttpClient
-    {
-        Timeout = TimeSpan.FromSeconds(8)  // fast timeout — don't block the main analysis
-    };
-
+    private static readonly HttpClient _client = new HttpClient(); // Timeout managed by Polly
     private static string _baseUrl = string.Empty;
-    private static volatile bool _available = true;       // circuit-breaker flag
-    private static DateTime _nextRetry = DateTime.MinValue;
-    private static readonly TimeSpan CircuitOpenDuration = TimeSpan.FromMinutes(3);
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
+    
+    // Polly Resilience Pipeline (Circuit Breaker + Timeout)
+    private static ResiliencePipeline<HttpResponseMessage>? _pipeline;
 
     // ── Result type ────────────────────────────────────────────────────────
 
@@ -38,9 +36,41 @@ public static class MLPythonService
     public static void Init(string? baseUrl)
     {
         _baseUrl = (baseUrl ?? string.Empty).TrimEnd('/');
+        
+        // Build Polly v8 Pipeline
+        _pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+            .AddTimeout(TimeSpan.FromSeconds(8)) // Fast timeout
+            .AddCircuitBreaker(new Polly.CircuitBreaker.CircuitBreakerStrategyOptions<HttpResponseMessage>
+            {
+                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                    .Handle<HttpRequestException>()
+                    .Handle<TimeoutRejectedException>()
+                    .HandleResult(response => (int)response.StatusCode >= 500),
+                FailureRatio = 0.5,
+                SamplingDuration = TimeSpan.FromSeconds(10),
+                MinimumThroughput = 2,
+                BreakDuration = TimeSpan.FromMinutes(3),
+                OnOpened = args => 
+                {
+                    BotLogger.Warn($"[MLPython] Circuit breaker opened for 3 minutes due to: {args.Outcome.Exception?.Message ?? "500 Error"}");
+                    return default;
+                },
+                OnHalfOpened = args =>
+                {
+                    BotLogger.Info("[MLPython] Circuit breaker half-open — testing connection...");
+                    return default;
+                },
+                OnClosed = args =>
+                {
+                    BotLogger.Info("[MLPython] Circuit breaker closed — service restored.");
+                    return default;
+                }
+            })
+            .Build();
+
         if (!string.IsNullOrWhiteSpace(_baseUrl))
         {
-            Console.WriteLine($"[MLPython] Service URL: {_baseUrl}");
+            BotLogger.Info($"[MLPython] Service URL: {_baseUrl}");
             if (_baseUrl.Contains("localhost") || _baseUrl.Contains("127.0.0.1"))
             {
                 EnsureLocalPythonServiceRunning();
@@ -48,7 +78,7 @@ public static class MLPythonService
         }
         else
         {
-            Console.WriteLine("[MLPython] No ML_SERVICE_URL configured — Python ML disabled.");
+            BotLogger.Info("[MLPython] No ML_SERVICE_URL configured — Python ML disabled.");
         }
     }
 
@@ -62,7 +92,7 @@ public static class MLPythonService
                 var res = await testClient.GetAsync($"{_baseUrl}/health");
                 if (res.IsSuccessStatusCode)
                 {
-                    Console.WriteLine("[MLPython] Local LightGBM service is active.");
+                    BotLogger.Info("[MLPython] Local LightGBM service is active.");
                     return;
                 }
             }
@@ -84,7 +114,7 @@ public static class MLPythonService
 
                 if (File.Exists(mainScript))
                 {
-                    Console.WriteLine("[MLPython] Auto-starting Python LightGBM microservice...");
+                    BotLogger.Info("[MLPython] Auto-starting Python LightGBM microservice...");
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = "py",
@@ -94,12 +124,12 @@ public static class MLPythonService
                         CreateNoWindow = true
                     };
                     System.Diagnostics.Process.Start(psi);
-                    Console.WriteLine("[MLPython] Python LightGBM service started in background!");
+                    BotLogger.Info("[MLPython] Python LightGBM service started in background!");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[MLPython] Local auto-start notice: {ex.Message}");
+                BotLogger.Warn($"[MLPython] Local auto-start notice: {ex.Message}");
             }
         });
     }
@@ -116,11 +146,7 @@ public static class MLPythonService
         MiniAppController.OhlcCandle[] candles,
         bool isForex = false)
     {
-        if (string.IsNullOrWhiteSpace(_baseUrl))
-            return null;
-
-        // Circuit-breaker: skip if recently failed
-        if (!_available && DateTime.UtcNow < _nextRetry)
+        if (string.IsNullOrWhiteSpace(_baseUrl) || _pipeline == null)
             return null;
 
         try
@@ -147,13 +173,15 @@ public static class MLPythonService
             };
 
             var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _client.PostAsync($"{_baseUrl}/predict", content);
+            var response = await _pipeline.ExecuteAsync(async ct => 
+                await _client.PostAsync($"{_baseUrl}/predict", content, ct)
+            );
 
             if (!response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"[MLPython] Non-OK response: {(int)response.StatusCode}");
+                BotLogger.Warn($"[MLPython] Non-OK response: {(int)response.StatusCode}");
                 return null;
             }
 
@@ -163,11 +191,8 @@ public static class MLPythonService
             if (result == null)
                 return null;
 
-            // Reset circuit breaker on success
-            _available = true;
-
-            Console.WriteLine($"[MLPython] {binanceSymbol}/{interval} → {result.Direction} " +
-                              $"conf={result.Confidence:F2} model={result.ModelVersion}");
+            BotLogger.Info($"[MLPython] {binanceSymbol}/{interval} → {result.Direction} " +
+                           $"conf={result.Confidence:F2} model={result.ModelVersion}");
 
             return new MLPythonPrediction(
                 Direction:    result.Direction ?? "NEUTRAL",
@@ -177,21 +202,15 @@ public static class MLPythonService
                 Auc:          result.Auc
             );
         }
-        catch (TaskCanceledException)
+        catch (Polly.CircuitBreaker.BrokenCircuitException)
         {
-            Console.WriteLine("[MLPython] Request timed out — skipping");
-            OpenCircuit();
-            return null;
-        }
-        catch (HttpRequestException ex)
-        {
-            Console.WriteLine($"[MLPython] Connection error: {ex.Message}");
-            OpenCircuit();
-            return null;
+            // Circuit is open, requests are failing fast. Suppress to avoid log spam on every tick.
+            return null; 
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[MLPython] Unexpected error: {ex.Message}");
+            // Fallback for any other pipeline failure (like timeout when circuit is half-open or closed)
+            BotLogger.Warn($"[MLPython] Pipeline execution failed: {ex.Message}");
             return null;
         }
     }
@@ -207,8 +226,7 @@ public static class MLPythonService
         string direction,
         bool wasWin)
     {
-        if (string.IsNullOrWhiteSpace(_baseUrl)) return;
-        if (!_available && DateTime.UtcNow < _nextRetry) return;
+        if (string.IsNullOrWhiteSpace(_baseUrl) || _pipeline == null) return;
 
         try
         {
@@ -224,28 +242,28 @@ public static class MLPythonService
             };
 
             var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _client.PostAsync($"{_baseUrl}/feedback", content);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await _pipeline.ExecuteAsync(async ct => 
+                await _client.PostAsync($"{_baseUrl}/feedback", content, ct)
+            );
+            
             if (response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"[MLPython] Online RL feedback registered for {asset}/{timeframe} -> {(wasWin ? "WIN" : "LOSS")}");
+                BotLogger.Info($"[MLPython] Online RL feedback registered for {asset}/{timeframe} → {(wasWin ? "WIN" : "LOSS")}");
             }
+        }
+        catch (Polly.CircuitBreaker.BrokenCircuitException)
+        {
+            // Circuit is open, suppress log
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[MLPython] Online RL feedback notice: {ex.Message}");
+            BotLogger.Warn($"[MLPython] Online RL feedback notice: {ex.Message}");
         }
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
-
-    private static void OpenCircuit()
-    {
-        _available = false;
-        _nextRetry = DateTime.UtcNow + CircuitOpenDuration;
-        Console.WriteLine($"[MLPython] Circuit opened, retry after {_nextRetry:HH:mm:ss}");
-    }
 
     /// <summary>
     /// Map ValutaBot internal symbol to Binance-style uppercase symbol.
