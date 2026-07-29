@@ -7,12 +7,34 @@ using Polly.Retry;
 
 namespace ValutaBot.MiniApp;
 
+public class ExchangeUnavailableException : Exception
+{
+    public string UserFriendlyMessage { get; }
+
+    public ExchangeUnavailableException(string message, string userFriendlyMessage, Exception? inner = null)
+        : base(message, inner)
+    {
+        UserFriendlyMessage = userFriendlyMessage;
+    }
+}
+
+public class MarketClosedException : Exception
+{
+    public string UserFriendlyMessage { get; }
+
+    public MarketClosedException(string message, string userFriendlyMessage)
+        : base(message)
+    {
+        UserFriendlyMessage = userFriendlyMessage;
+    }
+}
+
 /// <summary>
 /// Service for fetching historical candle data with caching, fallback, and sub-minute interpolation.
 /// </summary>
-public class MarketDataFetcher : IMarketDataFetcher
+public class MarketDataFetcher
 {
-    public static IMarketDataFetcher Instance { get; set; } = new MarketDataFetcher();
+    public static MarketDataFetcher Instance { get; set; } = new MarketDataFetcher();
     private static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
@@ -159,11 +181,24 @@ public class MarketDataFetcher : IMarketDataFetcher
         string interval = IntervalMap(rawInterval);
         if (symbol != null)
         {
-            if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes) && wsPrices.Length >= 15)
+            if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count) && count >= 15)
             {
-                BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
-                CacheMockOhlc(originalAsset ?? symbol, rawInterval, wsPrices);
-                return (wsPrices, wsVolumes);
+                try
+                {
+                    double[] exactPrices = new double[count];
+                    double[] exactVolumes = new double[count];
+                    Array.Copy(wsPrices, exactPrices, count);
+                    Array.Copy(wsVolumes, exactVolumes, count);
+                    
+                    BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
+                    CacheMockOhlc(originalAsset ?? symbol, rawInterval, exactPrices);
+                    return (exactPrices, exactVolumes);
+                }
+                finally
+                {
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
+                }
             }
 
             string binanceCacheKey = $"binance_raw_{symbol}_{interval}_{limit}";
@@ -180,14 +215,23 @@ public class MarketDataFetcher : IMarketDataFetcher
 
 
                 // 3. Persistent Zero-Latency WebSocket Stream RAM cache
-                var wsTicks = TwelveDataWebSocketStream.GetRealtimePrices(originalAsset, limit);
-                if (wsTicks != null && wsTicks.Length >= 15)
+                if (TwelveDataWebSocketStream.TryGetRealtimePricesRented(originalAsset, out var wsTicks, out int wsCount, limit) && wsCount >= 15)
                 {
-                    double[] mockVolumes = new double[wsTicks.Length];
-                    for (int i = 0; i < wsTicks.Length; i++) mockVolumes[i] = 1.0 + (i % 3) * 0.5;
-                    BotLogger.Info($"[MarketDataFetcher] Served Zero-Latency Forex Persistent WebSocket ticks for {originalAsset} in 1ms.");
-                    CacheMockOhlc(originalAsset, rawInterval, wsTicks);
-                    return (wsTicks, mockVolumes);
+                    try
+                    {
+                        double[] exactPrices = new double[wsCount];
+                        Array.Copy(wsTicks, exactPrices, wsCount);
+                        
+                        double[] mockVolumes = new double[wsCount];
+                        for (int i = 0; i < wsCount; i++) mockVolumes[i] = 1.0 + (i % 3) * 0.5;
+                        BotLogger.Info($"[MarketDataFetcher] Served Zero-Latency Forex Persistent WebSocket ticks for {originalAsset} in 1ms.");
+                        CacheMockOhlc(originalAsset, rawInterval, exactPrices);
+                        return (exactPrices, mockVolumes);
+                    }
+                    finally
+                    {
+                        System.Buffers.ArrayPool<double>.Shared.Return(wsTicks);
+                    }
                 }
 
                 var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit, cacheTtlSeconds);

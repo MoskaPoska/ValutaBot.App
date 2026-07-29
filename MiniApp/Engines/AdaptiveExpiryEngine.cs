@@ -1,4 +1,4 @@
-﻿namespace ValutaBot.MiniApp;
+namespace ValutaBot.MiniApp;
 
 /// <summary>
 /// Adaptive Expiry Calculation Engine for Forex & OTC Currency Pairs.
@@ -35,17 +35,17 @@ public class AdaptiveExpiryEngine : IAdaptiveExpiryEngine
 
         // Dynamic adjustment based on ATR / Volatility
         double multiplier = 1.0;
-        string dynamicReason = "РЎС‚Р°РЅРґР°СЂС‚РЅР°СЏ РІРѕР»Р°С‚РёР»СЊРЅРѕСЃС‚СЊ.";
+        string dynamicReason = "Стандартная волатильность.";
 
         if (volRatio > 1.5)
         {
             multiplier = 2.0;
-            dynamicReason = "Р С‹РЅРѕРє С‚СѓСЂР±СѓР»РµРЅС‚РЅС‹Р№ (VolRatio > 1.5) вЂ” СѓРґРІРѕРµРЅРЅР°СЏ СЌРєСЃРїРёСЂР°С†РёСЏ.";
+            dynamicReason = "Рынок турбулентный (VolRatio > 1.5) — удвоенная экспирация.";
         }
         else if (smc != null && (smc.HasOrderBlock || smc.HasFvg))
         {
             multiplier = 1.5;
-            dynamicReason = "Р¦РµРЅР° РІ Р·РѕРЅРµ SMC (РћСЂРґРµСЂР±Р»РѕРє/FVG) вЂ” СѓРІРµР»РёС‡РµРЅРѕ РІСЂРµРјСЏ РЅР° РѕС‚СЂР°Р±РѕС‚РєСѓ.";
+            dynamicReason = "Цена в зоне SMC (Ордерблок/FVG) — увеличено время на отработку.";
         }
 
         int totalSeconds = (int)(baseSeconds * multiplier);
@@ -55,27 +55,27 @@ public class AdaptiveExpiryEngine : IAdaptiveExpiryEngine
         string expiryText;
         if (totalSeconds < 60)
         {
-            expiryText = $"{totalSeconds} СЃРµРє";
+            expiryText = $"{totalSeconds} сек";
         }
         else
         {
             int m = totalSeconds / 60;
             int s = totalSeconds % 60;
-            expiryText = s > 0 ? $"{m} РјРёРЅ {s} СЃРµРє" : m switch
+            expiryText = s > 0 ? $"{m} мин {s} сек" : m switch
             {
-                1 => "1 РјРёРЅСѓС‚Р°",
-                2 => "2 РјРёРЅСѓС‚С‹",
-                3 => "3 РјРёРЅСѓС‚С‹",
-                4 => "4 РјРёРЅСѓС‚С‹",
-                5 => "5 РјРёРЅСѓС‚",
-                15 => "15 РјРёРЅСѓС‚",
-                30 => "30 РјРёРЅСѓС‚",
-                60 => "1 С‡Р°СЃ",
-                _ => $"{m} РјРёРЅ"
+                1 => "1 минута",
+                2 => "2 минуты",
+                3 => "3 минуты",
+                4 => "4 минуты",
+                5 => "5 минут",
+                15 => "15 минут",
+                30 => "30 минут",
+                60 => "1 час",
+                _ => $"{m} мин"
             };
         }
 
-        string reasoning = $"Р­РєСЃРїРёСЂР°С†РёСЏ {expiryText} РїРѕРґ С‚Р°Р№РјС„СЂРµР№Рј {timeframe.ToUpper()}. {dynamicReason}";
+        string reasoning = $"Экспирация {expiryText} под таймфрейм {timeframe.ToUpper()}. {dynamicReason}";
         return new OptimalExpiryResult(totalSeconds, expiryText, reasoning);
     }
 }

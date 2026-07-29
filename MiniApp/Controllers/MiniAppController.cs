@@ -20,16 +20,12 @@ public static partial class MiniAppController
 
     public static string? LastExceptionMessage { get; set; }
 
-    // OHLC candle cache for Claude pattern analysis (filled during data fetch, read by ClaudeSignalService)
     public record OhlcCandle(double Open, double High, double Low, double Close, double Volume);
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OhlcCandle[]> _ohlcCache = new();
-    public static OhlcCandle[]? GetOhlcCandles(string key) => _ohlcCache.TryGetValue(key, out var v) ? v : null;
-    public static void SetOhlcCandles(string key, OhlcCandle[] candles) => _ohlcCache[key] = candles;
 
     public static void Start(string[] args, int port = 5000)
     {
         Console.WriteLine("=====================================================");
-        Console.WriteLine("[Live Core] TradeBE_bot — MiniApp Server");
+        Console.WriteLine("[Live Core] TradeBE_bot вЂ” MiniApp Server");
         Console.WriteLine($"[+] Port: {port}");
         Console.WriteLine("=====================================================");
 
@@ -38,8 +34,8 @@ public static partial class MiniAppController
         {
             options.AddPolicy("AllowMiniApp", p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
         });
-        builder.Services.AddHostedService<MarketDataService>();
-        builder.Services.AddHostedService<LiquidationHeatmapService>();
+        
+
         builder.Services.AddHostedService<TwelveDataWebSocketStream>();
         builder.Services.AddHostedService<TelegramBotService>();
 
@@ -73,7 +69,7 @@ public static partial class MiniAppController
                         xhr.setRequestHeader('ngrok-skip-browser-warning', 'true');
                         xhr.onreadystatechange = function () {{ if (xhr.readyState === 4) {{ var url = new URL(window.location.href); url.searchParams.set('ngrok_passed', '1'); window.location.href = url.toString(); }} }};
                         xhr.send();
-                    </script></head><body style='background:#0d0e1e; display:flex; justify-content:center; align-items:center; height:100vh; color:#8a4bfb; font-family:sans-serif;'>Загрузка терминала...</body></html>";
+                    </script></head><body style='background:#0d0e1e; display:flex; justify-content:center; align-items:center; height:100vh; color:#8a4bfb; font-family:sans-serif;'>Р—Р°РіСЂСѓР·РєР° С‚РµСЂРјРёРЅР°Р»Р°...</body></html>";
                 await context.Response.WriteAsync(bypassScript);
                 return;
             }
@@ -85,10 +81,10 @@ public static partial class MiniAppController
         app.MapGet("/api/analyze", async (HttpContext context, string? asset, string? timeframe) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
+            if (!AuthService.IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
 
-            if (context.RequestServices.GetRequiredService<IAuthService>().IsRateLimited(context, out string? limitError))
+            if (AuthService.IsRateLimited(context, out string? limitError))
                 return Results.Json(new { error = limitError }, statusCode: 429);
 
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
@@ -100,7 +96,11 @@ public static partial class MiniAppController
 
             try
             {
-                var result = await context.RequestServices.GetRequiredService<IAnalysisOrchestrator>().ExecuteBinanceAnalysis(cleanAsset, tf);
+                var taEngine = new TechnicalAnalysisEngine();
+                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(
+                    taEngine, MarketDataFetcher.Instance, new WalkForwardValidationEngine(taEngine),
+                    new ConfluenceMatrixEngine(MarketDataFetcher.Instance, taEngine), new AdaptiveExpiryEngine());
+                var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization
                 var options = new JsonSerializerOptions
                 {
@@ -127,7 +127,7 @@ public static partial class MiniAppController
         app.MapGet("/api/fear-greed", async (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
+            if (!AuthService.IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
 
             var fng = await GetFearGreedIndex();
@@ -137,21 +137,12 @@ public static partial class MiniAppController
         app.MapGet("/api/market-status", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
+            if (!AuthService.IsRequestAuthorized(context, out string? authError))
                 return Results.Json(new { error = authError }, statusCode: 401);
 
-            var latest = MarketDataService.GetLatestPrices();
-            var alerts = MarketDataService.GetRecentAlerts();
+            var latest = BinanceWebSocketStream.GetLatestPrices();
+            var alerts = BinanceWebSocketStream.GetRecentAlerts();
             return Results.Json(new { prices = latest, alerts });
-        });
-
-        app.MapGet("/api/liquidations", (HttpContext context) =>
-        {
-            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-            if (!context.RequestServices.GetRequiredService<IAuthService>().IsRequestAuthorized(context, out string? authError))
-                return Results.Json(new { error = authError }, statusCode: 401);
-
-            return Results.Json(LiquidationHeatmapService.GetHeatmapData());
         });
 
         app.MapGet("/api/time", (HttpContext context) =>
@@ -214,7 +205,7 @@ public static partial class MiniAppController
 
 
 
-        /* ─── Postback Endpoint ─── */
+        /* в”Ђв”Ђв”Ђ Postback Endpoint в”Ђв”Ђв”Ђ */
         app.MapGet("/api/postback", async (HttpContext context) =>
         {
             var query = context.Request.Query;
@@ -316,7 +307,7 @@ public static partial class MiniAppController
             {
                 var m1Result = await MarketDataFetcher.Instance.FetchBinanceWithFallback(symbol, "1m", asset, fetchLimit, 10);
                 string ohlcKey = symbol != null ? $"{symbol}_1m" : $"{asset}_1m";
-                var m1Ohlc = GetOhlcCandles(ohlcKey);
+                var m1Ohlc = MarketDataFetcher.Instance.GetOhlcCandles(ohlcKey);
 
                 if (m1Ohlc != null && m1Ohlc.Length > 0)
                 {
@@ -365,7 +356,7 @@ public static partial class MiniAppController
 
         // Cache the custom sub-minute OHLC candles for indicator/pattern analysis
         string cacheKey = symbol != null ? $"{symbol}_{timeframe.ToLower()}" : $"{asset}_{timeframe.ToLower()}";
-        SetOhlcCandles(cacheKey, aggregatedCandles.ToArray());
+        MarketDataFetcher.Instance.SetOhlcCandles(cacheKey, aggregatedCandles.ToArray());
 
         var prices = aggregatedCandles.Select(c => c.Close).ToArray();
         var volumes = aggregatedCandles.Select(c => c.Volume).ToArray();
@@ -437,7 +428,7 @@ public static partial class MiniAppController
 
 
 
-    /* ─── Indicators ─── */
+    /* в”Ђв”Ђв”Ђ Indicators в”Ђв”Ђв”Ђ */
 
 
     public static object GetMomentumPrediction(string asset, string tf)
@@ -448,7 +439,7 @@ public static partial class MiniAppController
         {
             direction = "NEUTRAL",
             probability = 50,
-            duration = $"{tf.ToUpper()} ({expiryCandles} свечи)",
+            duration = $"{tf.ToUpper()} ({expiryCandles} СЃРІРµС‡Рё)",
             expiryCandles,
             chartData = Array.Empty<double>(),
             rsi = 50.0,
@@ -457,18 +448,18 @@ public static partial class MiniAppController
             tfConflict = false,
             mlDirection = "NEUTRAL",
             mlConfidence = 0,
-            newsSentiment = "Нейтрально",
+            newsSentiment = "РќРµРёМ†С‚СЂР°Р»СЊРЅРѕ",
             newsScore = 0,
-            newsSummary = "Данные недоступны",
+            newsSummary = "Р”Р°РЅРЅС‹Рµ РЅРµРґРѕСЃС‚СѓРїРЅС‹",
             newsHeadlines = Array.Empty<string>(),
             claudeDirection = "NEUTRAL",
             claudeProbability = 0,
-            claudeReasoning = "Недостаточно рыночных данных для вычисления сигнала.",
-            aiModel = "Нейтральный режим"
+            claudeReasoning = "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЂС‹РЅРѕС‡РЅС‹С… РґР°РЅРЅС‹С… РґР»СЏ РІС‹С‡РёСЃР»РµРЅРёСЏ СЃРёРіРЅР°Р»Р°.",
+            aiModel = "РќРµР№С‚СЂР°Р»СЊРЅС‹Р№ СЂРµР¶РёРј"
         };
     }
 
-    /* ─── Fear & Greed Index ─── */
+    /* в”Ђв”Ђв”Ђ Fear & Greed Index в”Ђв”Ђв”Ђ */
 
     private static readonly HttpClient _fngHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
 

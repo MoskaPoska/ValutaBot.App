@@ -122,7 +122,7 @@ public static partial class TwelveDataService
 
             try
             {
-                MiniAppController.SetOhlcCandles($"{rawAsset}_{interval}", ohlc);
+                MarketDataFetcher.Instance.SetOhlcCandles($"{rawAsset}_{interval}", ohlc);
             }
             catch (Exception ohlcEx)
             {

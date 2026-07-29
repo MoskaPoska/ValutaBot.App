@@ -7,10 +7,13 @@ namespace ValutaBot.MiniApp;
 
 public static partial class MiniAppController
 {
-    public static IResult HandleGetStats(HttpContext context, [Microsoft.AspNetCore.Mvc.FromServices] IAuthService auth)
+    public static IResult HandleGetStats(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        if (!AuthService.IsRequestAuthorized(context, out string? authError))
+            return Results.Json(new { error = authError }, statusCode: 401);
+
         var overall = SignalTracker.GetOverallStats();
         var allStats = SignalTracker.GetAllStats()
             .Where(s => s.Key != "ALL" && s.Verified > 0)
@@ -64,11 +67,11 @@ public static partial class MiniAppController
         });
     }
 
-    public static IResult HandleGetSignalStats(HttpContext context, [Microsoft.AspNetCore.Mvc.FromServices] IAuthService auth)
+    public static IResult HandleGetSignalStats(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-        if (!auth.IsRequestAuthorized(context, out string? authError))
+        if (!AuthService.IsRequestAuthorized(context, out string? authError))
             return Results.Json(new { error = authError }, statusCode: 401);
 
         return Results.Json(new

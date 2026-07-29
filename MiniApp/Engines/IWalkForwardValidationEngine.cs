@@ -1,4 +1,4 @@
-﻿namespace ValutaBot.MiniApp;
+namespace ValutaBot.MiniApp;
 
 public interface IWalkForwardValidationEngine
 {

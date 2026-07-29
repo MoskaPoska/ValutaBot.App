@@ -54,14 +54,14 @@ public class CandleSeriesBuffer
         }
     }
 
-    public (double[] prices, double[] volumes) GetOrderedSnapshot()
+    public (double[] prices, double[] volumes, int count) GetOrderedSnapshotRented()
     {
         lock (_lock)
         {
-            if (_count == 0) return (Array.Empty<double>(), Array.Empty<double>());
+            if (_count == 0) return (Array.Empty<double>(), Array.Empty<double>(), 0);
 
-            double[] outPrices = new double[_count];
-            double[] outVolumes = new double[_count];
+            double[] outPrices = ArrayPool<double>.Shared.Rent(_count);
+            double[] outVolumes = ArrayPool<double>.Shared.Rent(_count);
 
             int startIdx = (_head - _count + _capacity) % _capacity;
             for (int i = 0; i < _count; i++)
@@ -70,7 +70,7 @@ public class CandleSeriesBuffer
                 outPrices[i] = _prices[srcIdx];
                 outVolumes[i] = _volumes[srcIdx];
             }
-            return (outPrices, outVolumes);
+            return (outPrices, outVolumes, _count);
         }
     }
 }
@@ -78,6 +78,29 @@ public class CandleSeriesBuffer
 public static class BinanceWebSocketStream
 {
     private static readonly ConcurrentDictionary<string, CandleSeriesBuffer> _liveCandles = new();
+    
+    // Migrated from MarketDataService for zero-redundancy
+    private static readonly ConcurrentDictionary<string, (double price, double vol, DateTime time)> LatestPrices = new();
+    private static readonly ConcurrentQueue<string> RecentAlerts = new();
+    private static readonly ConcurrentDictionary<string, TickRingBuffer> _volumeHistory = new();
+
+    public static object GetLatestPrices()
+    {
+        var result = new System.Collections.Generic.Dictionary<string, object>();
+        foreach (var kv in LatestPrices)
+        {
+            if (!kv.Key.Contains("_alert_cooldown"))
+            {
+                result[kv.Key] = new { price = kv.Value.price, volume = kv.Value.vol };
+            }
+        }
+        return result;
+    }
+
+    public static System.Collections.Generic.List<string> GetRecentAlerts()
+    {
+        return RecentAlerts.ToArray().Reverse().ToList();
+    }
 
     public record OrderbookDepthSnapshot(
         double TotalBidVolume,
@@ -103,20 +126,21 @@ public static class BinanceWebSocketStream
     private static CancellationTokenSource? _cts;
     private static bool _isRunning = false;
 
-    public static bool TryGetLiveCandles(string symbol, string interval, out double[] prices, out double[] volumes)
+    public static bool TryGetLiveCandles(string symbol, string interval, out double[] prices, out double[] volumes, out int count)
     {
         string key = $"{symbol.ToUpper()}_{interval.ToLower()}";
         if (_liveCandles.TryGetValue(key, out var buffer))
         {
             if ((DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 5)
             {
-                (prices, volumes) = buffer.GetOrderedSnapshot();
+                (prices, volumes, count) = buffer.GetOrderedSnapshotRented();
                 return true;
             }
         }
 
         prices = Array.Empty<double>();
         volumes = Array.Empty<double>();
+        count = 0;
         return false;
     }
 
@@ -182,30 +206,30 @@ public static class BinanceWebSocketStream
                 reconnectAttempts = 0;
                 BotLogger.Info("[WebSocket Producer] Connected successfully to Binance WebSocket stream!");
 
-                using var memoryStream = new System.IO.MemoryStream();
+                byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(65536);
 
                 while (client.State == WebSocketState.Open && !token.IsCancellationRequested)
                 {
                     ValueWebSocketReceiveResult result = default;
-                    memoryStream.SetLength(0);
+                    int offset = 0;
 
                     try
                     {
-                        byte[] tempBuffer = ArrayPool<byte>.Shared.Rent(8192);
-                        try
+                        do
                         {
-                            do
+                            if (offset >= receiveBuffer.Length)
                             {
-                                result = await client.ReceiveAsync(tempBuffer.AsMemory(), token);
-                                if (result.MessageType == WebSocketMessageType.Close) break;
-                                memoryStream.Write(tempBuffer, 0, result.Count);
+                                var newBuffer = ArrayPool<byte>.Shared.Rent(receiveBuffer.Length * 2);
+                                Array.Copy(receiveBuffer, newBuffer, offset);
+                                ArrayPool<byte>.Shared.Return(receiveBuffer);
+                                receiveBuffer = newBuffer;
                             }
-                            while (!result.EndOfMessage && !token.IsCancellationRequested);
+
+                            result = await client.ReceiveAsync(receiveBuffer.AsMemory(offset, receiveBuffer.Length - offset), token);
+                            if (result.MessageType == WebSocketMessageType.Close) break;
+                            offset += result.Count;
                         }
-                        finally
-                        {
-                            ArrayPool<byte>.Shared.Return(tempBuffer);
-                        }
+                        while (!result.EndOfMessage && !token.IsCancellationRequested);
                     }
                     catch (WebSocketException wsEx)
                     {
@@ -230,18 +254,18 @@ public static class BinanceWebSocketStream
                         break;
                     }
 
-                    if (memoryStream.Length > 0)
+                    if (offset > 0)
                     {
-                        // Copy to a precisely sized rented array for the channel
-                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent((int)memoryStream.Length);
-                        Array.Copy(memoryStream.GetBuffer(), channelBuffer, (int)memoryStream.Length);
+                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent(offset);
+                        Array.Copy(receiveBuffer, channelBuffer, offset);
 
-                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, (int)memoryStream.Length)))
+                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, offset)))
                         {
                             ArrayPool<byte>.Shared.Return(channelBuffer); // Return if drop occurs
                         }
                     }
                 }
+                ArrayPool<byte>.Shared.Return(receiveBuffer);
             }
             catch (WebSocketException wsEx)
             {
@@ -302,52 +326,57 @@ public static class BinanceWebSocketStream
 
     private static CandleSeriesBuffer CreateBuffer(string key) => new CandleSeriesBuffer(100);
 
-    private struct BinanceKlineDto
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("stream")]
-        public string Stream { get; set; }
-        
-        [System.Text.Json.Serialization.JsonPropertyName("data")]
-        public BinanceKlineDataDto Data { get; set; }
-    }
-    
-    private struct BinanceKlineDataDto
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("s")]
-        public string Symbol { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("k")]
-        public BinanceKlineDetailDto K { get; set; }
-    }
-
-    private struct BinanceKlineDetailDto
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("c")]
-        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)]
-        public double ClosePrice { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("v")]
-        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)]
-        public double Volume { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("t")]
-        public long StartTime { get; set; }
-    }
-
     private static void ProcessKlineMessage(ReadOnlySpan<byte> jsonData, string interval)
     {
         try
         {
-            var dto = System.Text.Json.JsonSerializer.Deserialize<BinanceKlineDto>(jsonData);
-
-            if (dto.Stream != null && dto.Data.Symbol != null)
+            var reader = new System.Text.Json.Utf8JsonReader(jsonData);
+            string? stream = null;
+            string? symbol = null;
+            double closePrice = 0;
+            double volume = 0;
+            long startTime = 0;
+            
+            while (reader.Read())
             {
-                string stream = dto.Stream;
-                string symbol = dto.Data.Symbol;
-                double closePrice = dto.Data.K.ClosePrice;
-                double volume = dto.Data.K.Volume;
-                long klineStartTime = dto.Data.K.StartTime;
+                if (reader.TokenType == System.Text.Json.JsonTokenType.PropertyName)
+                {
+                    if (reader.ValueTextEquals("stream"u8))
+                    {
+                        reader.Read();
+                        stream = reader.GetString();
+                    }
+                    else if (reader.ValueTextEquals("s"u8))
+                    {
+                        reader.Read();
+                        symbol = reader.GetString();
+                    }
+                    else if (reader.ValueTextEquals("c"u8))
+                    {
+                        reader.Read();
+                        if (reader.TokenType == System.Text.Json.JsonTokenType.String)
+                            System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out closePrice, out _);
+                        else
+                            closePrice = reader.GetDouble();
+                    }
+                    else if (reader.ValueTextEquals("v"u8))
+                    {
+                        reader.Read();
+                        if (reader.TokenType == System.Text.Json.JsonTokenType.String)
+                            System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out volume, out _);
+                        else
+                            volume = reader.GetDouble();
+                    }
+                    else if (reader.ValueTextEquals("t"u8))
+                    {
+                        reader.Read();
+                        startTime = reader.GetInt64();
+                    }
+                }
+            }
 
+            if (stream != null && symbol != null)
+            {
                 if (stream.Contains("kline") || (closePrice > 0 && volume > 0))
                 {
                     if (!string.IsNullOrEmpty(symbol) && closePrice > 0)
@@ -355,7 +384,14 @@ public static class BinanceWebSocketStream
                         string key = $"{ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol)}_{interval.ToLower()}";
 
                         var buffer = _liveCandles.GetOrAdd(key, CreateBuffer);
-                        buffer.Update(closePrice, volume, klineStartTime);
+                        buffer.Update(closePrice, volume, startTime);
+
+                        // Migrated from MarketDataService
+                        var cleanSymbol = ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol);
+                        var displayKey = symbol.ToUpper().Replace("USDT", "/USDT");
+                        LatestPrices[displayKey] = (closePrice, volume, DateTime.UtcNow);
+                        CheckVolumeAnomaly(cleanSymbol, closePrice, volume);
+                        SignalTracker.UpdatePrice(cleanSymbol, closePrice);
                     }
                 }
             }
@@ -363,6 +399,50 @@ public static class BinanceWebSocketStream
         catch (Exception ex)
         {
             BotLogger.Warn("[WebSocket Consumer] Error parsing zero-allocation JSON frame", ex);
+        }
+    }
+
+    private static void CheckVolumeAnomaly(string symbol, double price, double volume24h)
+    {
+        if (symbol == "BTCUSDT" || symbol == "ETHUSDT" || symbol == "SOLUSDT")
+        {
+            var buffer = _volumeHistory.GetOrAdd(symbol, _ => new TickRingBuffer(20));
+            var snap = buffer.GetOrderedSnapshotRented(20);
+            
+            try
+            {
+                buffer.AddTick(volume24h);
+                
+                if (snap.count >= 20)
+                {
+                    double avgVol = 0;
+                    for (int i = 0; i < snap.count; i++) avgVol += snap.prices[i];
+                    avgVol /= snap.count;
+                    
+                    if (avgVol > 0)
+                    {
+                        double ratio = volume24h / avgVol;
+                        if (ratio > 1.05) 
+                        {
+                            string alertKey = $"{symbol}_alert_cooldown";
+                            if (!LatestPrices.ContainsKey(alertKey) || (DateTime.UtcNow - LatestPrices[alertKey].time).TotalMinutes > 5)
+                            {
+                                string alertMsg = $"\u26A0\uFE0F {symbol.Replace("USDT", "/USDT")} | Резкий всплеск объёма: +{(ratio - 1) * 100:F1}%";
+                                Console.WriteLine($"[MDS] {alertMsg}");
+
+                                RecentAlerts.Enqueue($"{DateTime.UtcNow:HH:mm:ss} {alertMsg}");
+                                if (RecentAlerts.Count > 20) RecentAlerts.TryDequeue(out _);
+                                
+                                LatestPrices[alertKey] = (0, 0, DateTime.UtcNow);
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<double>.Shared.Return(snap.prices);
+            }
         }
     }
 }

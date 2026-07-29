@@ -50,14 +50,14 @@ public class TickRingBuffer
         }
     }
 
-    public double[] GetOrderedSnapshot(int count)
+    public (double[] prices, int count) GetOrderedSnapshotRented(int count)
     {
         lock (_lock)
         {
-            if (_count == 0) return Array.Empty<double>();
+            if (_count == 0) return (Array.Empty<double>(), 0);
 
             int takeCount = Math.Min(count, _count);
-            double[] outPrices = new double[takeCount];
+            double[] outPrices = ArrayPool<double>.Shared.Rent(takeCount);
             
             // Start index is the oldest element among the 'takeCount' newest elements
             int startIdx = (_head - takeCount + _capacity) % _capacity;
@@ -66,7 +66,7 @@ public class TickRingBuffer
                 int srcIdx = (startIdx + i) % _capacity;
                 outPrices[i] = _prices[srcIdx];
             }
-            return outPrices;
+            return (outPrices, takeCount);
         }
     }
 }
@@ -94,18 +94,26 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
     /// Returns zero-latency in-memory tick prices from RAM (0.001s response time).
     /// Returns null if stream data for asset is not present or stale.
     /// </summary>
-    public static double[]? GetRealtimePrices(string asset, int count = 30)
+    public static bool TryGetRealtimePricesRented(string asset, out double[] prices, out int count, int reqCount = 30)
     {
         string cleanKey = NormalizeKey(asset);
         if (_realtimeTicks.TryGetValue(cleanKey, out var buffer))
         {
             if ((DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 30)
             {
-                var arr = buffer.GetOrderedSnapshot(count);
-                if (arr.Length >= 10) return arr;
+                var snap = buffer.GetOrderedSnapshotRented(reqCount);
+                if (snap.count >= 10) 
+                {
+                    prices = snap.prices;
+                    count = snap.count;
+                    return true;
+                }
+                ArrayPool<double>.Shared.Return(snap.prices);
             }
         }
-        return null;
+        prices = Array.Empty<double>();
+        count = 0;
+        return false;
     }
     
     // Used by MiniAppController for /api/stream/price
@@ -129,11 +137,18 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
         string cleanKey = NormalizeKey(asset);
         if (_realtimeTicks.TryGetValue(cleanKey, out var buffer))
         {
-            var arr = buffer.GetOrderedSnapshot(30);
-            // Simulate timestamp for compatibility with old controller
-            var result = new (double price, DateTime timestamp)[arr.Length];
-            for (int i = 0; i < arr.Length; i++) result[i] = (arr[i], DateTime.UtcNow.AddMilliseconds(-arr.Length + i));
-            return result;
+            var snap = buffer.GetOrderedSnapshotRented(30);
+            try
+            {
+                // Simulate timestamp for compatibility with old controller
+                var result = new (double price, DateTime timestamp)[snap.count];
+                for (int i = 0; i < snap.count; i++) result[i] = (snap.prices[i], DateTime.UtcNow.AddMilliseconds(-snap.count + i));
+                return result;
+            }
+            finally
+            {
+                ArrayPool<double>.Shared.Return(snap.prices);
+            }
         }
         return Array.Empty<(double price, DateTime timestamp)>();
     }
@@ -250,52 +265,51 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
                 byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(subMsgDto);
                 await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
 
-                using var memoryStream = new System.IO.MemoryStream();
+                byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(65536);
 
                 while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
                 {
                     ValueWebSocketReceiveResult result = default;
-                    memoryStream.SetLength(0);
+                    int offset = 0;
 
                     try
                     {
-                        byte[] tempBuffer = ArrayPool<byte>.Shared.Rent(8192);
-                        try
+                        do
                         {
-                            do
+                            if (offset >= receiveBuffer.Length)
                             {
-                                result = await ws.ReceiveAsync(tempBuffer.AsMemory(), ct);
-                                if (result.MessageType == WebSocketMessageType.Close) break;
-                                memoryStream.Write(tempBuffer, 0, result.Count);
+                                var newBuffer = ArrayPool<byte>.Shared.Rent(receiveBuffer.Length * 2);
+                                Array.Copy(receiveBuffer, newBuffer, offset);
+                                ArrayPool<byte>.Shared.Return(receiveBuffer);
+                                receiveBuffer = newBuffer;
                             }
-                            while (!result.EndOfMessage && !ct.IsCancellationRequested);
+
+                            result = await ws.ReceiveAsync(receiveBuffer.AsMemory(offset, receiveBuffer.Length - offset), ct);
+                            if (result.MessageType == WebSocketMessageType.Close) break;
+                            offset += result.Count;
                         }
-                        finally
-                        {
-                            ArrayPool<byte>.Shared.Return(tempBuffer);
-                        }
+                        while (!result.EndOfMessage && !ct.IsCancellationRequested);
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Console.WriteLine($"[TwelveData WS] Network error: {ex.Message}");
                         break;
                     }
 
-                    if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        break;
-                    }
+                    if (ct.IsCancellationRequested || ws.State != WebSocketState.Open) break;
 
-                    if (memoryStream.Length > 0)
+                    if (offset > 0)
                     {
-                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent((int)memoryStream.Length);
-                        Array.Copy(memoryStream.GetBuffer(), channelBuffer, (int)memoryStream.Length);
+                        byte[] channelBuffer = ArrayPool<byte>.Shared.Rent(offset);
+                        Array.Copy(receiveBuffer, channelBuffer, offset);
 
-                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, (int)memoryStream.Length)))
+                        if (!_jsonChannel.Writer.TryWrite(new SocketPayload(channelBuffer, offset)))
                         {
                             ArrayPool<byte>.Shared.Return(channelBuffer);
                         }
                     }
                 }
+                ArrayPool<byte>.Shared.Return(receiveBuffer);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -346,33 +360,48 @@ public sealed class TwelveDataWebSocketStream : BackgroundService
         }
     }
 
-    private struct TwelveDataTickDto
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("event")]
-        public string Event { get; set; }
-        
-        [System.Text.Json.Serialization.JsonPropertyName("symbol")]
-        public string Symbol { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("price")]
-        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)]
-        public double Price { get; set; }
-    }
-
     private static void ParseTick(ReadOnlySpan<byte> jsonData)
     {
         try
         {
-            var dto = System.Text.Json.JsonSerializer.Deserialize<TwelveDataTickDto>(jsonData);
+            var reader = new System.Text.Json.Utf8JsonReader(jsonData);
+            string? ev = null;
+            string? symbol = null;
+            double price = 0;
 
-            if (dto.Event == "price" && dto.Price > 0 && !string.IsNullOrEmpty(dto.Symbol))
+            while (reader.Read())
             {
-                string cleanKey = NormalizeKey(dto.Symbol);
+                if (reader.TokenType == System.Text.Json.JsonTokenType.PropertyName)
+                {
+                    if (reader.ValueTextEquals("event"u8))
+                    {
+                        reader.Read();
+                        ev = reader.GetString();
+                    }
+                    else if (reader.ValueTextEquals("symbol"u8))
+                    {
+                        reader.Read();
+                        symbol = reader.GetString();
+                    }
+                    else if (reader.ValueTextEquals("price"u8))
+                    {
+                        reader.Read();
+                        if (reader.TokenType == System.Text.Json.JsonTokenType.String)
+                            System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out price, out _);
+                        else
+                            price = reader.GetDouble();
+                    }
+                }
+            }
+
+            if (ev == "price" && price > 0 && !string.IsNullOrEmpty(symbol))
+            {
+                string cleanKey = NormalizeKey(symbol);
                 var buffer = _realtimeTicks.GetOrAdd(cleanKey, _ => new TickRingBuffer(100));
-                buffer.AddTick(dto.Price);
+                buffer.AddTick(price);
                 
                 // Fire-and-forget broadcast to all connected frontend clients
-                _ = BroadcastToClientsAsync(dto.Symbol, dto.Price);
+                _ = BroadcastToClientsAsync(symbol, price);
             }
         }
         catch { /* skip malformed ticks */ }

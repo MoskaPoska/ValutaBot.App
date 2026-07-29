@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -6,20 +6,20 @@ using System.Threading.Tasks;
 namespace ValutaBot.MiniApp;
 
 public record ConfluenceMatrixResult(
-    double ConfluenceRatio,      // 0.0 вЂ“ 1.0 (e.g., 1.0 = 100% agreement across all 4 timeframes)
+    double ConfluenceRatio,      // 0.0 – 1.0 (e.g., 1.0 = 100% agreement across all 4 timeframes)
     bool IsGoldenSetup,          // true if 4D alignment >= 0.85 (85%+ agreement)
     int ProbabilityBoost,        // +5% to +15% win rate boost for consensus
-    string ConfluenceLabel,      // "рџЊџ Р—РћР›РћРўРћР™ РЎР•РўРђРџ (4D 100%)" | "вљЎ РЎРР›Р¬РќРђРЇ РљРћРќР¤Р›Р®Р­РќР¦РРЇ (75%)" | "рџ“Љ РЎРўРђРќР”РђР Рў"
+    string ConfluenceLabel,      // "🌟 ЗОЛОТОЙ СЕТАП (4D 100%)" | "⚡ СИЛЬНАЯ КОНФЛЮЭНЦИЯ (75%)" | "📊 СТАНДАРТ"
     string SummaryReasoning,     // Formatted text summary for AI consensus card
     Dictionary<string, string> TimeframeDirections // TF -> "BUY" | "PUT"
 );
 
 public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
 {
-    private readonly IMarketDataFetcher _fetcher;
+    private readonly MarketDataFetcher _fetcher;
     private readonly ITechnicalAnalysisEngine _taEngine;
 
-    public ConfluenceMatrixEngine(IMarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine)
+    public ConfluenceMatrixEngine(MarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine)
     {
         _fetcher = fetcher;
         _taEngine = taEngine;
@@ -85,12 +85,12 @@ public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
 
             string label = confluenceRatio switch
             {
-                >= 0.99 => "рџЊџ Р—РћР›РћРўРћР™ РЎР•РўРђРџ (4D 100%)",
-                >= 0.75 => "вљЎ РЎРР›Р¬РќРћР• РЎРћР’РџРђР”Р•РќРР• (3D 75%)",
-                _ => "рџ“Љ РЎРўРђРќР”РђР РўРќР«Р™ РђРќРђР›РР— (50%)"
+                >= 0.99 => "🌟 ЗОЛОТОЙ СЕТАП (4D 100%)",
+                >= 0.75 => "⚡ СИЛЬНОЕ СОВПАДЕНИЕ (3D 75%)",
+                _ => "📊 СТАНДАРТНЫЙ АНАЛИЗ (50%)"
             };
 
-            string summary = $"вЂў рџЋЇ 4D РњР°С‚СЂРёС†Р° ({microTf.ToUpper()}+{primaryTf.ToUpper()}+{macroTf.ToUpper()}+{globalTf.ToUpper()}): {label}";
+            string summary = $"• 🎯 4D Матрица ({microTf.ToUpper()}+{primaryTf.ToUpper()}+{macroTf.ToUpper()}+{globalTf.ToUpper()}): {label}";
 
             BotLogger.Info($"[Confluence 4D] {asset} | Ratio: {confluenceRatio * 100}% ({maxAgree}/4 {dominantDir}) | Boost: +{boost}% | Golden: {isGoldenSetup}");
 
@@ -110,8 +110,8 @@ public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
                 ConfluenceRatio: 0.5,
                 IsGoldenSetup: false,
                 ProbabilityBoost: 0,
-                ConfluenceLabel: "рџ“Љ РЎРўРђРќР”РђР Рў",
-                SummaryReasoning: "вЂў рџЋЇ 4D РњР°С‚СЂРёС†Р°: РЎС‚Р°РЅРґР°СЂС‚РЅС‹Р№ СЂРµР¶РёРј",
+                ConfluenceLabel: "📊 СТАНДАРТ",
+                SummaryReasoning: "• 🎯 4D Матрица: Стандартный режим",
                 TimeframeDirections: new()
             );
         }
@@ -132,7 +132,7 @@ public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
 
     /// <summary>
     /// Scores directional bias for a single timeframe using the full
-    /// TechnicalAnalysisEngine pipeline (HMA, ConnorsRSI, ADX, Volume) вЂ”
+    /// TechnicalAnalysisEngine pipeline (HMA, ConnorsRSI, ADX, Volume) —
     /// replacing the former primitive 3-condition heuristic.
     /// </summary>
     private string ScoreDirection(double[] prices)
@@ -140,14 +140,14 @@ public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
         if (prices == null || prices.Length < 10) return "NEUTRAL";
 
         // Reuse the authoritative scoring function with its HMA + Connors RSI + ADX + Volume weighting.
-        // Volumes are not available here, so we pass an empty array вЂ” the engine handles this gracefully.
+        // Volumes are not available here, so we pass an empty array — the engine handles this gracefully.
         var (score, _, _, _, _, _) = _taEngine.ScoreTimeframe(
             prices,
             volumes: Array.Empty<double>(),
             candles: null
         );
 
-        // Threshold: require at least В±0.10 to avoid noise-induced signals
+        // Threshold: require at least ±0.10 to avoid noise-induced signals
         return score > 0.10 ? "BUY" : score < -0.10 ? "PUT" : "NEUTRAL";
     }
 }

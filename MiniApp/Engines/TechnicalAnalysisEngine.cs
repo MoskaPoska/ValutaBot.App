@@ -1,4 +1,4 @@
-﻿using Skender.Stock.Indicators;
+using Skender.Stock.Indicators;
 
 namespace ValutaBot.MiniApp;
 
@@ -238,7 +238,7 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             else if (mdiVal > pdiVal && mdiVal > 0) score -= 0.25;
         }
 
-        // Volume strength scoring вЂ” directional volume ratio contributes to score
+        // Volume strength scoring — directional volume ratio contributes to score
         double volStrength = 0.0;
         if (volumes.Length >= 5)
         {
@@ -249,7 +249,7 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
                 double ratio = lastVol / avgVol;
                 double priceChange = prices.Length >= 2 ? prices[^1] - prices[^2] : 0;
                 // Volume surge (ratio > 1.5) in a price direction adds confirmation weight
-                // Clamped to В±0.20 so volume alone cannot force a signal
+                // Clamped to ±0.20 so volume alone cannot force a signal
                 volStrength = (priceChange >= 0 ? 1 : -1) * Math.Max(0.0, Math.Min(ratio - 1.0, 1.0));
                 score += Math.Clamp(volStrength * 0.15, -0.20, 0.20);
             }
@@ -264,13 +264,13 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
     {
         if (prices == null || prices.Length < 15)
         {
-            return new GatekeeperResult(false, "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РґР°РЅРЅС‹С… С†РµРЅС‹ РґР»СЏ РїСЂРѕРІРµСЂРєРё Gatekeeper", 0, 0);
+            return new GatekeeperResult(false, "Недостаточно данных цены для проверки Gatekeeper", 0, 0);
         }
 
         if (candles == null || candles.Length < 15)
         {
             BotLogger.Warn("[Gatekeeper] Rejecting trade: Insufficient or missing OHLC candles. Synthetic data is prohibited.");
-            return new GatekeeperResult(false, "вљ пёЏ Р”Р°РЅРЅС‹Рµ РѕС‚ Р±РёСЂР¶Рё РЅРµРїРѕР»РЅС‹Рµ. РЎРґРµР»РєР° РѕС‚РєР»РѕРЅРµРЅР° РІ С†РµР»СЏС… Р±РµР·РѕРїР°СЃРЅРѕСЃС‚Рё.", 0, 0);
+            return new GatekeeperResult(false, "⚠️ Данные от биржи неполные. Сделка отклонена в целях безопасности.", 0, 0);
         }
         double atr = candles != null ? ComputeAtr(candles) : 0;
         var (adx, _, _) = candles != null ? ComputeTrueAdx(candles) : (20.0, 0, 0);
@@ -283,10 +283,10 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         if (priceRange < 1e-7)
         {
             BotLogger.Warn("[Gatekeeper] Market is completely flat / frozen. Aborting analysis early in 0ms.");
-            return new GatekeeperResult(false, "вљ пёЏ Р С‹РЅРѕРє РІ СЃРѕСЃС‚РѕСЏРЅРёРё Р·Р°СЃС‚РѕСЏ (РЅРµС‚ РєРѕР»РµР±Р°РЅРёР№ С†РµРЅС‹).", atr, adx);
+            return new GatekeeperResult(false, "⚠️ Рынок в состоянии застоя (нет колебаний цены).", atr, adx);
         }
 
-        return new GatekeeperResult(true, "Р С‹РЅРѕРє Р°РєС‚РёРІРµРЅ", atr, adx);
+        return new GatekeeperResult(true, "Рынок активен", atr, adx);
     }
 
     public double CalculateVolatilityRatio(double[] prices)

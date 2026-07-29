@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using MathNet.Numerics.Distributions;
 
 namespace ValutaBot.MiniApp;
@@ -86,14 +86,14 @@ public static class MonteCarloEngine
         double kellyRiskPct = Math.Round(fractionalKelly * 100.0, 1);
 
         string evLabel = evPct > 0 
-            ? $"+{evPct:F1}% EV (Р’С‹СЃРѕРєР°СЏ РІС‹РіРѕРґР°)" 
-            : $"{evPct:F1}% EV (РќРёР·РєРѕРµ РјР°С‚РѕР¶РёРґР°РЅРёРµ)";
+            ? $"+{evPct:F1}% EV (Высокая выгода)" 
+            : $"{evPct:F1}% EV (Низкое матожидание)";
 
         string kellyLabel = kellyRiskPct > 0 
-            ? $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% РѕС‚ РґРµРїРѕР·РёС‚Р°"
-            : "0% (РќРµ СЂРµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РѕС‚РєСЂС‹РІР°С‚СЊ СЃРґРµР»РєСѓ)";
+            ? $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% от депозита"
+            : "0% (Не рекомендуется открывать сделку)";
 
-        string summary = $"рџЋ° РњРѕРЅС‚Рµ-РљР°СЂР»Рѕ ({iterations} РїСЂРѕРіРѕРЅРѕРІ ATR): {successCount}/{iterations} СѓСЃРїРµС…РѕРІ | EV: {(evPct > 0 ? "+" : "")}{evPct:F1}% | Р РёСЃРє РљРµР»Р»Рё: {kellyRiskPct:F1}%";
+        string summary = $"🎰 Монте-Карло ({iterations} прогонов ATR): {successCount}/{iterations} успехов | EV: {(evPct > 0 ? "+" : "")}{evPct:F1}% | Риск Келли: {kellyRiskPct:F1}%";
 
         return new MonteCarloResult(
             iterations,

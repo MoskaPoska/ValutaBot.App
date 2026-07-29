@@ -11,11 +11,11 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
     internal readonly IWalkForwardValidationEngine _wfEngine;
     internal readonly IConfluenceMatrixEngine _cmEngine;
     internal readonly IAdaptiveExpiryEngine _aeEngine;
-    internal readonly IMarketDataFetcher _fetcher;
+    internal readonly MarketDataFetcher _fetcher;
 
     public GetMarketAnalysisQueryHandler(
         ITechnicalAnalysisEngine taEngine, 
-        IMarketDataFetcher fetcher, 
+        MarketDataFetcher fetcher, 
         IWalkForwardValidationEngine wfEngine, 
         IConfluenceMatrixEngine cmEngine, 
         IAdaptiveExpiryEngine aeEngine)

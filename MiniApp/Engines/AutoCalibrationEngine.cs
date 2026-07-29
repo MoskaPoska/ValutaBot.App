@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 
 namespace ValutaBot.MiniApp;
@@ -58,7 +58,7 @@ public static class AutoCalibrationEngine
 
         var regime = DetectMarketRegime(adx, volRatio, rsi);
 
-        // в”Ђв”Ђв”Ђ 1. Apply Market Regime Preset Base Weight в”Ђв”Ђв”Ђ
+        // ─── 1. Apply Market Regime Preset Base Weight ───
         double regimeBaseWeight = (regime, sourceName.ToUpper(CultureInfo.InvariantCulture)) switch
         {
             // TRENDING IMPULSE: SMC & OrderFlow dominate
@@ -68,7 +68,7 @@ public static class AutoCalibrationEngine
             (MarketRegime.TrendingImpulse, "ONNX")         => 1.40,
             (MarketRegime.TrendingImpulse, "NATIVE_ML")    => 1.20,
             (MarketRegime.TrendingImpulse, "SKENDER_MATH") => 0.80,
-            // Note: CLAUDE_AI removed вЂ” engine deprecated
+            // Note: CLAUDE_AI removed — engine deprecated
 
             // RANGING FLAT: Skender Math (Connors RSI/HMA) & ONNX dominate
             (MarketRegime.RangingFlat, "SKENDER_MATH")     => 2.20,
@@ -77,7 +77,7 @@ public static class AutoCalibrationEngine
             (MarketRegime.RangingFlat, "LIGHTGBM")         => 0.60,
             (MarketRegime.RangingFlat, "SMC")              => 1.20,
             (MarketRegime.RangingFlat, "ORDERFLOW")        => 0.50,
-            // Note: CLAUDE_AI removed вЂ” engine deprecated
+            // Note: CLAUDE_AI removed — engine deprecated
 
             // HIGH VOLATILITY CHAOS: OrderFlow Absorption & Skender Math dominate
             (MarketRegime.HighVolatilityChaos, "ORDERFLOW")    => 2.20,
@@ -86,12 +86,12 @@ public static class AutoCalibrationEngine
             (MarketRegime.HighVolatilityChaos, "ONNX")         => 0.80,
             (MarketRegime.HighVolatilityChaos, "LIGHTGBM")     => 0.50,
             (MarketRegime.HighVolatilityChaos, "NATIVE_ML")    => 0.50,
-            // Note: CLAUDE_AI removed вЂ” engine deprecated
+            // Note: CLAUDE_AI removed — engine deprecated
 
             _ => defaultBaseWeight
         };
 
-        // в”Ђв”Ђв”Ђ 2. Apply Rolling Empirical Win Rate Multiplier в”Ђв”Ђв”Ђ
+        // ─── 2. Apply Rolling Empirical Win Rate Multiplier ───
         string key = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_{asset.ToUpper(CultureInfo.InvariantCulture)}_{timeframe.ToLower(CultureInfo.InvariantCulture)}";
         if (!_statsMap.TryGetValue(key, out var stats) || stats.Total < 5)
         {

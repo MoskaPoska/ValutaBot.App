@@ -427,7 +427,7 @@ public partial class TelegramBotService
 
         string text = "✅ <b>Доступ открыт!</b>\n\nИспользуйте кнопку <b>📊 Открыть TradeAI</b> в меню внизу чата, чтобы запустить анализатор.";
 
-        string cacheBustedUrl = new AuthService().GetSignedWebAppUrl(chatId, webAppUrl, token);
+        string cacheBustedUrl = AuthService.GetSignedWebAppUrl(chatId, webAppUrl, token);
 
         var keyboard = new
         {
@@ -465,7 +465,7 @@ public partial class TelegramBotService
 
         string text = "👑 <b>Панель администратора TradeAI</b>\n\nИспользуйте меню внизу экрана для управления ботом.";
 
-        string cacheBustedUrl = new AuthService().GetSignedWebAppUrl(chatId, webAppUrl, token);
+        string cacheBustedUrl = AuthService.GetSignedWebAppUrl(chatId, webAppUrl, token);
 
         var keyboard = new
         {

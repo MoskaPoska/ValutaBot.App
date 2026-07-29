@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Linq;
 
@@ -67,7 +67,7 @@ public static class CrossAssetCorrelationEngine
         }
 
         double scoreContribution = 0.0;
-        string desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РІРµРєС‚РѕСЂ РЅР°С…РѕРґРёС‚СЃСЏ РІ Р±Р°Р»Р°РЅСЃРµ.";
+        string desc = "Межрыночный вектор находится в балансе.";
 
         if (isForex)
         {
@@ -77,12 +77,12 @@ public static class CrossAssetCorrelationEngine
                 if (dxyScore < -0.3)
                 {
                     scoreContribution = 0.45;
-                    desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: РџР°РґРµРЅРёРµ DXY (РРЅРґРµРєСЃ Р”РѕР»Р»Р°СЂР°) РґР°С‘С‚ Р±С‹С‡РёР№ РёРјРїСѓР»СЊСЃ (+0.45).";
+                    desc = "Межрыночный имбаланс: Падение DXY (Индекс Доллара) даёт бычий импульс (+0.45).";
                 }
                 else if (dxyScore > 0.3)
                 {
                     scoreContribution = -0.45;
-                    desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: Р РѕСЃС‚ DXY РґР°РІРёС‚ РЅР° РїР°СЂСѓ Р’РќРР— (-0.45).";
+                    desc = "Межрыночный имбаланс: Рост DXY давит на пару ВНИЗ (-0.45).";
                 }
             }
         }
@@ -92,12 +92,12 @@ public static class CrossAssetCorrelationEngine
             if (riskScore > 0.3)
             {
                 scoreContribution = 0.40;
-                desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: РЎРёР»СЊРЅС‹Р№ Р±С‹С‡РёР№ Р°РїРїРµС‚РёС‚ Рє СЂРёСЃРєСѓ (Risk-On Sentiment +0.40).";
+                desc = "Межрыночный имбаланс: Сильный бычий аппетит к риску (Risk-On Sentiment +0.40).";
             }
             else if (riskScore < -0.3)
             {
                 scoreContribution = -0.40;
-                desc = "РњРµР¶СЂС‹РЅРѕС‡РЅС‹Р№ РёРјР±Р°Р»Р°РЅСЃ: Р‘РµРіСЃС‚РІРѕ РёР· СЂРёСЃРєРѕРІС‹С… Р°РєС‚РёРІРѕРІ (Risk-Off Sentiment -0.40).";
+                desc = "Межрыночный имбаланс: Бегство из рисковых активов (Risk-Off Sentiment -0.40).";
             }
         }
 

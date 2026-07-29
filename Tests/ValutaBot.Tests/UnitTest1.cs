@@ -1,4 +1,4 @@
-﻿namespace ValutaBot.Tests;
+namespace ValutaBot.Tests;
 
 public class UnitTest1
 {

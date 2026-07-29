@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -6,10 +6,10 @@ namespace ValutaBot.MiniApp;
 
 public class BacktestEngine : IBacktestEngine
 {
-    private readonly IMarketDataFetcher _fetcher;
+    private readonly MarketDataFetcher _fetcher;
     private readonly ITechnicalAnalysisEngine _taEngine;
 
-    public BacktestEngine(IMarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine)
+    public BacktestEngine(MarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine)
     {
         _fetcher = fetcher;
         _taEngine = taEngine;
@@ -77,8 +77,8 @@ public class BacktestEngine : IBacktestEngine
                 combinedScore,
                 combinedScore > 0 ? 1 : combinedScore < 0 ? -1 : 0,
                 "NEUTRAL", 50, "",
-                // Pass 0.5 (normalized [0..1]) вЂ” not 50 (which was incorrectly treated as int,
-                // making normLgbm = ((50/100.0) - 0.5) * 2 = 0 в†’ zero ML weight in backtest)
+                // Pass 0.5 (normalized [0..1]) — not 50 (which was incorrectly treated as int,
+                // making normLgbm = ((50/100.0) - 0.5) * 2 = 0 → zero ML weight in backtest)
                 "NEUTRAL", 0.5, null,
                 "NEUTRAL", 50.0,
                 "NEUTRAL", 0.5,

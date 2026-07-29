@@ -128,7 +128,7 @@ internal class MarketAnalysisContext
         }
         else
         {
-            var mainResultTuple = await ExchangeDataResilience.FetchPricesResilientAsync(_symbol, _mainInterval, _clean, _limit, 10);
+            var mainResultTuple = await _handler._fetcher.FetchBinanceWithFallback(_symbol, _mainInterval, _clean, _limit, 10);
             _mainPrices = mainResultTuple.prices;
             _mainVolumes = mainResultTuple.volumes;
         }
@@ -174,18 +174,11 @@ internal class MarketAnalysisContext
         
         _orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(_mainPrices, _mainVolumes ?? Array.Empty<double>(), _ohlcCandles, liveDepth);
         BotLogger.Info($"[Order Flow] Asset {_asset} ({_timeframe}): {_orderFlowResult.Description}");
-
-        var forexTape = ForexMarketProxyEngine.AnalyzeForexTape(_asset);
-        if (Math.Abs(forexTape.ScoreContribution) > 0.1)
-        {
-            BotLogger.Info($"[CME Forex Tape] Asset {_asset}: Proxy={forexTape.MappedFuturesSymbol} Delta CVD={forexTape.CumulativeDeltaVolume} | State={forexTape.MarketState}");
-        }
     }
 
     private async Task GatherMachineLearningAsync()
     {
-        _newsResult = NewsAnalysisService.Analyze(_asset);
-        bool isNewsActive = _newsResult.sentiment == "High Impact Volatility" || Math.Abs(_newsResult.score) > 1.5;
+        bool isNewsActive = false;
 
         _wfResult = _handler._wfEngine.ValidateWalkForward(_asset, _timeframe, _mainPrices, isNewsActive);
         if (_wfResult.IsOverfitted || _wfResult.IsCooloffActive)
@@ -215,7 +208,7 @@ internal class MarketAnalysisContext
 
         if (Math.Abs(_newsResult.score) > 0.1)
         {
-            double newsWeight = SignalTracker.GetSignalWeight("Новости", 0.8);
+            double newsWeight = SignalTracker.GetSignalWeight("пїЅпїЅпїЅпїЅпїЅпїЅпїЅ", 0.8);
             double newsScoreNormalized = Math.Clamp(_newsResult.score / 2.0, -1, 1);
             _totalScore += newsScoreNormalized * newsWeight;
             _totalConfidence += Math.Clamp(Math.Abs(_newsResult.score) / 2.0 * 100, 50, 98) * newsWeight;
@@ -254,7 +247,7 @@ internal class MarketAnalysisContext
             _totalWeight += 2.0;
         }
 
-        double indicatorWeight = SignalTracker.GetSignalWeight("Индикаторы", 1.0);
+        double indicatorWeight = SignalTracker.GetSignalWeight("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ", 1.0);
         _totalScore += (_mainResult.score + _orderFlowResult.ScoreContribution) * indicatorWeight;
         _totalConfidence += _mainResult.confidence * indicatorWeight;
         _totalWeight += indicatorWeight;
@@ -290,14 +283,14 @@ internal class MarketAnalysisContext
     private (string direction, double probability, string reasoning, string modelName) GetClaudeFallback()
     {
         string fallbackDir = _totalScore > 0.05 ? "BUY" : _totalScore < -0.05 ? "PUT" : "NEUTRAL";
-        string fallbackReasoning = "Рынок находится во флэте или индикаторы противоречат друг другу. Рекомендуется воздержаться от сделок.";
+        string fallbackReasoning = "пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ.";
         
-        if (_totalScore > 0.6) fallbackReasoning = "Сильный бычий тренд. Ключевые индикаторы (RSI, MACD, Объемы) подтверждают рост. Идеальные условия для входа.";
-        else if (_totalScore > 0.2) fallbackReasoning = "Умеренный бычий тренд. Паттерны указывают на вероятный рост, учитывайте ближайшие уровни сопротивления.";
-        else if (_totalScore < -0.6) fallbackReasoning = "Сильный медвежий тренд. Ожидается падение. Высокое давление продавцов, рекомендуется вход на понижение.";
-        else if (_totalScore < -0.2) fallbackReasoning = "Умеренный медвежий тренд. Индикаторы указывают на снижение, следите за уровнями поддержки.";
+        if (_totalScore > 0.6) fallbackReasoning = "пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (RSI, MACD, пїЅпїЅпїЅпїЅпїЅпїЅ) пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ.";
+        else if (_totalScore > 0.2) fallbackReasoning = "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ.";
+        else if (_totalScore < -0.6) fallbackReasoning = "пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ.";
+        else if (_totalScore < -0.2) fallbackReasoning = "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ.";
 
-        return (fallbackDir, 50.0, fallbackReasoning, "Математический Анализ");
+        return (fallbackDir, 50.0, fallbackReasoning, "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ");
     }
 
     private async Task<TimeframeAnalysisResult> RunTimeframeStrategyAsync()
@@ -373,8 +366,6 @@ internal class MarketAnalysisContext
         if (finalDirection == "NEUTRAL") finalProbability = 50;
         else if (matrixResult.ProbabilityBoost > 0) finalProbability = Math.Clamp(finalProbability + matrixResult.ProbabilityBoost, 55, 95);
 
-        if (finalProbability >= 70) MultiRegionGatewayEngine.PreWarmSocketForSignal(_asset);
-
         int timeframeSec = _handler._fetcher.TimeframeSeconds(_timeframe);
         double volRatio = _handler._taEngine.CalculateVolatilityRatio(_mainPrices);
         var adaptiveExpiry = _handler._aeEngine.CalculateOptimalExpiry(_asset, _timeframe, _mainAtr, volRatio, _smcResult, isSubMinute);
@@ -442,6 +433,7 @@ internal class MarketAnalysisContext
         };
     }
 }
+
 
 
 

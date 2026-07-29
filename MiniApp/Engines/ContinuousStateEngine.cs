@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 namespace ValutaBot.MiniApp;
@@ -28,7 +28,7 @@ public static class ContinuousStateEngine
     {
         if (prices == null || prices.Length < 10)
         {
-            return new ContinuousStateResult(0, 0, 0, "STABLE", 0, "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ С‚РёРєРѕРІ РґР»СЏ РЅРµРїСЂРµСЂС‹РІРЅРѕРіРѕ РІРµРєС‚РѕСЂР° СЃРѕСЃС‚РѕСЏРЅРёСЏ.");
+            return new ContinuousStateResult(0, 0, 0, "STABLE", 0, "Недостаточно тиков для непрерывного вектора состояния.");
         }
 
         int n = prices.Length;
@@ -74,25 +74,25 @@ public static class ContinuousStateEngine
         {
             regime = "HYPER_ACCELERATING_UP";
             momentumContribution = 0.45;
-            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: Р“РёРїРµСЂ-СѓСЃРєРѕСЂРµРЅРёРµ Р’Р’Р•Р РҐ (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/sВІ).";
+            desc = $"Непрерывный вектор: Гипер-ускорение ВВЕРХ (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/s²).";
         }
         else if (instantVelocity < -3.0 && instantAcceleration < -0.5)
         {
             regime = "HYPER_ACCELERATING_DOWN";
             momentumContribution = -0.45;
-            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: Р“РёРїРµСЂ-СѓСЃРєРѕСЂРµРЅРёРµ Р’РќРР— (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/sВІ).";
+            desc = $"Непрерывный вектор: Гипер-ускорение ВНИЗ (Velocity={instantVelocity:F1} bps/s, Accel={instantAcceleration:F2} bps/s²).";
         }
         else if (Math.Sign(instantVelocity) != Math.Sign(instantAcceleration) && Math.Abs(instantVelocity) > 2.0)
         {
             regime = "DECELERATING";
             momentumContribution = -Math.Sign(instantVelocity) * 0.20;
-            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: Р—Р°РјРµРґР»РµРЅРёРµ РёРјРїСѓР»СЊСЃР° РїРµСЂРµРґ СЂР°Р·РІРѕСЂРѕС‚РѕРј (Deceleration Phase).";
+            desc = $"Непрерывный вектор: Замедление импульса перед разворотом (Deceleration Phase).";
         }
         else
         {
             regime = "STABLE";
             momentumContribution = 0;
-            desc = $"РќРµРїСЂРµСЂС‹РІРЅС‹Р№ РІРµРєС‚РѕСЂ: РЎС‚Р°Р±РёР»СЊРЅРѕРµ Р»Р°РјРёРЅР°СЂРЅРѕРµ РґРІРёР¶РµРЅРёРµ (Velocity={instantVelocity:F1} bps/s).";
+            desc = $"Непрерывный вектор: Стабильное ламинарное движение (Velocity={instantVelocity:F1} bps/s).";
         }
 
         return new ContinuousStateResult(
