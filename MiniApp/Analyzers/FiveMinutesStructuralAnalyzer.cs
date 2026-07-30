@@ -9,7 +9,7 @@ namespace ValutaBot.MiniApp;
 /// </summary>
 public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
 {
-    public Task<TimeframeAnalysisResult> AnalyzeAsync(
+    public async Task<TimeframeAnalysisResult> AnalyzeAsync(
         string asset,
         string timeframe,
         double[] prices,
@@ -22,9 +22,9 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
     {
         if (ohlcCandles == null || ohlcCandles.Length < 10 || prices == null || prices.Length == 0)
         {
-            return Task.FromResult(new TimeframeAnalysisResult(
-                "WAIT", 0.50, "STRUCTURAL_SMC", "Недостаточно данных для SMC-анализа 5m+.", false
-            ));
+            return new TimeframeAnalysisResult(
+                "WAIT", 0.50, "STRUCTURAL_SMC", "Недостаточно данных для анализа SMC-структуры 5m+.", false
+            );
         }
 
         // ─── 1. Main 5m SMC Structure Analysis ───
@@ -35,8 +35,8 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
         if (higherTfData != null && higherTfData.Value.prices.Length >= 10)
         {
             string htfTf = MarketDataFetcher.Instance.HigherTf(timeframe) ?? "h1";
-            var higherOhlcKey = $"{asset}_{htfTf.ToLower(CultureInfo.InvariantCulture)}";
-            var higherOhlc = MarketDataFetcher.Instance.GetOhlcCandles(higherOhlcKey);
+            string sym = asset.ToUpper().EndsWith("USDT") ? asset : asset + "USDT";
+            var higherOhlc = await MarketDataFetcher.Instance.FetchBinanceOhlcCandlesAsync(sym, htfTf);
             if (higherOhlc != null && higherOhlc.Length >= 10)
             {
                 htfSmc = SmcEngine.AnalyzeSmcStructure(higherOhlc, higherTfData.Value.prices[^1]);
@@ -93,13 +93,13 @@ public class FiveMinutesStructuralAnalyzer : ITimeframeAnalyzer
             reasoning += " (Уверенность структуры ниже 75%).";
         }
 
-        return Task.FromResult(new TimeframeAnalysisResult(
+        return new TimeframeAnalysisResult(
             direction,
             Math.Round(confidence, 2),
             "STRUCTURAL_SMC",
             reasoning,
             isActionable
-        ));
+        );
     }
 }
 

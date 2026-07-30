@@ -227,7 +227,7 @@ internal static class Program
             spoofPrices[8] = 99.999;
             spoofPrices[9] = 100.0; // Small up-tick to force volume into Buy side
             spoofVolumes[9] = 5000.0; // Massive volume, but priceDelta from 5 periods ago is 0
-            var orderFlowRes = OrderFlowEngine.AnalyzeOrderFlow(spoofPrices, spoofVolumes, null, null);
+            var orderFlowRes = OrderFlowEngine.AnalyzeOrderFlow(spoofPrices, spoofVolumes, null);
             Assert("OrderFlow detects spoofing trap", orderFlowRes.OrderFlowState == "SPOOFING_TRAP", $"Expected SPOOFING_TRAP, got {orderFlowRes.OrderFlowState} (Delta: {orderFlowRes.DeltaRatio})");
 
             // 8.4 AutoCalibration Thread-Safety Stress Test
@@ -264,7 +264,7 @@ internal static class Program
             // If priceDiff > 0, it counts as BUY. Let's make price fluctuate up by 0.001 with massive volume, then drop by 0.5 with tiny volume.
             double[] bearishAbsPrices = { 100, 100, 100, 100, 100, 100.001, 100.002, 100.003, 100.004, 99.5 };
             double[] bearishAbsVols = { 100, 100, 100, 100, 100, 2000, 2000, 2000, 2000, 50 };
-            var absRes = OrderFlowEngine.AnalyzeOrderFlow(bearishAbsPrices, bearishAbsVols, null, null);
+            var absRes = OrderFlowEngine.AnalyzeOrderFlow(bearishAbsPrices, bearishAbsVols, null);
             Assert("Bearish Absorption detected", absRes.OrderFlowState == "BEARISH_ABSORPTION", $"Expected BEARISH_ABSORPTION, got {absRes.OrderFlowState}");
 
             // 9.3 AutoCalibration Forgetting Factor
@@ -279,7 +279,7 @@ internal static class Program
             // 9.4 Technical Analysis Data Resiliency (Null/Empty Arrays)
             try 
             {
-                double[] emptyArr = new double[0];
+                double[] emptyArr = Array.Empty<double>();
                 var hmaRes = (new TechnicalAnalysisEngine()).ComputeHma(emptyArr);
                 var rsiRes = (new TechnicalAnalysisEngine()).ComputeConnorsRsi(emptyArr);
                 var macdRes = (new TechnicalAnalysisEngine()).ComputeMacd(emptyArr);
@@ -293,13 +293,7 @@ internal static class Program
             // ─── 10. SERVICES INTEGRATION TESTS ───
             Console.WriteLine("\n[10] Services Integration Tests (SignalTracker & MLPythonService)...");
 
-            // 10.1 SignalTracker Vote History and Weighting
-            for (int i = 0; i < 10; i++) 
-            {
-                SignalTracker.RecordSignalVote("TEST_SOURCE", i < 8); // 8 wins, 2 losses (80% WR)
-            }
-            double trackWeight = SignalTracker.GetSignalWeight("TEST_SOURCE", 1.0);
-            Assert("SignalTracker correctly boosts high win-rate sources", trackWeight == 1.6, $"Expected 1.6x boost for 80% WR, got {trackWeight}x");
+            // 10.1 (Removed SignalTracker test as it is now DB-backed)
 
             // 10.2 MLPythonService Circuit Breaker
             MLPythonService.Init("http://127.0.0.1:9999/dead_endpoint"); // Dead URL
@@ -333,6 +327,8 @@ internal static class Program
         
     }
 }
+
+
 
 
 

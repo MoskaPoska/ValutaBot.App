@@ -14,7 +14,7 @@ public partial class TelegramBotService
 
         if (data == "check_reg")
         {
-            bool isAllowed = IsUserAllowed(chatId);
+            bool isAllowed = await IsUserAllowed(chatId);
 
             if (isAllowed)
             {
@@ -36,26 +36,17 @@ public partial class TelegramBotService
             await AnswerCallbackQuery(token, queryId, "Проверка депозита...");
             
             bool hasDeposited = false;
-            lock (_lock)
+            var reg = await BotDatabase.GetPocketRegistrationAsync(pocketId);
+            if (reg != null)
             {
-                if (PocketRegistrations.TryGetValue(pocketId, out var reg))
-                {
-                    hasDeposited = reg.HasDeposited;
-                    reg.ChatId = chatId;
-                    SaveRegistrations();
-                }
+                hasDeposited = reg.HasDeposited;
+                reg.ChatId = chatId;
+                await BotDatabase.SaveRegistrationAsync(reg);
             }
             
             if (hasDeposited)
             {
-                lock (_lock)
-                {
-                    if (!AllowedUsers.Contains(chatId))
-                    {
-                        AllowedUsers.Add(chatId);
-                        SaveAllowedUsers();
-                    }
-                }
+                await BotDatabase.AddAllowedUserAsync(chatId);
                 await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
                 await SendUserWelcome(token, chatId, webAppUrl);
             }
@@ -80,16 +71,13 @@ public partial class TelegramBotService
                 };
                 var json = JsonSerializer.Serialize(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+                await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
             }
         }
         else if (data.StartsWith("approve_"))
         {
             bool isSenderAdmin;
-            lock (_lock)
-            {
-                isSenderAdmin = AdminChatIds.Contains(chatId);
-            }
+            isSenderAdmin = await BotDatabase.IsAdminAsync(chatId);
 
             if (!isSenderAdmin)
             {
@@ -102,14 +90,7 @@ public partial class TelegramBotService
                 await AnswerCallbackQuery(token, queryId, "❌ Неверный формат ID.");
                 return;
             }
-            lock (_lock)
-            {
-                if (!AllowedUsers.Contains(userChatId))
-                {
-                    AllowedUsers.Add(userChatId);
-                    SaveAllowedUsers();
-                }
-            }
+            await BotDatabase.AddAllowedUserAsync(userChatId);
 
             UserSubmittedIds.TryRemove(userChatId, out var pocketId);
             await AnswerCallbackQuery(token, queryId, "Заявка одобрена!");
@@ -129,10 +110,7 @@ public partial class TelegramBotService
         else if (data.StartsWith("decline_"))
         {
             bool isSenderAdmin;
-            lock (_lock)
-            {
-                isSenderAdmin = AdminChatIds.Contains(chatId);
-            }
+            isSenderAdmin = await BotDatabase.IsAdminAsync(chatId);
 
             if (!isSenderAdmin)
             {

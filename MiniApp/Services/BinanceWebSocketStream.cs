@@ -78,38 +78,6 @@ public class CandleSeriesBuffer
 public static class BinanceWebSocketStream
 {
     private static readonly ConcurrentDictionary<string, CandleSeriesBuffer> _liveCandles = new();
-    
-    // Migrated from MarketDataService for zero-redundancy
-    private static readonly ConcurrentDictionary<string, (double price, double vol, DateTime time)> LatestPrices = new();
-    private static readonly ConcurrentQueue<string> RecentAlerts = new();
-    private static readonly ConcurrentDictionary<string, TickRingBuffer> _volumeHistory = new();
-
-    public static object GetLatestPrices()
-    {
-        var result = new System.Collections.Generic.Dictionary<string, object>();
-        foreach (var kv in LatestPrices)
-        {
-            if (!kv.Key.Contains("_alert_cooldown"))
-            {
-                result[kv.Key] = new { price = kv.Value.price, volume = kv.Value.vol };
-            }
-        }
-        return result;
-    }
-
-    public static System.Collections.Generic.List<string> GetRecentAlerts()
-    {
-        return RecentAlerts.ToArray().Reverse().ToList();
-    }
-
-    public record OrderbookDepthSnapshot(
-        double TotalBidVolume,
-        double TotalAskVolume,
-        double ImbalanceRatio, // Range -1.0 to +1.0
-        DateTime UpdatedAt
-    );
-
-    private static readonly ConcurrentDictionary<string, OrderbookDepthSnapshot> _liveOrderbooks = new();
 
     // Payload consists of rented ArrayPool array and the valid length.
     private record struct SocketPayload(byte[] Buffer, int Length);
@@ -144,18 +112,6 @@ public static class BinanceWebSocketStream
         return false;
     }
 
-    public static bool TryGetLiveOrderbookImbalance(string symbol, out OrderbookDepthSnapshot? snapshot)
-    {
-        string key = symbol.ToUpper();
-        if (_liveOrderbooks.TryGetValue(key, out var data) && (DateTime.UtcNow - data.UpdatedAt).TotalSeconds < 5)
-        {
-            snapshot = data;
-            return true;
-        }
-        snapshot = null;
-        return false;
-    }
-
     public static void StartStream(IEnumerable<string> symbols, string interval = "1m")
     {
         if (_isRunning) return;
@@ -167,7 +123,6 @@ public static class BinanceWebSocketStream
         {
             string cleanSym = AssetSanitizer.Sanitize(s).ToLower();
             streams.Add($"{cleanSym}@kline_{interval}");
-            streams.Add($"{cleanSym}@depth20@100ms");
         }
         string streamNames = string.Join("/", streams);
         string wsUrl = $"wss://stream.binance.com:9443/stream?streams={streamNames}";
@@ -355,7 +310,7 @@ public static class BinanceWebSocketStream
                     {
                         reader.Read();
                         if (reader.TokenType == System.Text.Json.JsonTokenType.String)
-                            System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out closePrice, out _);
+                            _ = System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out closePrice, out _);
                         else
                             closePrice = reader.GetDouble();
                     }
@@ -363,7 +318,7 @@ public static class BinanceWebSocketStream
                     {
                         reader.Read();
                         if (reader.TokenType == System.Text.Json.JsonTokenType.String)
-                            System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out volume, out _);
+                            _ = System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out volume, out _);
                         else
                             volume = reader.GetDouble();
                     }
@@ -385,13 +340,8 @@ public static class BinanceWebSocketStream
 
                         var buffer = _liveCandles.GetOrAdd(key, CreateBuffer);
                         buffer.Update(closePrice, volume, startTime);
+var cleanSymbol = ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol);
 
-                        // Migrated from MarketDataService
-                        var cleanSymbol = ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol);
-                        var displayKey = symbol.ToUpper().Replace("USDT", "/USDT");
-                        LatestPrices[displayKey] = (closePrice, volume, DateTime.UtcNow);
-                        CheckVolumeAnomaly(cleanSymbol, closePrice, volume);
-                        SignalTracker.UpdatePrice(cleanSymbol, closePrice);
                     }
                 }
             }
@@ -402,49 +352,10 @@ public static class BinanceWebSocketStream
         }
     }
 
-    private static void CheckVolumeAnomaly(string symbol, double price, double volume24h)
-    {
-        if (symbol == "BTCUSDT" || symbol == "ETHUSDT" || symbol == "SOLUSDT")
-        {
-            var buffer = _volumeHistory.GetOrAdd(symbol, _ => new TickRingBuffer(20));
-            var snap = buffer.GetOrderedSnapshotRented(20);
-            
-            try
-            {
-                buffer.AddTick(volume24h);
-                
-                if (snap.count >= 20)
-                {
-                    double avgVol = 0;
-                    for (int i = 0; i < snap.count; i++) avgVol += snap.prices[i];
-                    avgVol /= snap.count;
-                    
-                    if (avgVol > 0)
-                    {
-                        double ratio = volume24h / avgVol;
-                        if (ratio > 1.05) 
-                        {
-                            string alertKey = $"{symbol}_alert_cooldown";
-                            if (!LatestPrices.ContainsKey(alertKey) || (DateTime.UtcNow - LatestPrices[alertKey].time).TotalMinutes > 5)
-                            {
-                                string alertMsg = $"\u26A0\uFE0F {symbol.Replace("USDT", "/USDT")} | Резкий всплеск объёма: +{(ratio - 1) * 100:F1}%";
-                                Console.WriteLine($"[MDS] {alertMsg}");
-
-                                RecentAlerts.Enqueue($"{DateTime.UtcNow:HH:mm:ss} {alertMsg}");
-                                if (RecentAlerts.Count > 20) RecentAlerts.TryDequeue(out _);
-                                
-                                LatestPrices[alertKey] = (0, 0, DateTime.UtcNow);
-                            }
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                System.Buffers.ArrayPool<double>.Shared.Return(snap.prices);
-            }
-        }
-    }
+    
 }
+
+
+
 
 

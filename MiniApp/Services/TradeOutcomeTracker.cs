@@ -1,6 +1,5 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ValutaBot.MiniApp;
@@ -9,45 +8,41 @@ public static class TradeOutcomeTracker
 {
     public static IWalkForwardValidationEngine WfEngine { get; set; }
     private static volatile bool _initialized = false;
-    private static readonly object _initLock = new();
+    private static readonly SemaphoreSlim _initSemaphore = new(1, 1);
 
-    /// <summary>
-    /// Initializes trade outcome tracking engine and restores online learning state from SQLite DB.
-    /// </summary>
-    public static void Initialize()
+    public static async Task InitializeAsync()
     {
         if (_initialized) return;
-        lock (_initLock)
+        
+        await _initSemaphore.WaitAsync();
+        try
         {
             if (_initialized) return;
 
-            try
-            {
-                var outcomes = BotDatabase.LoadTradeOutcomes(1000);
-                BotLogger.Info($"[TradeOutcomeTracker] Loaded {outcomes.Count} historical outcomes from SQLite DB.");
+            var outcomes = await BotDatabase.LoadTradeOutcomesAsync(1000);
+            BotLogger.Info($"[TradeOutcomeTracker] Loaded {outcomes.Count} historical outcomes from PostgreSQL DB.");
 
-                foreach (var outcome in outcomes)
-                {
-                    AutoCalibrationEngine.RecordSourceOutcome("GLOBAL", outcome.Asset, outcome.Timeframe, outcome.WasWin);
-                }
-
-                _initialized = true;
-                BotLogger.Info("[TradeOutcomeTracker] Online Reinforcement Learning engine initialized successfully.");
-            }
-            catch (Exception ex)
+            foreach (var outcome in outcomes)
             {
-                BotLogger.Error("[TradeOutcomeTracker] Failed to initialize trade outcome tracker", ex);
+                AutoCalibrationEngine.RecordSourceOutcome("GLOBAL", outcome.Asset, outcome.Timeframe, outcome.WasWin);
             }
+
+            _initialized = true;
+            BotLogger.Info("[TradeOutcomeTracker] Online Reinforcement Learning engine initialized successfully.");
+        }
+        catch (Exception ex)
+        {
+            BotLogger.Error("[TradeOutcomeTracker] Failed to initialize trade outcome tracker", ex);
+        }
+        finally
+        {
+            _initSemaphore.Release();
         }
     }
 
-    /// <summary>
-    /// Triggered automatically by SignalTracker when a trade candle expires and exit price is verified.
-    /// Updates SQLite DB, AutoCalibrationEngine weights, and triggers Python LightGBM Online RL update.
-    /// </summary>
-    public static void OnTradeVerified(SignalTracker.PredictionRecord record)
+    public static async Task OnTradeVerifiedAsync(SignalTracker.PredictionRecord record)
     {
-        Initialize();
+        await InitializeAsync();
 
         try
         {
@@ -65,8 +60,7 @@ public static class TradeOutcomeTracker
                 VerifiedAt = DateTime.UtcNow.ToString("o")
             };
 
-            // 1. Persist to ACID SQLite Database
-            BotDatabase.SaveTradeOutcome(outcomeRecord);
+            await BotDatabase.SaveTradeOutcomeAsync(outcomeRecord);
 
             bool wasCorrect = record.WasCorrect ?? false;
             double exitPriceVal = record.ExitPrice ?? record.EntryPrice;
@@ -74,14 +68,12 @@ public static class TradeOutcomeTracker
             double priceDiffAbs = Math.Abs(exitPriceVal - record.EntryPrice);
             double priceDiffPct = priceDiffAbs / (record.EntryPrice + 1e-9);
 
-            // Minimum threshold (0.5 bps) for W/L to prevent ML reward hacking / noise fitting
             if (priceDiffPct < 0.00005)
             {
                 BotLogger.Info($"[TradeOutcomeTracker] Trade {record.Id} diff {priceDiffPct*10000:F2} bps is below noise threshold. Skipping ML RL update.");
                 return;
             }
 
-            // 2. Continuous Online RL for AutoCalibration Engine
             if (record.SourceDirections != null && record.SourceDirections.Count > 0)
             {
                 string winDirection = exitPriceVal > record.EntryPrice ? "BUY" : "PUT";
@@ -104,9 +96,6 @@ public static class TradeOutcomeTracker
                 AutoCalibrationEngine.RecordSourceOutcome("NATIVE_ML",    record.Asset, record.Timeframe, wasCorrect);
             }
 
-            // 3. Auto-Trading functionality has been removed.
-            
-            // 4. Continuous Online RL for Python LightGBM ML Service
             _ = Task.Run(async () =>
             {
                 try
@@ -126,10 +115,9 @@ public static class TradeOutcomeTracker
                 }
             });
 
-            // 5. Update Walk-Forward Anti-Overfitting Drawdown Protection
             WfEngine?.RecordTradeOutcome(record.Asset, record.Timeframe, wasCorrect);
 
-            BotLogger.Info($"[TradeOutcomeTracker] Verified trade {record.Id} ({record.Asset} {record.Timeframe}) -> {(wasCorrect ? "WIN ✅" : "LOSS ❌")}. Online RL weights & Walk-Forward state updated.");
+            BotLogger.Info($"[TradeOutcomeTracker] Verified trade {record.Id} ({record.Asset} {record.Timeframe}) -> {(wasCorrect ? "WIN" : "LOSS")}. Online RL weights & Walk-Forward state updated.");
         }
         catch (Exception ex)
         {
@@ -137,5 +125,3 @@ public static class TradeOutcomeTracker
         }
     }
 }
-
-

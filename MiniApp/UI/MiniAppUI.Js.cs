@@ -83,63 +83,7 @@ public static partial class MiniAppUI
             const menuEl = document.getElementById(m);
             if (menuEl) menuEl.classList.toggle('show');
         }
-
-        let priceSocket = null;
-        let lastPriceVal = 0;
-
-        function initPriceWebSocket() {
-            closePriceWebSocket();
-
-            const isSecondsTf = currentTf.startsWith('s');
-            const livePriceContainer = document.getElementById('livePriceContainer');
-            
-            if (!isSecondsTf) {
-                if (livePriceContainer) livePriceContainer.style.display = 'none';
-                return;
-            }
-
-            if (livePriceContainer) livePriceContainer.style.display = 'flex';
-            const valEl = document.getElementById('livePriceValue');
-            if (valEl) {
-                valEl.innerText = 'ЗАГРУЗКА...';
-                valEl.className = 'live-price-value';
-            }
-
-            try {
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${window.location.host}/ws/prices?asset=${encodeURIComponent(currentAsset)}`;
-                
-                priceSocket = new WebSocket(wsUrl);
-
-                priceSocket.onmessage = function(event) {
-                    try {
-                        const data = JSON.parse(event.data);
-                        if (data && data.price !== undefined) {
-                            const newPrice = data.price;
-                            updateLivePriceUI(newPrice);
-                        }
-                    } catch (e) {
-                        console.error('Error parsing WS message:', e);
-                    }
-                };
-
-                priceSocket.onclose = function() {
-                    console.log('Price WebSocket closed');
-                };
-
-                priceSocket.onerror = function(err) {
-                    console.error('Price WebSocket error:', err);
-                };
-            } catch (err) {
-                console.error('Failed to create WebSocket:', err);
-            }
-        }
-
-        function closePriceWebSocket() {
-            if (priceSocket) {
-                try {
-                    priceSocket.close();
-                } catch(e) {}
+        let lastPriceVal = 0; catch(e) {}
                 priceSocket = null;
             }
             lastPriceVal = 0;
@@ -187,7 +131,6 @@ public static partial class MiniAppUI
             if (menuEl) menuEl.classList.remove('show');
             const sphere = document.getElementById('mainSphere');
             if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
-            initPriceWebSocket();
         }
 
         function setTf(el) {
@@ -204,7 +147,6 @@ public static partial class MiniAppUI
             if (menuEl) menuEl.classList.remove('show');
             const sphere = document.getElementById('mainSphere');
             if (sphere) sphere.classList.remove('buy-signal', 'put-signal', 'neutral-signal');
-            initPriceWebSocket();
         }
 
         function handleGlobalInteraction(e) {
@@ -291,7 +233,6 @@ public static partial class MiniAppUI
         const topCatInitial = document.querySelector('.top-cat-btn');
         if (topCatInitial) changeTopCategory(topCatInitial);
         syncTime();
-        initPriceWebSocket();
         
         var timeOffset = 0;
 
@@ -560,6 +501,9 @@ public static partial class MiniAppUI
                     }
                 });
                 const data = await res.json();
+                if (data && data.marketState && data.marketState.currentPrice) {
+                    updateLivePriceUI(data.marketState.currentPrice);
+                }
 
                 const elapsed = Date.now() - startTime;
                 const remainingDelay = Math.max(0, 2000 - elapsed);
@@ -721,3 +665,6 @@ public static partial class MiniAppUI
         ";
     }
 }
+
+
+

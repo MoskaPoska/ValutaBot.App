@@ -1,37 +1,31 @@
 using System;
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Web;
 using Microsoft.AspNetCore.Http;
+using System.Threading.Tasks;
 
 namespace ValutaBot.MiniApp;
 
 public static class AuthService
 {
-    private static readonly ConcurrentDictionary<long, DateTime> UserLastRequestTime = new();
-
-    public static bool IsRequestAuthorized(HttpContext context, out string? errorMessage)
+    public static async Task<(bool isAuthorized, string? errorMessage)> IsRequestAuthorized(HttpContext context)
     {
-        errorMessage = null;
-
         string? botToken = TelegramNotifier.GetToken();
         if (string.IsNullOrEmpty(botToken))
         {
-            return true; // Bypass validation in local dev environment
+            return (true, null); // Bypass validation in local dev environment
         }
 
         if (!context.Request.Headers.TryGetValue("X-Telegram-Init-Data", out var initDataValues))
         {
-            errorMessage = "Missing authorization header";
-            return false;
+            return (false, "Missing authorization header");
         }
 
         string initData = initDataValues.ToString();
         if (string.IsNullOrEmpty(initData))
         {
-            errorMessage = "Empty authorization token";
-            return false;
+            return (false, "Empty authorization token");
         }
 
         // ─── Custom Signed URL Validation ───
@@ -49,53 +43,50 @@ public static class AuthService
 
                 if (string.Equals(customSign, expectedSign, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!TelegramBotService.IsUserAllowed(userId))
+                    if (!await TelegramBotService.IsUserAllowed(userId))
                     {
-                        errorMessage = "Access Denied: Pocket Option registration and deposit required";
-                        return false;
+                        return (false, "Access Denied: Pocket Option registration and deposit required");
                     }
                     context.Items["userId"] = userId;
-                    return true;
+                    return (true, null);
                 }
             }
 
-            errorMessage = "Invalid custom authorization signature";
-            return false;
+            return (false, "Invalid custom authorization signature");
         }
 
         // ─── Standard Telegram InitData Validation ───
         if (!TelegramInitDataValidator.Validate(initData, botToken, out long tgUserId, out _))
         {
-            errorMessage = "Invalid Telegram authorization signature";
-            return false;
+            return (false, "Invalid Telegram authorization signature");
         }
 
-        if (!TelegramBotService.IsUserAllowed(tgUserId))
+        if (!await TelegramBotService.IsUserAllowed(tgUserId))
         {
-            errorMessage = "Access Denied: Pocket Option registration and deposit required";
-            return false;
+            return (false, "Access Denied: Pocket Option registration and deposit required");
         }
 
         context.Items["userId"] = tgUserId;
-        return true;
+        return (true, null);
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<long, DateTime> _rateLimits = new();
+    
     public static bool IsRateLimited(HttpContext context, out string? errorMessage)
     {
         errorMessage = null;
-        if (context.Items.TryGetValue("userId", out var obj) && obj is long userId && userId > 0)
+        if (context.Items.TryGetValue("userId", out var userIdObj) && userIdObj is long userId)
         {
-            DateTime now = DateTime.UtcNow;
-            if (UserLastRequestTime.TryGetValue(userId, out DateTime lastTime))
+            var now = DateTime.UtcNow;
+            if (_rateLimits.TryGetValue(userId, out var lastReq))
             {
-                double secondsSince = (now - lastTime).TotalSeconds;
-                if (secondsSince < 4) // 4 seconds rate limit
+                if ((now - lastReq).TotalSeconds < 2)
                 {
-                    errorMessage = $"Too many requests. Please wait {Math.Ceiling(4 - secondsSince)}s.";
+                    errorMessage = "Rate limit exceeded. Please wait a few seconds.";
                     return true;
                 }
             }
-            UserLastRequestTime[userId] = now;
+            _rateLimits[userId] = now;
         }
         return false;
     }
@@ -114,4 +105,3 @@ public static class AuthService
         return AssetSanitizer.Sanitize(asset);
     }
 }
-

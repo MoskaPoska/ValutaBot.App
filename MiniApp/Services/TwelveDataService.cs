@@ -120,15 +120,6 @@ public static partial class TwelveDataService
                 ohlc[revIdx] = new MiniAppController.OhlcCandle(v.Open, v.High, v.Low, v.Close, v.Volume);
             }
 
-            try
-            {
-                MarketDataFetcher.Instance.SetOhlcCandles($"{rawAsset}_{interval}", ohlc);
-            }
-            catch (Exception ohlcEx)
-            {
-                BotLogger.Warn($"[TwelveData] OHLC cache parse warning for {rawAsset}", ohlcEx);
-            }
-
             if (cacheTtlSeconds > 0)
             {
                 _memoryCache.Set(key, (prices, volumes), TimeSpan.FromSeconds(cacheTtlSeconds));
@@ -227,5 +218,30 @@ public static partial class TwelveDataService
         public double Low { get; set; }
         public double Close { get; set; }
         public double Volume { get; set; }
+    }
+    public class TwelveDataPriceResponse
+    {
+        public string? Price { get; set; }
+    }
+
+    public static async Task<double?> FetchCurrentPriceAsync(string rawAsset)
+    {
+        string apiKey = GetApiKey();
+        if (string.IsNullOrEmpty(apiKey)) return null;
+        string symbol = ConvertToTwelveSymbol(rawAsset) ?? "";
+        if (string.IsNullOrEmpty(symbol)) return null;
+
+        string url = "https://api.twelvedata.com/price?symbol=$([Uri]::EscapeDataString($symbol))&apikey=$apiKey";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await _http.SendAsync(request);
+        
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<TwelveDataPriceResponse>(response.Content, opts);
+        
+        if (doc != null && double.TryParse(doc.Price, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double price))
+        {
+            return price;
+        }
+        return null;
     }
 }

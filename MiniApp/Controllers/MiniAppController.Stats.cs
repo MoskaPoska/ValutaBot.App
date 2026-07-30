@@ -7,15 +7,17 @@ namespace ValutaBot.MiniApp;
 
 public static partial class MiniAppController
 {
-    public static IResult HandleGetStats(HttpContext context)
+    public static async Task<IResult> HandleGetStats(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-        if (!AuthService.IsRequestAuthorized(context, out string? authError))
+        var (isAuthorized, authError) = await AuthService.IsRequestAuthorized(context);
+        if (!isAuthorized)
             return Results.Json(new { error = authError }, statusCode: 401);
 
-        var overall = SignalTracker.GetOverallStats();
-        var allStats = SignalTracker.GetAllStats()
+        var overall = await SignalTracker.GetOverallStatsAsync();
+        var allStatsRaw = await SignalTracker.GetAllStatsAsync();
+        var allStats = allStatsRaw
             .Where(s => s.Key != "ALL" && s.Verified > 0)
             .OrderByDescending(s => s.Verified)
             .Select(s => new
@@ -28,7 +30,8 @@ public static partial class MiniAppController
                 pending   = s.Pending
             });
 
-        var signalSources = SignalTracker.GetSignalStats()
+        var signalStatsRaw = await SignalTracker.GetSignalStatsAsync();
+        var signalSources = signalStatsRaw
             .Select(s => new
             {
                 name      = s.name,
@@ -37,18 +40,21 @@ public static partial class MiniAppController
                 count     = s.count
             });
 
-        var recent = SignalTracker.GetRecentArchive(20)
+        var recentRecords = await BotDatabase.LoadTradeOutcomesAsync(20);
+        var recent = recentRecords
             .Select(r => new
             {
                 asset     = r.Asset,
                 tf        = r.Timeframe,
                 direction = r.Direction,
                 entry     = Math.Round(r.EntryPrice, 5),
-                exit      = r.ExitPrice.HasValue ? Math.Round(r.ExitPrice.Value, 5) : (double?)null,
+                exit      = Math.Round(r.ExitPrice, 5),
                 pnlBps    = r.PnlBps,
-                correct   = r.WasCorrect,
-                at        = r.CreatedAt.ToString("HH:mm:ss", CultureInfo.InvariantCulture)
+                correct   = r.WasWin,
+                at        = r.CreatedAt
             });
+
+        var pendingCount = await SignalTracker.GetPendingCountAsync();
 
         return Results.Json(new
         {
@@ -58,7 +64,7 @@ public static partial class MiniAppController
                 verified  = overall.Verified,
                 correct   = overall.Correct,
                 incorrect = overall.Incorrect,
-                pending   = SignalTracker.GetPendingCount(),
+                pending   = pendingCount,
                 hasData   = overall.HasData
             },
             byAsset       = allStats,
@@ -67,17 +73,20 @@ public static partial class MiniAppController
         });
     }
 
-    public static IResult HandleGetSignalStats(HttpContext context)
+    public static async Task<IResult> HandleGetSignalStats(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
-        if (!AuthService.IsRequestAuthorized(context, out string? authError))
+        var (isAuthorized, authError) = await AuthService.IsRequestAuthorized(context);
+        if (!isAuthorized)
             return Results.Json(new { error = authError }, statusCode: 401);
 
+        var overall = await SignalTracker.GetOverallStatsAsync();
+        var signals = await SignalTracker.GetSignalStatsAsync();
         return Results.Json(new
         {
-            accuracy = SignalTracker.GetOverallStats().WinRate,
-            signals = SignalTracker.GetSignalStats()
+            accuracy = overall.WinRate,
+            signals = signals
         });
     }
 }

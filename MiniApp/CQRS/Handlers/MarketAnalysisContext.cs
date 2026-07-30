@@ -66,7 +66,7 @@ internal class MarketAnalysisContext
             if (!gatekeeper.IsTradeable)
             {
                 BotLogger.Warn($"[Analysis] Gatekeeper aborted trade for {_asset} ({_timeframe}): {gatekeeper.Reason}");
-                return MiniAppController.GetMomentumPrediction(_asset, _timeframe);
+                throw new Exception(gatekeeper.Reason);
             }
 
             await AnalyzeCoreMechanicsAsync();
@@ -80,7 +80,7 @@ internal class MarketAnalysisContext
 
             var coreResult = await RunTimeframeStrategyAsync();
 
-            ApplySmcFinalScore();
+            await ApplySmcFinalScoreAsync();
 
             return await BuildFinalConsensusAsync(coreResult, onnxResult, claudeResult);
         }
@@ -88,13 +88,14 @@ internal class MarketAnalysisContext
         {
             MiniAppController.LastExceptionMessage = exEx.ToString();
             BotLogger.Warn($"[Analysis] Exchange unavailable for asset {_asset}: {exEx.Message}");
-            return new { error = true, message = exEx.UserFriendlyMessage, direction = "NEUTRAL", probability = 50, claudeReasoning = exEx.UserFriendlyMessage };
+            throw;
         }
+
         catch (Exception ex)
         {
             MiniAppController.LastExceptionMessage = ex.ToString();
             BotLogger.Error($"[Analysis] Analysis failed for asset {_asset} on {_timeframe}", ex);
-            return MiniAppController.GetMomentumPrediction(_asset, _timeframe);
+            throw;
         }
     }
 
@@ -119,21 +120,11 @@ internal class MarketAnalysisContext
 
         _mainOhlcKey = _symbol != null ? $"{_symbol}_{_mainInterval}" : $"{_clean}_{_mainInterval}";
 
-        if (_timeframe.ToLower().StartsWith("s"))
-        {
-            var subMinuteResult = await MiniAppController.GetSubMinuteCandles(_symbol, _clean, _timeframe, _limit);
-            _mainPrices = subMinuteResult.prices;
-            _mainVolumes = subMinuteResult.volumes;
-            _mainOhlcKey = _symbol != null ? $"{_symbol}_{_timeframe.ToLower()}" : $"{_clean}_{_timeframe.ToLower()}";
-        }
-        else
-        {
-            var mainResultTuple = await _handler._fetcher.FetchBinanceWithFallback(_symbol, _mainInterval, _clean, _limit, 10);
-            _mainPrices = mainResultTuple.prices;
-            _mainVolumes = mainResultTuple.volumes;
-        }
+        var mainResultTuple = await _handler._fetcher.FetchBinanceWithFallback(_symbol, _mainInterval, _clean, _limit, 10);
+        _mainPrices = mainResultTuple.prices;
+        _mainVolumes = mainResultTuple.volumes;
 
-        _ohlcCandles = _handler._fetcher.GetOhlcCandles(_mainOhlcKey);
+        _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_timeframe));
 
         var higherTask = _higherTf != null ? SafeFetch(_higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
         var lowerTask = _lowerTf != null ? SafeFetch(_lowerTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
@@ -168,11 +159,7 @@ internal class MarketAnalysisContext
     {
         _smcResult = SmcEngine.AnalyzeSmcStructure(_ohlcCandles ?? Array.Empty<MiniAppController.OhlcCandle>(), _mainPrices[^1]);
         BotLogger.Info($"[SMC Engine] Asset {_asset} ({_timeframe}): {_smcResult.SummaryReasoning}");
-
-        BinanceWebSocketStream.OrderbookDepthSnapshot? liveDepth = null;
-        if (_symbol != null) BinanceWebSocketStream.TryGetLiveOrderbookImbalance(_symbol, out liveDepth);
-        
-        _orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(_mainPrices, _mainVolumes ?? Array.Empty<double>(), _ohlcCandles, liveDepth);
+        _orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(_mainPrices, _mainVolumes ?? Array.Empty<double>(), _ohlcCandles);
         BotLogger.Info($"[Order Flow] Asset {_asset} ({_timeframe}): {_orderFlowResult.Description}");
     }
 
@@ -185,10 +172,6 @@ internal class MarketAnalysisContext
         {
             BotLogger.Warn($"[Anti-Overfitting] {_asset} ({_timeframe}): {_wfResult.StatusReasoning} ML weight multiplier set to {_wfResult.WeightMultiplier}x.");
         }
-
-        var (mlDir, mlConf, _) = MLForecastService.PredictNextCandles(_mainPrices, _isForex);
-        _mlDirection = mlDir;
-        _mlConfidence = mlConf;
 
         if (_ohlcCandles != null && _ohlcCandles.Length >= 60)
         {
@@ -208,7 +191,7 @@ internal class MarketAnalysisContext
 
         if (Math.Abs(_newsResult.score) > 0.1)
         {
-            double newsWeight = SignalTracker.GetSignalWeight("�������", 0.8);
+            double newsWeight = await SignalTracker.GetSignalWeightAsync("�������", 0.8);
             double newsScoreNormalized = Math.Clamp(_newsResult.score / 2.0, -1, 1);
             _totalScore += newsScoreNormalized * newsWeight;
             _totalConfidence += Math.Clamp(Math.Abs(_newsResult.score) / 2.0 * 100, 50, 98) * newsWeight;
@@ -226,7 +209,7 @@ internal class MarketAnalysisContext
         if (_higherResultData != null)
         {
             var higherOhlcKey = _higherTf != null ? (_symbol != null ? $"{_symbol}_{_handler._fetcher.IntervalMap(_higherTf)}" : $"{_asset}_{_handler._fetcher.IntervalMap(_higherTf)}") : null;
-            var higherOhlc = higherOhlcKey != null ? _handler._fetcher.GetOhlcCandles(higherOhlcKey) : null;
+            var higherOhlc = _higherTf != null ? await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_higherTf)) : null;
             
             if (higherOhlc != null && higherOhlc.Length >= 10)
             {
@@ -247,7 +230,7 @@ internal class MarketAnalysisContext
             _totalWeight += 2.0;
         }
 
-        double indicatorWeight = SignalTracker.GetSignalWeight("����������", 1.0);
+        double indicatorWeight = await SignalTracker.GetSignalWeightAsync("����������", 1.0);
         _totalScore += (_mainResult.score + _orderFlowResult.ScoreContribution) * indicatorWeight;
         _totalConfidence += _mainResult.confidence * indicatorWeight;
         _totalWeight += indicatorWeight;
@@ -256,14 +239,14 @@ internal class MarketAnalysisContext
     private async Task EvaluateContinuousAndIntermarketAsync()
     {
         var continuousState = ContinuousStateEngine.EvaluateContinuousState(_mainPrices, _asset, _timeframe);
-        double stateWeight = SignalTracker.GetSignalWeight("VelocityState", 1.5);
+        double stateWeight = await SignalTracker.GetSignalWeightAsync("VelocityState", 1.5);
         _totalScore += continuousState.MomentumContribution * stateWeight;
         _totalConfidence += 60.0 * stateWeight;
         _totalWeight += stateWeight;
         BotLogger.Info($"[Continuous State] Asset {_asset}: State={continuousState.VelocityRegime} | Velocity={continuousState.VelocityBpsPerSec} bps/s");
 
         var intermarketResult = CrossAssetCorrelationEngine.EvaluateIntermarketConfluence(_asset, _isForex);
-        double intermarketWeight = SignalTracker.GetSignalWeight("Intermarket", 1.0);
+        double intermarketWeight = await SignalTracker.GetSignalWeightAsync("Intermarket", 1.0);
         _totalScore += intermarketResult.ScoreContribution * intermarketWeight;
         _totalConfidence += 60.0 * intermarketWeight;
         _totalWeight += intermarketWeight;
@@ -309,7 +292,7 @@ internal class MarketAnalysisContext
         return coreResult;
     }
 
-    private void ApplySmcFinalScore()
+    private async Task ApplySmcFinalScoreAsync()
     {
         int smcScore = 0;
         if (_smcResult.SweepDirection == "BULLISH_SWEEP") smcScore += 2;
@@ -323,7 +306,7 @@ internal class MarketAnalysisContext
         
         if (smcScore != 0)
         {
-            double smcWeight = SignalTracker.GetSignalWeight("SMC", 1.0);
+            double smcWeight = await SignalTracker.GetSignalWeightAsync("SMC", 1.0);
             _totalScore += ((double)smcScore / 6.0) * smcWeight;
             _totalConfidence += 60.0 * smcWeight;
             _totalWeight += smcWeight;
@@ -376,7 +359,7 @@ internal class MarketAnalysisContext
         int smcScore = 0; // simplified for tracker
         string smcDir = smcScore > 0 ? "BUY" : smcScore < 0 ? "PUT" : "NEUTRAL";
 
-        SignalTracker.RecordPrediction(
+        await SignalTracker.RecordPredictionAsync(
             finalDirection, _asset, _timeframe, _mainPrices[^1],
             expiryCandles: Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
             timeframeSecs: timeframeSec, isForex: _isForex, binanceSymbol: _symbol,
@@ -387,8 +370,8 @@ internal class MarketAnalysisContext
             }
         );
 
-        var overallStats = SignalTracker.GetOverallStats();
-        var assetStats   = SignalTracker.GetStats(_asset, _timeframe);
+        var overallStats = await SignalTracker.GetOverallStatsAsync();
+        var assetStats   = await SignalTracker.GetStatsAsync(_asset, _timeframe);
 
         return new
         {
@@ -422,7 +405,7 @@ internal class MarketAnalysisContext
             winRateOverall = overallStats.HasData ? overallStats.WinRate : (double?)null,
             winRateAsset = assetStats.HasData ? assetStats.WinRate : (double?)null,
             signalsVerified = overallStats.Verified,
-            signalsPending = SignalTracker.GetPendingCount(),
+            signalsPending = await SignalTracker.GetPendingCountAsync(),
             monteCarloIterations = mcResult.Iterations,
             monteCarloSuccess = mcResult.SuccessCount,
             evPct = mcResult.ExpectedValuePct,
@@ -433,6 +416,13 @@ internal class MarketAnalysisContext
         };
     }
 }
+
+
+
+
+
+
+
 
 
 

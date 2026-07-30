@@ -21,24 +21,12 @@ public partial class TelegramBotService : BackgroundService
         EnableMultipleHttp2Connections = true
     }) { Timeout = TimeSpan.FromSeconds(35) };
 
-    private static readonly string AllowedUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_users.json");
-    private static readonly string AdminsFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "admins.json");
-    private static readonly string AllUsersFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "all_users.json");
-
-    private static readonly HashSet<long> AllowedUsers = new();
-    private static readonly HashSet<long> AdminChatIds = new();
-    private static readonly HashSet<long> AllUsers = new();
     private static readonly ConcurrentDictionary<long, DateTime> UserLastActivity = new();
-    private static readonly object _lock = new();
-    private static readonly object _saveLock = new();
     private static string _webAppUrl = "https://chowder-dreamland-spotlight.ngrok-free.dev";
 
-    public static bool IsUserAllowed(long chatId)
+    public static async Task<bool> IsUserAllowed(long chatId)
     {
-        lock (_lock)
-        {
-            return AdminChatIds.Contains(chatId) || AllowedUsers.Contains(chatId);
-        }
+        return await BotDatabase.IsAdminAsync(chatId) || await BotDatabase.IsUserAllowedAsync(chatId);
     }
 
     public static async Task SendMessageToAdmins(string text)
@@ -46,11 +34,7 @@ public partial class TelegramBotService : BackgroundService
         string? token = TelegramNotifier.GetToken();
         if (string.IsNullOrEmpty(token)) return;
 
-        List<long> adminsToNotify;
-        lock (_lock)
-        {
-            adminsToNotify = AdminChatIds.ToList();
-        }
+        List<long> adminsToNotify = await BotDatabase.GetAdminChatIdsAsync();
 
         foreach (long adminId in adminsToNotify)
         {
@@ -83,29 +67,19 @@ public partial class TelegramBotService : BackgroundService
 
         Console.WriteLine($"[TG Bot] Service started. WebApp URL: {_webAppUrl}");
 
-        lock (_lock)
+        await BotDatabase.InitializeAsync();
+
+        // Auto-seed admin IDs 1103551505, 901492845 and any env ADMIN_CHAT_ID / ADMIN_IDS
+        await BotDatabase.AddAdminAsync(1103551505);
+        await BotDatabase.AddAdminAsync(901492845);
+
+        string envAdmin = Environment.GetEnvironmentVariable("ADMIN_CHAT_ID") ?? Environment.GetEnvironmentVariable("ADMIN_IDS") ?? "";
+        foreach (var part in envAdmin.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            BotDatabase.Initialize();
-
-            // Auto-seed admin IDs 1103551505, 901492845 and any env ADMIN_CHAT_ID / ADMIN_IDS
-            BotDatabase.AddAdmin(1103551505);
-            BotDatabase.AddAdmin(901492845);
-
-            string envAdmin = Environment.GetEnvironmentVariable("ADMIN_CHAT_ID") ?? Environment.GetEnvironmentVariable("ADMIN_IDS") ?? "";
-            foreach (var part in envAdmin.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            if (long.TryParse(part, out long parsedEnvAdmin))
             {
-                if (long.TryParse(part, out long parsedEnvAdmin))
-                {
-                    BotDatabase.AddAdmin(parsedEnvAdmin);
-                }
+                await BotDatabase.AddAdminAsync(parsedEnvAdmin);
             }
-
-            AllowedUsers.Clear();
-            foreach (var id in BotDatabase.LoadAllowedUsers()) AllowedUsers.Add(id);
-            AdminChatIds.Clear();
-            foreach (var id in BotDatabase.LoadAdmins()) AdminChatIds.Add(id);
-            AllUsers.Clear();
-            foreach (var id in BotDatabase.LoadAllUsers()) AllUsers.Add(id);
         }
 
         long offset = 0;
@@ -241,133 +215,7 @@ public partial class TelegramBotService : BackgroundService
         }
     }
 
-    private static string ConnectionString = "";
 
-    private static void LoadAllowedUsers()
-    {
-        if (!string.IsNullOrEmpty(ConnectionString))
-        {
-            try
-            {
-                using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
-                conn.Open();
-                using var cmd = new Npgsql.NpgsqlCommand("SELECT chat_id FROM allowed_users", conn);
-                using var reader = cmd.ExecuteReader();
-                lock (_lock)
-                {
-                    AllowedUsers.Clear();
-                    while (reader.Read())
-                    {
-                        AllowedUsers.Add(reader.GetInt64(0));
-                    }
-                }
-                Console.WriteLine($"[DB] Loaded {AllowedUsers.Count} allowed users from PostgreSQL");
-                return;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DB] Error loading allowed users: {ex.Message}. Falling back to file.");
-            }
-        }
-
-        try
-        {
-            if (File.Exists(AllowedUsersFile))
-            {
-                var json = File.ReadAllText(AllowedUsersFile);
-                var list = JsonSerializer.Deserialize<List<long>>(json);
-                if (list != null)
-                {
-                    AllowedUsers.Clear();
-                    foreach (var id in list) AllowedUsers.Add(id);
-                    Console.WriteLine($"[TG Bot] Loaded {AllowedUsers.Count} allowed users");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[TG Bot] Error loading allowed users: {ex.Message}");
-        }
-    }
-
-    private static void SaveAllowedUsers()
-    {
-        Task.Run(() =>
-        {
-            lock (_saveLock)
-            {
-                if (!string.IsNullOrEmpty(ConnectionString))
-                {
-                    try
-                    {
-                        using var conn = new Npgsql.NpgsqlConnection(ConnectionString);
-                        conn.Open();
-                        using var trans = conn.BeginTransaction();
-                        
-                        using (var cmd = new Npgsql.NpgsqlCommand("DELETE FROM allowed_users", conn, trans))
-                        {
-                            cmd.ExecuteNonQuery();
-                        }
-
-                        lock (_lock)
-                        {
-                            foreach (var chatId in AllowedUsers)
-                            {
-                                using var cmd = new Npgsql.NpgsqlCommand("INSERT INTO allowed_users (chat_id) VALUES (@chatId) ON CONFLICT DO NOTHING", conn, trans);
-                                cmd.Parameters.AddWithValue("chatId", chatId);
-                                cmd.ExecuteNonQuery();
-                            }
-                        }
-
-                        trans.Commit();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[DB] Error saving allowed users: {ex.Message}");
-                    }
-                }
-
-                try
-                {
-                    List<long> usersToSave;
-                    lock (_lock)
-                    {
-                        usersToSave = AllowedUsers.ToList();
-                    }
-                    var json = JsonSerializer.Serialize(usersToSave);
-                    File.WriteAllText(AllowedUsersFile, json);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[TG Bot] Error saving allowed users: {ex.Message}");
-                }
-            }
-        });
-    }
-
-    private static void SaveAllUsers()
-    {
-        Task.Run(() =>
-        {
-            lock (_saveLock)
-            {
-                try
-                {
-                    List<long> usersToSave;
-                    lock (_lock)
-                    {
-                        usersToSave = AllUsers.ToList();
-                    }
-                    var json = JsonSerializer.Serialize(usersToSave);
-                    File.WriteAllText(AllUsersFile, json);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[TG Bot] Error saving all users: {ex.Message}");
-                }
-            }
-        });
-    }
 
     private static async Task ResetChatMenuButton(string token, long chatId)
     {

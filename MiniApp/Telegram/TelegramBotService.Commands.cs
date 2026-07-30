@@ -15,25 +15,13 @@ public partial class TelegramBotService
     {
         try
         {
-            UserLastActivity[chatId] = DateTime.UtcNow;
-            lock (_lock)
-            {
-                if (!AllUsers.Contains(chatId))
-                {
-                    AllUsers.Add(chatId);
-                    SaveAllUsers();
-                }
-            }
+            await BotDatabase.AddAllUserAsync(chatId);
 
             string cleanText = text.Trim();
             string command = cleanText.Split(' ')[0].Replace("@valutaPocket_bot", "").ToLower();
 
             // Check Admin commands first
-            bool isAdmin;
-            lock (_lock)
-            {
-                isAdmin = AdminChatIds.Contains(chatId);
-            }
+            bool isAdmin = await BotDatabase.IsAdminAsync(chatId);
 
             // Test command to reset access (Admin-only)
             if (command == "/reset" || command == "/resetaccess")
@@ -51,11 +39,8 @@ public partial class TelegramBotService
                     targetChatId = parsedId;
                 }
 
-                lock (_lock)
-                {
-                    AllowedUsers.Remove(targetChatId);
-                    SaveAllowedUsers();
-                }
+                await BotDatabase.RemoveAllowedUserAsync(targetChatId);
+                
                 await SendMessage(token, chatId, $"🔄 <b>Доступ для пользователя {targetChatId} успешно сброшен!</b>");
                 if (targetChatId != chatId)
                 {
@@ -76,12 +61,8 @@ public partial class TelegramBotService
                 var parts = cleanText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length > 1 && long.TryParse(parts[1], out long targetId))
                 {
-                    lock (_lock)
-                    {
-                        BotDatabase.AddAdmin(targetId);
-                        AdminChatIds.Add(targetId);
-                        AllowedUsers.Add(targetId);
-                    }
+                    await BotDatabase.AddAdminAsync(targetId);
+                    await BotDatabase.AddAllowedUserAsync(targetId);
                     await SendMessage(token, chatId, $"👑 <b>Пользователь {targetId} успешно назначен администратором!</b>");
                     await SendMessage(token, targetId, "👑 <b>Вам предоставили права администратора и полный доступ к боту!</b>");
                 }
@@ -101,20 +82,10 @@ public partial class TelegramBotService
                     return;
                 }
 
-                int totalUsers;
-                int allowedUsersCount;
-                int regsCount;
-                List<PocketRegistration> latestRegs;
-
-                lock (_lock)
-                {
-                    totalUsers = AllUsers.Count;
-                    allowedUsersCount = AllowedUsers.Count;
-                    regsCount = PocketRegistrations.Count;
-                    latestRegs = PocketRegistrations.Values
-                        .Take(15)
-                        .ToList();
-                }
+                int totalUsers = await BotDatabase.GetTotalUsersCountAsync();
+                int allowedUsersCount = await BotDatabase.GetAllowedUsersCountAsync();
+                int regsCount = await BotDatabase.GetRegistrationsCountAsync();
+                var latestRegs = (await BotDatabase.GetLatestRegistrationsAsync(15)).ToList();
 
                 var sb = new StringBuilder();
                 sb.AppendLine("📊 <b>Статистика бота:</b>");
@@ -150,10 +121,7 @@ public partial class TelegramBotService
                     return;
                 }
 
-                await SendMessage(token, chatId, "⏳ Подготавливаю файлы базы данных...");
-                await SendDatabaseFile(token, chatId, RegistrationsFile, "📁 База регистраций Pocket Option (registrations.json)");
-                await SendDatabaseFile(token, chatId, AllowedUsersFile, "📁 Список разрешенных пользователей с доступом (allowed_users.json)");
-                await SendDatabaseFile(token, chatId, AllUsersFile, "📁 Все уникальные пользователи бота (all_users.json)");
+                await SendMessage(token, chatId, "⏳ База данных теперь в PostgreSQL. Для выгрузки используйте SQL-дампы.");
                 return;
             }
 
@@ -170,11 +138,7 @@ public partial class TelegramBotService
 
             if (command == "/start")
             {
-                bool isAllowedUser;
-                lock (_lock)
-                {
-                    isAllowedUser = AllowedUsers.Contains(chatId);
-                }
+                bool isAllowedUser = await BotDatabase.IsUserAllowedAsync(chatId);
 
                 if (isAdmin)
                 {
@@ -204,12 +168,8 @@ public partial class TelegramBotService
                 UserStates[chatId] = UserState.None;
                 if (long.TryParse(cleanText.Trim(), out long targetChatId))
                 {
-                    lock (_lock)
-                    {
-                        BotDatabase.AddAdmin(targetChatId);
-                        AdminChatIds.Add(targetChatId);
-                        AllowedUsers.Add(targetChatId);
-                    }
+                    await BotDatabase.AddAdminAsync(targetChatId);
+                    await BotDatabase.AddAllowedUserAsync(targetChatId);
 
                     await SendMessage(token, chatId, $"👑 <b>Пользователь <code>{targetChatId}</code> успешно назначен администратором!</b>");
                     try
@@ -238,29 +198,14 @@ public partial class TelegramBotService
                 UserStates[chatId] = UserState.None;
                 if (long.TryParse(cleanText.Trim(), out long targetChatId))
                 {
-                    bool removed;
-                    lock (_lock)
-                    {
-                        removed = AllowedUsers.Remove(targetChatId);
-                        if (removed)
-                        {
-                            SaveAllowedUsers();
-                        }
-                    }
+                    await BotDatabase.RemoveAllowedUserAsync(targetChatId);
 
-                    if (removed)
+                    await SendMessage(token, chatId, $"✅ <b>Доступ для пользователя <code>{targetChatId}</code> успешно удален из базы данных!</b>");
+                    try
                     {
-                        await SendMessage(token, chatId, $"✅ <b>Доступ для пользователя <code>{targetChatId}</code> успешно удален из базы данных и памяти бота!</b>");
-                        try
-                        {
-                            await SendMessage(token, targetChatId, "🔄 <b>Ваш доступ к боту был аннулирован администратором.</b>");
-                        }
-                        catch { /* ignore if blocked */ }
+                        await SendMessage(token, targetChatId, "🔄 <b>Ваш доступ к боту был аннулирован администратором.</b>");
                     }
-                    else
-                    {
-                        await SendMessage(token, chatId, $"❓ <b>Пользователь с Chat ID <code>{targetChatId}</code> не найден в списке разрешенных.</b>");
-                    }
+                    catch { /* ignore if blocked */ }
                 }
                 else
                 {
@@ -278,31 +223,21 @@ public partial class TelegramBotService
                     UserSubmittedIds[chatId] = pocketId;
                     UserStates[chatId] = UserState.None;
 
-                    bool foundReg = false;
-                    bool hasDeposited = false;
-                    lock (_lock)
+                    var reg = await BotDatabase.GetPocketRegistrationAsync(pocketId);
+                    bool foundReg = reg != null && reg.HasRegistered;
+                    bool hasDeposited = reg != null && reg.HasDeposited;
+
+                    if (reg != null)
                     {
-                        if (PocketRegistrations.TryGetValue(pocketId, out var reg))
-                        {
-                            foundReg = reg.HasRegistered;
-                            hasDeposited = reg.HasDeposited;
-                            reg.ChatId = chatId;
-                            SaveRegistrations();
-                        }
+                        reg.ChatId = chatId;
+                        await BotDatabase.SaveRegistrationAsync(reg);
                     }
 
                     if (foundReg)
                     {
                         if (hasDeposited)
                         {
-                            lock (_lock)
-                            {
-                                if (!AllowedUsers.Contains(chatId))
-                                {
-                                    AllowedUsers.Add(chatId);
-                                    SaveAllowedUsers();
-                                }
-                            }
+                            await BotDatabase.AddAllowedUserAsync(chatId);
                             await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
                             await SendUserWelcome(token, chatId, webAppUrl);
                         }
@@ -327,7 +262,7 @@ public partial class TelegramBotService
                             };
                             var json = JsonSerializer.Serialize(payload);
                             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+                            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
                         }
                     }
                     else
@@ -345,11 +280,7 @@ public partial class TelegramBotService
             }
 
             // Catch-all welcome screen based on role
-            bool isUserAllowed;
-            lock (_lock)
-            {
-                isUserAllowed = AllowedUsers.Contains(chatId);
-            }
+            bool isUserAllowed = await BotDatabase.IsUserAllowedAsync(chatId);
 
             if (isAdmin)
             {
@@ -413,7 +344,7 @@ public partial class TelegramBotService
             };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
         }
         catch (Exception ex)
         {
@@ -451,7 +382,7 @@ public partial class TelegramBotService
             var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
         }
         catch (Exception ex)
         {
@@ -490,7 +421,7 @@ public partial class TelegramBotService
             var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
         }
         catch (Exception ex)
         {
@@ -503,25 +434,14 @@ public partial class TelegramBotService
         string? token = TelegramNotifier.GetToken();
         if (string.IsNullOrEmpty(token)) return;
 
-        lock (_lock)
-        {
-            if (!AllowedUsers.Contains(chatId))
-            {
-                AllowedUsers.Add(chatId);
-                SaveAllowedUsers();
-            }
-        }
+        await BotDatabase.AddAllowedUserAsync(chatId);
 
         // Notify user
         await SendMessage(token, chatId, "🎉 <b>Поздравляем! Ваш аккаунт Pocket Option успешно подтвержден автоматически.</b>");
         await SendUserWelcome(token, chatId, _webAppUrl);
 
         // Notify admins
-        List<long> adminsToNotify;
-        lock (_lock)
-        {
-            adminsToNotify = AdminChatIds.ToList();
-        }
+        List<long> adminsToNotify = await BotDatabase.GetAdminChatIdsAsync();
         
         foreach (long adminId in adminsToNotify)
         {
@@ -529,4 +449,3 @@ public partial class TelegramBotService
         }
     }
 }
-

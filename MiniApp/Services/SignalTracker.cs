@@ -7,22 +7,13 @@ namespace ValutaBot.MiniApp;
 /// <summary>
 /// Tracks prediction signals and automatically verifies them after the candle expires.
 /// Provides per-asset, per-timeframe, and per-source win rate statistics.
+/// Now completely stateless (stores pending trades in PostgreSQL).
 /// </summary>
 public static class SignalTracker
 {
-    // ── Storage ────────────────────────────────────────────────────────────
-    private static readonly ConcurrentDictionary<string, ConcurrentQueue<bool>> _signalHistory = new();
-    private static readonly ConcurrentDictionary<string, PredictionRecord> _pending = new();
-    private static readonly ConcurrentQueue<PredictionRecord> _archive = new();
-    private static readonly ConcurrentDictionary<string, AccuracyStats> _stats = new();
-
-    // Live price cache — updated by MiniAppController after each analysis
-    private static readonly ConcurrentDictionary<string, (double price, DateTime at)> _priceCache = new();
-    
-    // Cooldown map to prevent duplicate signals spam
+    // Cooldown map to prevent duplicate signals spam (fine to stay in memory)
     private static readonly ConcurrentDictionary<string, DateTime> _cooldowns = new();
 
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
     private static readonly Timer _verifyTimer;
 
     static SignalTracker()
@@ -45,7 +36,7 @@ public static class SignalTracker
     /// <summary>
     /// Record a new prediction. Will be verified automatically after expiryCandles × timeframeSecs seconds.
     /// </summary>
-    public static void RecordPrediction(
+    public static async Task RecordPredictionAsync(
         string direction,
         string asset,
         string timeframe,
@@ -81,75 +72,56 @@ public static class SignalTracker
             SourceDirections = sourceDirections ?? new Dictionary<string, string>()
         };
 
-        _pending[record.Id] = record;
-
-        // Pre-count total for "ALL" and per-key (verified will be filled later)
-        GetOrCreate("ALL").IncrementTotal();
-        GetOrCreate($"{asset}_{timeframe}").IncrementTotal();
+        await BotDatabase.SavePendingTradeAsync(record);
 
         Console.WriteLine($"[Tracker] Recorded {direction} {asset}/{timeframe} @ {price:F5} " +
                           $"— verify in {verifyDelaySecs}s");
     }
 
-    /// <summary>Call this after each analysis to keep the price cache fresh for verification.</summary>
-    public static void UpdatePrice(string binanceSymbol, double price)
-    {
-        _priceCache[binanceSymbol.ToUpper()] = (price, DateTime.UtcNow);
-    }
-
-    /// <summary>Records whether a sub-signal agreed with the final decision (for adaptive weighting).</summary>
-    public static void RecordSignalVote(string signalName, bool agreedWithFinal)
-    {
-        var q = _signalHistory.GetOrAdd(signalName, _ => new ConcurrentQueue<bool>());
-        q.Enqueue(agreedWithFinal);
-        while (q.Count > 200) q.TryDequeue(out _);
-    }
-
     // ── Public Read API ────────────────────────────────────────────────────
 
-    public static AccuracyStats GetOverallStats() =>
-        _stats.TryGetValue("ALL", out var s) ? s : new AccuracyStats();
-
-    public static AccuracyStats GetStats(string asset, string timeframe) =>
-        _stats.TryGetValue($"{asset}_{timeframe}", out var s) ? s : new AccuracyStats();
-
-    public static AccuracyStats[] GetAllStats() => _stats.Values.ToArray();
-
-    public static PredictionRecord[] GetRecentArchive(int count = 30) =>
-        _archive.Reverse().Take(count).ToArray();
-
-    public static int GetPendingCount() => _pending.Count;
-
-    public static (string name, double agreeRatePct, double weight, int count)[] GetSignalStats()
+    public static async Task<AccuracyStats> GetOverallStatsAsync()
     {
-        return _signalHistory.Select(kv =>
+        var (total, verified, correct) = await BotDatabase.GetOverallStatsAsync();
+        return new AccuracyStats("ALL", total, verified, correct);
+    }
+
+    public static async Task<AccuracyStats> GetStatsAsync(string asset, string timeframe)
+    {
+        var (total, verified, correct) = await BotDatabase.GetStatsAsync(asset, timeframe);
+        return new AccuracyStats($"{asset}_{timeframe}", total, verified, correct);
+    }
+
+    public static async Task<AccuracyStats[]> GetAllStatsAsync()
+    {
+        var rows = await BotDatabase.GetAllStatsAsync();
+        return rows.Select(r => new AccuracyStats($"{r.asset}_{r.timeframe}", r.verified, r.verified, r.correct)).ToArray();
+    }
+
+    public static async Task<int> GetPendingCountAsync()
+    {
+        var (total, verified, _) = await BotDatabase.GetOverallStatsAsync();
+        return total - verified;
+    }
+
+    public static async Task<(string name, double agreeRatePct, double weight, int count)[]> GetSignalStatsAsync()
+    {
+        var votes = await BotDatabase.GetAllSignalVotesAsync();
+        return votes.Select(v =>
         {
-            var arr = kv.Value.ToArray();
-            double agreeRate = arr.Length > 0
-                ? arr.Count(v => v) / (double)arr.Length
-                : 0.5;
-            return (kv.Key,
-                    Math.Round(agreeRate * 100, 1),
-                    Math.Round(GetSignalWeight(kv.Key), 2),
-                    arr.Length);
+            double agreeRate = v.verified > 0 ? (double)v.correct / v.verified : 0.5;
+            double weight = Math.Clamp(agreeRate / 0.5, 0.2, 2.0); // simple calibration
+            return (v.signalName, Math.Round(agreeRate * 100, 1), Math.Round(weight, 2), v.verified);
         }).OrderByDescending(s => s.Item2).ToArray();
     }
 
-    /// <summary>
-    /// Returns adaptive weight for a signal source based on its historical agreement rate.
-    /// Used by MiniAppController to boost reliable sources and downweight noisy ones.
-    /// </summary>
-    public static double GetSignalWeight(string signalName, double baseWeight = 1.0)
+    public static async Task<double> GetSignalWeightAsync(string signalName, double baseWeight = 1.0)
     {
-        if (!_signalHistory.TryGetValue(signalName, out var q) || q.Count < 5)
-            return baseWeight;
-
-        var arr = q.ToArray();
-        double winRate = arr.Count(v => v) / (double)arr.Length;
-        // winRate 0.50 (50%) → weight = baseWeight (neutral)
-        // winRate 0.80 (80%) → weight = baseWeight × 1.6 (boosted)
-        // winRate 0.30 (30%) → weight = baseWeight × 0.6 (suppressed)
-        double adjustment = winRate / 0.5;
+        var votes = await BotDatabase.GetAllSignalVotesAsync(); // ideally we'd cache this or query by name
+        var v = votes.FirstOrDefault(x => x.signalName == signalName);
+        if (v.verified < 5) return baseWeight;
+        double agreeRate = (double)v.correct / v.verified;
+        double adjustment = agreeRate / 0.5;
         return Math.Clamp(baseWeight * adjustment, 0.2, 2.0);
     }
 
@@ -158,10 +130,7 @@ public static class SignalTracker
     private static async Task VerifyPendingAsync()
     {
         var now = DateTime.UtcNow;
-        var toCheck = _pending.Values
-            .Where(r => r.VerifyAt <= now)
-            .OrderBy(r => r.VerifyAt)
-            .ToList();
+        var toCheck = await BotDatabase.GetPendingTradesToVerifyAsync(now);
 
         if (toCheck.Count == 0) return;
 
@@ -172,7 +141,7 @@ public static class SignalTracker
             // Drop predictions older than 24h that still can't be verified
             if ((now - record.CreatedAt).TotalHours > 24)
             {
-                _pending.TryRemove(record.Id, out _);
+                await BotDatabase.DeletePendingTradeAsync(record.Id);
                 continue;
             }
 
@@ -182,19 +151,18 @@ public static class SignalTracker
 
             double priceDiff = (exitPrice.Value - record.EntryPrice) / record.EntryPrice;
 
-            // Ignore flat markets — too noisy to count (allow micro-moves for sub-minute timeframes)
             bool isSubMin = record.Timeframe.ToLower().StartsWith("s");
             double minMove = isSubMin ? 1e-8 : (record.IsForex ? 0.00002 : 0.00010);
             if (Math.Abs(priceDiff) < minMove)
             {
-                _pending.TryRemove(record.Id, out _); // discard, not counted
+                await BotDatabase.DeletePendingTradeAsync(record.Id);
                 Console.WriteLine($"[Tracker] ~ {record.Asset}/{record.Timeframe} — flat market, discarded");
                 continue;
             }
 
             if (record.Direction == "NEUTRAL")
             {
-                _pending.TryRemove(record.Id, out _);
+                await BotDatabase.DeletePendingTradeAsync(record.Id);
                 continue;
             }
 
@@ -203,7 +171,6 @@ public static class SignalTracker
             record.PnlBps     = Math.Round(priceDiff * 10000, 2);
             record.WasCorrect = correct;
 
-            // Evaluate sub-signal accuracy based on the actual winning direction
             string winDirection = priceDiff > 0 ? "BUY" : "PUT";
             if (record.SourceDirections != null)
             {
@@ -212,22 +179,14 @@ public static class SignalTracker
                     if (kv.Value != "NEUTRAL")
                     {
                         bool wasSourceCorrect = kv.Value == winDirection;
-                        RecordSignalVote(kv.Key, wasSourceCorrect);
+                        await BotDatabase.RecordSignalVoteAsync(kv.Key, wasSourceCorrect);
                     }
                 }
             }
 
-            // Update accuracy stats
-            GetOrCreate("ALL").Record(correct);
-            GetOrCreate($"{record.Asset}_{record.Timeframe}").Record(correct);
+            _ = TradeOutcomeTracker.OnTradeVerifiedAsync(record);
 
-            // Notify TradeOutcomeTracker for Online Reinforcement Learning and SQLite storage
-            TradeOutcomeTracker.OnTradeVerified(record);
-
-            // Archive
-            _pending.TryRemove(record.Id, out _);
-            _archive.Enqueue(record);
-            while (_archive.Count > 500) _archive.TryDequeue(out _);
+            await BotDatabase.DeletePendingTradeAsync(record.Id);
 
             string icon = correct ? "✅" : "❌";
             Console.WriteLine(
@@ -235,46 +194,26 @@ public static class SignalTracker
                 $"entry={record.EntryPrice:F5} exit={exitPrice:F5} " +
                 $"pnl={record.PnlBps:+0.0;-0.0} bps");
         }
-
-        // Print summary every 10 verified signals
-        var all = GetOverallStats();
-        if (all.Verified > 0 && all.Verified % 10 == 0)
-        {
-            Console.WriteLine(
-                $"[Tracker] ── Win Rate: {all.WinRate:F1}% " +
-                $"({all.Correct}✅ / {all.Incorrect}❌ / {all.Verified} verified) ──");
-        }
     }
 
     private static async Task<double?> FetchExitPriceAsync(PredictionRecord record)
     {
         string sym = record.BinanceSymbol;
 
-        // 1. Live cache (updated by MiniAppController after each analysis) — fastest path
-        if (_priceCache.TryGetValue(sym, out var cached) &&
-            (DateTime.UtcNow - cached.at).TotalMinutes < 5)
+        // Fast path: Web Socket live prices (no allocations)
+        if (BinanceWebSocketStream.TryGetLiveCandles(sym, "1m", out double[] wsPrices, out double[] wsVolumes, out int count) && count > 0) { var p = wsPrices[count - 1]; System.Buffers.ArrayPool<double>.Shared.Return(wsPrices); System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes); return p; }
         {
-            return cached.price;
+            
         }
 
-        // 2. Binance REST API (Historical Kline) — exact close price at VerifyAt
+        // Fallback: Binance REST API (Historical Kline)
         if (!record.IsForex)
         {
             try
             {
                 long endTime = new DateTimeOffset(record.VerifyAt).ToUnixTimeMilliseconds();
-                var json = await _http.GetStringAsync(
-                    $"https://api.binance.com/api/v3/klines?symbol={sym}&interval=1m&endTime={endTime}&limit=1");
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
-                {
-                    var kline = doc.RootElement[0];
-                    if (kline.ValueKind == JsonValueKind.Array && kline.GetArrayLength() >= 5)
-                    {
-                        string closeStr = kline[4].GetString() ?? "0";
-                        return double.Parse(closeStr, System.Globalization.CultureInfo.InvariantCulture);
-                    }
-                }
+                double? binancePrice = await MarketDataFetcher.Instance.FetchHistoricalPriceAsync(sym, endTime);
+                if (binancePrice.HasValue) return binancePrice;
             }
             catch (Exception ex)
             {
@@ -282,44 +221,24 @@ public static class SignalTracker
             }
         }
 
-        // 3. TwelveData REST API — for forex/commodity verification (closes ML feedback loop)
+        // 3. TwelveData REST API
         if (record.IsForex)
         {
             try
             {
-                string tdResult = await _http.GetStringAsync(
-                    $"https://api.twelvedata.com/price?symbol={Uri.EscapeDataString(record.Asset)}" +
-                    $"&apikey={TwelveDataService.GetApiKey()}");
-                using var doc = JsonDocument.Parse(tdResult);
-                if (doc.RootElement.TryGetProperty("price", out var p) &&
-                    double.TryParse(p.GetString(), System.Globalization.NumberStyles.Any,
-                        System.Globalization.CultureInfo.InvariantCulture, out var price))
-                {
-                    // Update live cache with fresh TwelveData price
-                    _priceCache[sym] = (price, DateTime.UtcNow);
-                    return price;
-                }
+                double? tdPrice = await TwelveDataService.FetchCurrentPriceAsync(record.Asset);
+                if (tdPrice.HasValue) return tdPrice.Value;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Tracker] TwelveData price fetch failed for {record.Asset}: {ex.Message}");
+                Console.WriteLine($"[Tracker] TwelveData fetch failed for {record.Asset}: {ex.Message}");
             }
-        }
-
-        // 4. Stale cache (up to 15 min old) — last resort, better than discarding the trade
-        if (_priceCache.TryGetValue(sym, out var stale) &&
-            (DateTime.UtcNow - stale.at).TotalMinutes < 15)
-        {
-            return stale.price;
         }
 
         return null;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
-
-    private static AccuracyStats GetOrCreate(string key) =>
-        _stats.GetOrAdd(key, _ => new AccuracyStats(key));
 
     private static string MapToBinanceSymbol(string asset) =>
         asset.ToUpper()
@@ -360,30 +279,26 @@ public static class SignalTracker
 
     public class AccuracyStats
     {
-        private int _total, _verified, _correct;
-
         public string Key { get; }
+        public int Total { get; }
+        public int Verified { get; }
+        public int Correct { get; }
+        public int Incorrect => Verified - Correct;
+        public int Pending => Total - Verified;
 
-        public AccuracyStats(string key = "ALL") => Key = key;
-
-        public void IncrementTotal()  => Interlocked.Increment(ref _total);
-        public void Record(bool correct)
+        public AccuracyStats(string key, int total, int verified, int correct)
         {
-            Interlocked.Increment(ref _verified);
-            if (correct) Interlocked.Increment(ref _correct);
+            Key = key;
+            Total = total;
+            Verified = verified;
+            Correct = correct;
         }
 
-        public int    Total     => _total;
-        public int    Verified  => _verified;
-        public int    Correct   => _correct;
-        public int    Incorrect => _verified - _correct;
-        public int    Pending   => _total - _verified;
-        public double WinRate   => _verified > 0
-            ? Math.Round((double)_correct / _verified * 100, 1)
+        public double WinRate => Verified > 0
+            ? Math.Round((double)Correct / Verified * 100, 1)
             : 0;
-        public bool   HasData   => _verified >= 5;
+        public bool HasData => Verified >= 5;
 
-        /// <summary>Calibrated probability boost based on win rate (used in sniper decision).</summary>
         public double CalibrationFactor => HasData
             ? Math.Clamp(WinRate / 50.0, 0.7, 1.3)
             : 1.0;

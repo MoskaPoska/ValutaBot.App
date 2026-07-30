@@ -89,7 +89,7 @@ public static class MLPythonService
             try
             {
                 using var testClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-                var res = await testClient.GetAsync($"{_baseUrl}/health");
+                var res = await testClient.GetAsync(new Uri($"{_baseUrl}/health"));
                 if (res.IsSuccessStatusCode)
                 {
                     BotLogger.Info("[MLPython] Local LightGBM service is active.");
@@ -176,7 +176,7 @@ public static class MLPythonService
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await _pipeline.ExecuteAsync(async ct => 
-                await _client.PostAsync($"{_baseUrl}/predict", content, ct)
+                await _client.PostAsync(new Uri($"{_baseUrl}/predict"), content, ct)
             );
 
             if (!response.IsSuccessStatusCode)
@@ -245,7 +245,7 @@ public static class MLPythonService
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             
             var response = await _pipeline.ExecuteAsync(async ct => 
-                await _client.PostAsync($"{_baseUrl}/feedback", content, ct)
+                await _client.PostAsync(new Uri($"{_baseUrl}/feedback"), content, ct)
             );
             
             if (response.IsSuccessStatusCode)
@@ -305,3 +305,4 @@ public static class MLPythonService
         [JsonPropertyName("auc")]          public double?  Auc          { get; set; }
     }
 }
+
