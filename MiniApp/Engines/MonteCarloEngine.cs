@@ -1,5 +1,5 @@
 using System;
-using MathNet.Numerics.Distributions;
+
 
 namespace ValutaBot.MiniApp;
 
@@ -46,17 +46,37 @@ public static class MonteCarloEngine
         double driftSign = isBuy ? 1.0 : -1.0;
         double directionalDrift = (driftSign * (prob - 0.5) * 2.0 * totalVol) + itoDrift;
 
+        // Merton Jump Diffusion Parameters (Fat Tails)
+        double jumpIntensity = 0.5; // Average 0.5 jumps per time unit (e.g. news spikes)
+        double jumpVol = totalVol * 3.0; // Jumps are 3x more volatile than normal Brownian motion
+        double expectedJumps = jumpIntensity * (totalTimeStep / 60.0);
+
         int successCount = 0;
         var rand = Random.Shared;
 
         // 1,000 Stochastic Monte Carlo iterations
         for (int i = 0; i < iterations; i++)
         {
-            // MathNet.Numerics generation for standard normal Gaussian random numbers
-            double randNormal = Normal.Sample(rand, 0.0, 1.0);
+            // Box-Muller transform for standard normal Gaussian random numbers
+            double u1 = 1.0 - rand.NextDouble();
+            double u2 = 1.0 - rand.NextDouble();
+            double randNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2);
 
-            // Geometric Brownian Motion step
-            double simulatedReturn = directionalDrift + (totalVol * randNormal);
+            // Simulate Poisson Jumps (Black Swan / Manipulation)
+            double jumpReturn = 0;
+            if (rand.NextDouble() < expectedJumps) // simplified Poisson trigger for small intervals
+            {
+                double j1 = 1.0 - rand.NextDouble();
+                double j2 = 1.0 - rand.NextDouble();
+                double jumpNormal = Math.Sqrt(-2.0 * Math.Log(j1)) * Math.Sin(2.0 * Math.PI * j2);
+                
+                // Jumps usually happen against the obvious crowd direction in crypto (liquidation hunting)
+                double jumpMean = -driftSign * totalVol * 1.5; 
+                jumpReturn = jumpMean + (jumpNormal * jumpVol);
+            }
+
+            // Merton Jump-Diffusion Geometric Brownian Motion step
+            double simulatedReturn = directionalDrift + (totalVol * randNormal) + jumpReturn;
             double finalSimulatedPrice = currentPrice * Math.Exp(simulatedReturn);
 
             if (isBuy && finalSimulatedPrice > currentPrice)

@@ -62,7 +62,7 @@ public static class TelegramInitDataValidator
 
             if (!string.Equals(hash, expectedHash, StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine($"[InitData] Hash mismatch!\nExpected: {expectedHash}\nReceived: {hash}\nDataCheckString:\n{dataCheckString}");
+                Console.WriteLine($"[InitData] Hash mismatch detected for initData authorization.");
                 return false;
             }
 

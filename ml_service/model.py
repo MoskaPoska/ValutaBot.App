@@ -30,7 +30,7 @@ from features import build_features
 
 log = logging.getLogger("predictor")
 
-MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models"))
+MODEL_DIR = Path(os.getenv("MODEL_DIR", str(Path(__file__).parent / "data" / "models")))
 RETRAIN_INTERVAL_H = int(os.getenv("RETRAIN_INTERVAL_H", "24"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.60"))  # below → NEUTRAL
 BINANCE_BASE = "https://api.binance.com"

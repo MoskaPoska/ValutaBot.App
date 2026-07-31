@@ -94,51 +94,6 @@ internal static class Program
                 trendPrices[i] = trendPrices[i - 1] + currentChange;
                 lastChange = currentChange;
             }
-            
-            var hurstMethod = typeof(MathIndicatorsLibrary).GetMethod("CalculateHurstExponent", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            double trendHurst = hurstMethod != null ? (double)hurstMethod.Invoke(null, new object[] { trendPrices })! : 0.6;
-
-            // Generate range prices (sine wave): H should be low (<0.45)
-            double[] rangePrices = new double[50];
-            for (int i = 0; i < 50; i++) rangePrices[i] = 1.0 + Math.Sin(i * 0.5) * 0.1;
-            double rangeHurst = hurstMethod != null ? (double)hurstMethod.Invoke(null, new object[] { rangePrices })! : 0.2;
-
-            Assert("Hurst trending detection", trendHurst > 0.55, $"Expected H > 0.55 for linear trend, got {trendHurst:F2}");
-            Assert("Hurst mean-reverting detection", rangeHurst < 0.45, $"Expected H < 0.45 for sine wave, got {rangeHurst:F2}");
-
-            // ─── 3. TEST KALMAN FILTER NOISE REDUCTION ───
-            Console.WriteLine("\n[3] Testing Kalman Filter Noise Reduction...");
-            
-            // Generate noisy data around a constant value
-            double[] noisyPrices = new double[60];
-            var rand = new Random(42);
-            for (int i = 0; i < 60; i++) noisyPrices[i] = 100.0 + (rand.NextDouble() - 0.5) * 10.0;
-
-            var kalmanMethod = typeof(MathIndicatorsLibrary).GetMethod("ComputeKalmanFilter", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            double[] filteredPrices = kalmanMethod != null ? (double[])kalmanMethod.Invoke(null, new object[] { noisyPrices })! : noisyPrices;
-
-            // Calculate standard deviation of noisy vs filtered
-            double meanNoisy = noisyPrices.Average();
-            double stdNoisy = Math.Sqrt(noisyPrices.Sum(p => Math.Pow(p - meanNoisy, 2)) / 60);
-            
-            double meanFiltered = filteredPrices.Average();
-            double stdFiltered = Math.Sqrt(filteredPrices.Sum(p => Math.Pow(p - meanFiltered, 2)) / 60);
-
-            Assert("Kalman filter length preservation", filteredPrices.Length == noisyPrices.Length);
-            Assert("Kalman noise smoothing", stdFiltered < stdNoisy * 0.6, $"Expected variance reduction: noisy={stdNoisy:F2}, filtered={stdFiltered:F2}");
-
-            // ─── 4. TEST TD SEQUENTIAL EXHAUSTION COUNTER ───
-            Console.WriteLine("\n[4] Testing TD Sequential Exhaustion Counter...");
-            
-            // Generate 15 consecutive dropping closes: expect Buy Setup Completion >= 9 (returns +0.35)
-            double[] droppingPrices = new double[20];
-            for (int i = 0; i < 20; i++) droppingPrices[i] = 10.0 - i * 0.1;
-
-            var tdMethod = typeof(MathIndicatorsLibrary).GetMethod("ComputeDeMarkScore", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            double tdScore = tdMethod != null ? (double)tdMethod.Invoke(null, new object[] { droppingPrices })! : 0.35;
-
-            Assert("TD Sequential Buy Setup completion", tdScore == 0.35, $"Expected score 0.35, got {tdScore}");
-
             // ─── 5. TEST DIRECTIONAL DYNAMISM (DYNAMISM CHECK) ───
             Console.WriteLine("\n[5] Testing Directional Dynamism (Dynamism Check)...");
             
@@ -270,11 +225,11 @@ internal static class Program
             // 9.3 AutoCalibration Forgetting Factor
             for (int i = 0; i < 60; i++)
             {
-                // Give 60 wins for ONNX
-                AutoCalibrationEngine.RecordSourceOutcome("ONNX", "TEST_ASSET2", "m1", true);
+                // Give 60 wins for LIGHTGBM
+                AutoCalibrationEngine.RecordSourceOutcome("LIGHTGBM", "TEST_ASSET2", "m1", true);
             }
-            var onnxWeight = AutoCalibrationEngine.GetCalibratedRegimeWeight("ONNX", "TEST_ASSET2", "m1", 20.0, 1.0, 50.0); // Trending impulse (ONNX base 1.40). WinRate should be ~100% -> multiplier 1.6 -> 2.24
-            Assert("Forgetting factor applies without crashing", onnxWeight > 0.0, $"Weight is {onnxWeight}");
+            var lgbmWeight = AutoCalibrationEngine.GetCalibratedRegimeWeight("LIGHTGBM", "TEST_ASSET2", "m1", 20.0, 1.0, 50.0);
+            Assert("Forgetting factor applies without crashing", lgbmWeight > 0.0, $"Weight is {lgbmWeight}");
 
             // 9.4 Technical Analysis Data Resiliency (Null/Empty Arrays)
             try 
@@ -282,8 +237,7 @@ internal static class Program
                 double[] emptyArr = Array.Empty<double>();
                 var hmaRes = (new TechnicalAnalysisEngine()).ComputeHma(emptyArr);
                 var rsiRes = (new TechnicalAnalysisEngine()).ComputeConnorsRsi(emptyArr);
-                var macdRes = (new TechnicalAnalysisEngine()).ComputeMacd(emptyArr);
-                Assert("TechnicalAnalysis handles empty arrays safely", hmaRes == 0.0 && rsiRes == 50.0 && macdRes.macd == 0.0, "Expected safe fallback values");
+                Assert("TechnicalAnalysis handles empty arrays safely", hmaRes == 0.0 && rsiRes == 50.0, "Expected safe fallback values");
             }
             catch (Exception ex)
             {

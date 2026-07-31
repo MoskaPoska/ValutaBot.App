@@ -310,6 +310,7 @@ public static partial class MiniAppUI
             safeSetStyle('claudeCard', 'display', 'none');
             safeSetStyle('lgbmCard', 'display', 'none');
             safeSetStyle('newsCard', 'display', 'none');
+            safeSetStyle('radarCard', 'display', 'none');
             safeSetStyle('welcomeSec', 'display', 'flex');
             safeSetStyle('topCategories', 'display', 'flex');
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
@@ -348,9 +349,16 @@ public static partial class MiniAppUI
             }
         }
 
-        /* ─── Status bar animation (non-blocking) ─── */
-        const sbStatuses = ['ЗАГРУЗКА ДАННЫХ', 'ПОЛУЧЕНИЕ ЦЕНЫ', 'АНАЛИЗ РЫНКА'];
-        let sbTimer = null, sbIdx = 0;
+        /* ─── Status bar animation & Glitch (non-blocking) ─── */
+        const sbStatuses = ['ЗАГРУЗКА ДАННЫХ', 'СКАНИРОВАНИЕ МАТРИЦЫ', 'КВАНТОВЫЙ АНАЛИЗ', 'ПРОСЧЕТ СИГНАЛА'];
+        let sbTimer = null, sbIdx = 0, glitchTimer = null;
+
+        function generateGlitchText() {
+            const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%^&*()_+{}|[]<>';
+            let str = '';
+            for(let i=0; i<300; i++) str += chars[Math.floor(Math.random()*chars.length)];
+            return str;
+        }
 
         function startStatusBar() {
             const sb = document.getElementById('statusBar');
@@ -358,11 +366,19 @@ public static partial class MiniAppUI
             sb.classList.add('show');
             const title = document.getElementById('sbTitle');
             const sub = document.getElementById('sbSub');
+            const go = document.getElementById('glitchOverlay');
             if (title) title.innerHTML = 'АНАЛИЗИРУЮ РЫНОК<span class=\'blink\'>.</span>';
             if (sub) { sub.textContent = sbStatuses[0]; sub.className = 'sb-sub'; }
+            if (go) { go.classList.add('active'); go.innerText = generateGlitchText(); }
             sbIdx = 0;
 
             if (sbTimer) clearInterval(sbTimer);
+            if (glitchTimer) clearInterval(glitchTimer);
+
+            glitchTimer = setInterval(() => {
+                if(go) go.innerText = generateGlitchText();
+            }, 80);
+
             sbTimer = setInterval(() => {
                 const title = document.getElementById('sbTitle');
                 if (title) {
@@ -376,13 +392,66 @@ public static partial class MiniAppUI
                     sub.classList.add('fade');
                     setTimeout(() => { sub.textContent = sbStatuses[sbIdx]; sub.classList.remove('fade'); }, 200);
                 }
-            }, 900);
+            }, 600);
         }
 
         function stopStatusBar() {
             const sb = document.getElementById('statusBar');
             if (sb) sb.classList.remove('show');
             if (sbTimer) { clearInterval(sbTimer); sbTimer = null; }
+            if (glitchTimer) { clearInterval(glitchTimer); glitchTimer = null; }
+            const go = document.getElementById('glitchOverlay');
+            if(go) go.classList.remove('active');
+        }
+
+        function drawRadar(levelData, regime) {
+            const rPoly = document.getElementById('radarPolygon');
+            const radarCard = document.getElementById('radarCard');
+            if(!rPoly || !radarCard || !levelData) return;
+            
+            radarCard.style.display = 'block';
+
+            // Calc scores for each axis based on buy/put ratios
+            // level1: indicators (Top/North)
+            // volume: custom/derived from level2 (Right/East)
+            // smc: custom/derived from level2 (Bottom/South)
+            // level3: multi-tf (Left/West)
+
+            const mapScore = (l) => {
+                const total = l.buy + l.put + l.neutral;
+                if(total===0) return 50;
+                const val = (l.buy - l.put) / total; // -1 to 1
+                return 50 + (val * 40); // 10 to 90
+            };
+
+            const l1 = mapScore(levelData.level1);
+            const l2 = mapScore(levelData.level2); // Using as Volume approximation for demo
+            const smc = mapScore(levelData.level2); // Using as SMC approximation for demo
+            const l3 = mapScore(levelData.level3);
+            
+            // Map 10-90 score to 0-200 SVG coordinates (Center is 100,100)
+            const nY = 100 - (l1 * 0.8);
+            const eX = 100 + (l2 * 0.8);
+            const sY = 100 + (smc * 0.8);
+            const wX = 100 - (l3 * 0.8);
+
+            rPoly.setAttribute('d', `M100 ${nY} L${eX} 100 L100 ${sY} L${wX} 100 Z`);
+            
+            const p1 = document.getElementById('radarPt1'); if(p1) { p1.setAttribute('cy', nY); }
+            const p2 = document.getElementById('radarPt2'); if(p2) { p2.setAttribute('cx', eX); }
+            const p3 = document.getElementById('radarPt3'); if(p3) { p3.setAttribute('cy', sY); }
+            const p4 = document.getElementById('radarPt4'); if(p4) { p4.setAttribute('cx', wX); }
+
+            rPoly.className = 'radar-poly';
+            if(regime) {
+                if(regime.includes('Chaos') || regime.includes('Хаос')) {
+                    rPoly.classList.add('chaos');
+                } else if(regime.includes('Flat') || regime.includes('Флэт')) {
+                    rPoly.classList.add('flat');
+                } else {
+                    rPoly.classList.add('trend');
+                }
+            }
         }
 
         function pricesToBars(prices, count) {
@@ -535,13 +604,14 @@ public static partial class MiniAppUI
                         resDir.style.color = '#ff1744';
                         sphere.classList.add('put-signal');
                     } else {
-                        resDir.innerText = 'НЕЙТРАЛЬНО';
-                        resDir.style.color = 'var(--dim)';
+                        resDir.innerText = (data.probability === 0) ? 'БЛОКИРОВКА' : 'НЕЙТРАЛЬНО';
+                        resDir.style.color = (data.probability === 0) ? '#ff1744' : 'var(--dim)';
+                        if (data.probability === 0) resDir.style.fontWeight = '900';
                         sphere.classList.add('neutral-signal');
                     }
 
                     document.getElementById('resProb').innerText = data.probability + '%';
-                    document.getElementById('resProb').style.color = data.probability >= 90 ? '#00e676' : data.probability >= 85 ? '#ffd600' : 'var(--accent)';
+                    document.getElementById('resProb').style.color = data.probability === 0 ? '#ff1744' : data.probability >= 90 ? '#00e676' : data.probability >= 85 ? '#ffd600' : 'var(--accent)';
 
                     document.getElementById('resDur').innerText = data.duration;
 
@@ -607,6 +677,21 @@ public static partial class MiniAppUI
                         const kellyEl = document.getElementById('mcKelly');
                         if (kellyEl) {
                             kellyEl.innerText = data.kellyLabel || '--';
+                            if (data.kellyLabel && (data.kellyLabel.includes('0%') || data.kellyLabel.includes('-'))) {
+                                kellyEl.style.color = '#ff1744';
+                            } else {
+                                kellyEl.style.color = '#f59e0b';
+                            }
+                        }
+                        const wfEl = document.getElementById('wfStatus');
+                        if (wfEl) {
+                            if (data.wfIsCooloffActive) {
+                                wfEl.innerText = 'Охлаждение';
+                                wfEl.style.color = '#ff1744';
+                            } else {
+                                wfEl.innerText = 'В норме';
+                                wfEl.style.color = '#10b981';
+                            }
                         }
                     }
 
@@ -643,6 +728,9 @@ public static partial class MiniAppUI
                         }
                         const lbEl = document.getElementById('levelsBar');
                         if (lbEl) lbEl.style.display = 'block';
+
+                        // Draw Radar
+                        drawRadar(data.levels, data.aiModel || 'Trend');
                     }
 
                     const tabReg = document.getElementById('resultsTabBar');

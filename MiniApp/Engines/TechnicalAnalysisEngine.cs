@@ -11,7 +11,7 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
 {
     public static ITechnicalAnalysisEngine Instance { get; set; } = new TechnicalAnalysisEngine();
     /// <param name="intervalMinutes">Candle interval in minutes (e.g. 1 for m1, 5 for m5, 0.25 for s15). Used to space Quote timestamps correctly so Skender time-dependent calculations work properly.</param>
-    private IEnumerable<Quote> ConvertToQuotes(double[] prices, double[]? volumes = null, MiniAppController.OhlcCandle[]? candles = null, double intervalMinutes = 1.0)
+    private static IEnumerable<Quote> ConvertToQuotes(double[] prices, double[]? volumes = null, MiniAppController.OhlcCandle[]? candles = null, double intervalMinutes = 1.0)
     {
         TimeSpan interval = TimeSpan.FromMinutes(intervalMinutes);
 
@@ -55,7 +55,7 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
     public double ComputeRsi(double[] data, int period = 14)
     {
         var quotes = ConvertToQuotes(data);
-        if (quotes.Count() < period + 1) return 50.0;
+        if (data.Length < period + 1) return 50.0;
 
         var results = quotes.GetRsi(period);
         var last = results.LastOrDefault();
@@ -65,7 +65,7 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
     public double ComputeConnorsRsi(double[] data)
     {
         var quotes = ConvertToQuotes(data);
-        if (quotes.Count() < 20) return ComputeRsi(data, 14);
+        if (data.Length < 20) return ComputeRsi(data, 14);
 
         try
         {
@@ -82,7 +82,7 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
     public double ComputeHma(double[] data, int period = 9)
     {
         var quotes = ConvertToQuotes(data);
-        if (quotes.Count() < period) return data.Length > 0 ? data[^1] : 0.0;
+        if (data.Length < period) return data.Length > 0 ? data[^1] : 0.0;
 
         try
         {
@@ -95,77 +95,22 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             return ComputeEma(data, period);
         }
     }
-    
-    public (double[] Hma, double[] ConnorsRsi) ComputeWalkForwardBatch(double[] data)
-    {
-        var quotes = ConvertToQuotes(data);
-        var hmaResult = new double[data.Length];
-        var rsiResult = new double[data.Length];
-        
-        if (quotes.Count() < 20)
-        {
-            // Fallback for very small arrays
-            for (int i = 0; i < data.Length; i++)
-            {
-                hmaResult[i] = data[i];
-                rsiResult[i] = 50.0;
-            }
-            return (hmaResult, rsiResult);
-        }
-
-        try
-        {
-            var hmaList = quotes.GetHma(9).ToList();
-            var rsiList = quotes.GetConnorsRsi(3, 2, 10).ToList();
-            
-            for (int i = 0; i < data.Length; i++)
-            {
-                var h = hmaList[i].Hma;
-                hmaResult[i] = h.HasValue ? (double)h.Value : data[i];
-                
-                var r = rsiList[i].ConnorsRsi;
-                rsiResult[i] = r.HasValue ? (double)r.Value : 50.0;
-            }
-        }
-        catch
-        {
-            for (int i = 0; i < data.Length; i++)
-            {
-                hmaResult[i] = data[i];
-                rsiResult[i] = 50.0;
-            }
-        }
-        
-        return (hmaResult, rsiResult);
-    }
 
     public double ComputeEma(double[] data, int period = 9)
     {
         var quotes = ConvertToQuotes(data);
-        if (quotes.Count() < period) return data.Length > 0 ? data[^1] : 0.0;
+        if (data.Length < period) return data.Length > 0 ? data[^1] : 0.0;
 
         var results = quotes.GetEma(period);
         var last = results.LastOrDefault();
         return last?.Ema.HasValue == true ? (double)last.Ema.Value : data[^1];
     }
 
-    /// <summary>Computes MACD line and signal line for the latest candle.</summary>
-    public (double macd, double signal) ComputeMacd(double[] data)
-    {
-        var quotes = ConvertToQuotes(data);
-        if (quotes.Count() < 26) return (0.0, 0.0);
-
-        var results = quotes.GetMacd(12, 26, 9);
-        var last = results.LastOrDefault();
-        double macdLine = last?.Macd.HasValue == true ? (double)last.Macd.Value : 0.0;
-        double signalLine = last?.Signal.HasValue == true ? (double)last.Signal.Value : 0.0;
-        return (macdLine, signalLine);
-    }
 
     public (double adx, double pdi, double mdi) ComputeTrueAdx(MiniAppController.OhlcCandle[] candles, int period = 14)
     {
         var quotes = ConvertToQuotes(Array.Empty<double>(), candles: candles);
-        if (quotes.Count() < period + 1) return (20.0, 0.0, 0.0);
+        if (candles.Length < period + 1) return (20.0, 0.0, 0.0);
 
         var results = quotes.GetAdx(period);
         var last = results.LastOrDefault();
@@ -181,24 +126,13 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
     public double ComputeAtr(MiniAppController.OhlcCandle[] candles, int period = 14)
     {
         var quotes = ConvertToQuotes(Array.Empty<double>(), candles: candles);
-        if (quotes.Count() < period) return 0;
+        if (candles.Length < period) return 0;
 
         var results = quotes.GetAtr(period);
         var last = results.LastOrDefault();
         return last?.Atr.HasValue == true ? (double)last.Atr.Value : 0.0;
     }
 
-    public double ComputeBollingerZscore(double[] prices, int period = 20)
-    {
-        var quotes = ConvertToQuotes(prices);
-        if (quotes.Count() < period) return 0.0;
-
-        var results = quotes.GetBollingerBands(period, 2);
-        var last = results.LastOrDefault();
-        if (last == null || !last.ZScore.HasValue) return 0.0;
-
-        return (double)last.ZScore.Value;
-    }
 
     public (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal) ScoreTimeframe(
         double[] prices, double[] volumes, MiniAppController.OhlcCandle[]? candles = null,
@@ -280,9 +214,11 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         double maxPrice = prices[^15..].Max();
         double priceRange = maxPrice - minPrice;
 
-        if (priceRange < 1e-7)
+        double deadMarketThreshold = Math.Max(1e-7, atr * 0.10);
+
+        if (priceRange < deadMarketThreshold)
         {
-            BotLogger.Warn("[Gatekeeper] Market is completely flat / frozen. Aborting analysis early in 0ms.");
+            BotLogger.Warn($"[Gatekeeper] Market is completely flat / frozen. PriceRange={priceRange}, Threshold={deadMarketThreshold}. Aborting analysis.");
             return new GatekeeperResult(false, "⚠️ Рынок в состоянии застоя (нет колебаний цены).", atr, adx);
         }
 
@@ -300,14 +236,23 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             returns[i] = Math.Log(prices[idx] / (prices[idx - 1] + 1e-10));
         }
 
-        var shortReturns = returns.TakeLast(5);
-        var longReturns = returns.Take(20);
+        var shortReturns = returns.TakeLast(5).ToArray();
+        var longReturns = returns.Take(20).ToArray();
 
-        double shortVol = MathNet.Numerics.Statistics.Statistics.StandardDeviation(shortReturns);
-        double longVol = MathNet.Numerics.Statistics.Statistics.StandardDeviation(longReturns);
+        double shortVol = StandardDeviation(shortReturns);
+        double longVol = StandardDeviation(longReturns);
 
         if (longVol < 1e-9) return 1.0;
         return shortVol / longVol;
+    }
+
+    private static double StandardDeviation(double[] values)
+    {
+        if (values.Length < 2) return 0.0;
+        double avg = values.Average();
+        double sum = 0;
+        foreach (var v in values) sum += (v - avg) * (v - avg);
+        return Math.Sqrt(sum / (values.Length - 1));
     }
 }
 

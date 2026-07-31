@@ -45,7 +45,24 @@ public static class SmcEngine
         var closedCandle = candles[^2];
         var prevClosedCandle = candles[^3];
 
+        // ─── 0. Calculate Local ATR for Noise Filtering ───
+        double atr = 0;
+        int atrPeriod = Math.Min(14, n - 1);
+        if (atrPeriod > 0)
+        {
+            double atrSum = 0;
+            for (int i = n - 1 - atrPeriod; i < n - 1; i++)
+            {
+                var c = candles[i];
+                atrSum += (c.High - c.Low);
+            }
+            atr = atrSum / atrPeriod;
+        }
+        double minFvgGap = atr * 0.20;
+
         // ─── 1. Liquidity Sweep Detection (Снятие ликвидности над/под свинг-уровнями) ───
+        int spanStart = System.Math.Max(0, n - 33);
+        int spanLen = System.Math.Min(30, n - 3 - spanStart);
         double recentHigh = candles.Take(n - 3).TakeLast(15).Max(c => c.High);
         double recentLow = candles.Take(n - 3).TakeLast(15).Min(c => c.Low);
 
@@ -67,17 +84,25 @@ public static class SmcEngine
 
             if (c3.Low > c1.High)
             {
-                bullishFvg = true;
-                fvgTop = c3.Low;
-                fvgBottom = c1.High;
-                fvgGapSize = fvgTop - fvgBottom;
+                double gap = c3.Low - c1.High;
+                if (gap >= minFvgGap)
+                {
+                    bullishFvg = true;
+                    fvgTop = c3.Low;
+                    fvgBottom = c1.High;
+                    fvgGapSize = gap;
+                }
             }
             else if (c3.High < c1.Low)
             {
-                bearishFvg = true;
-                fvgTop = c1.Low;
-                fvgBottom = c3.High;
-                fvgGapSize = fvgTop - fvgBottom;
+                double gap = c1.Low - c3.High;
+                if (gap >= minFvgGap)
+                {
+                    bearishFvg = true;
+                    fvgTop = c1.Low;
+                    fvgBottom = c3.High;
+                    fvgGapSize = gap;
+                }
             }
         }
 
@@ -102,6 +127,17 @@ public static class SmcEngine
 
                 if (isBullishObCandidate || isBearishObCandidate)
                 {
+                    // Displacement check (The next candle must move aggressively away)
+                    var nextCandle = candles[i + 1];
+                    bool hasDisplacement = false;
+                    if (isBullishObCandidate && nextCandle.Close > nextCandle.Open && (nextCandle.Close - nextCandle.Open) > (atr * 0.4))
+                        hasDisplacement = true;
+                    if (isBearishObCandidate && nextCandle.Close < nextCandle.Open && (nextCandle.Open - nextCandle.Close) > (atr * 0.4))
+                        hasDisplacement = true;
+
+                    if (!hasDisplacement)
+                        continue;
+
                     bool isMitigated = false;
                     double obBodyTop = Math.Max(candle.Open, candle.Close);
                     double obBodyBottom = Math.Min(candle.Open, candle.Close);

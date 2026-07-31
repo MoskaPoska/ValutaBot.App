@@ -14,16 +14,8 @@ public record ConfluenceMatrixResult(
     Dictionary<string, string> TimeframeDirections // TF -> "BUY" | "PUT"
 );
 
-public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
+public class ConfluenceMatrixEngine(MarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine) : IConfluenceMatrixEngine
 {
-    private readonly MarketDataFetcher _fetcher;
-    private readonly ITechnicalAnalysisEngine _taEngine;
-
-    public ConfluenceMatrixEngine(MarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine)
-    {
-        _fetcher = fetcher;
-        _taEngine = taEngine;
-    }
     /// <summary>
     /// Evaluates 4D Multi-Timeframe Confluence Matrix across 4 synchronized timeframes in parallel.
     /// Returns Golden Setup alignment score and win-rate probability boost.
@@ -40,23 +32,23 @@ public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
         try
         {
             // 2. Fetch candles for all 4 timeframes in parallel (< 10ms execution)
-            var microTask   = _fetcher.FetchBinanceWithFallback(binanceSymbol, microTf, asset, 40, 10);
-            var primaryTask = _fetcher.FetchBinanceWithFallback(binanceSymbol, primaryTf, asset, 40, 10);
-            var macroTask   = _fetcher.FetchBinanceWithFallback(binanceSymbol, macroTf, asset, 40, 10);
-            var globalTask  = _fetcher.FetchBinanceWithFallback(binanceSymbol, globalTf, asset, 40, 10);
+            var microTask   = fetcher.FetchBinanceWithFallback(binanceSymbol, microTf, asset, 40);
+            var primaryTask = fetcher.FetchBinanceWithFallback(binanceSymbol, primaryTf, asset, 40);
+            var macroTask   = fetcher.FetchBinanceWithFallback(binanceSymbol, macroTf, asset, 40);
+            var globalTask  = fetcher.FetchBinanceWithFallback(binanceSymbol, globalTf, asset, 40);
 
             await Task.WhenAll(microTask, primaryTask, macroTask, globalTask);
 
-            var (microPrices, _)   = await microTask;
-            var (primaryPrices, _) = await primaryTask;
-            var (macroPrices, _)   = await macroTask;
-            var (globalPrices, _)  = await globalTask;
+            var (microPrices, microVolumes)   = await microTask;
+            var (primaryPrices, primaryVolumes) = await primaryTask;
+            var (macroPrices, macroVolumes)   = await macroTask;
+            var (globalPrices, globalVolumes)  = await globalTask;
 
             // 3. Score directional bias for each timeframe
-            string dirMicro   = ScoreDirection(microPrices);
-            string dirPrimary = ScoreDirection(primaryPrices);
-            string dirMacro   = ScoreDirection(macroPrices);
-            string dirGlobal  = ScoreDirection(globalPrices);
+            string dirMicro   = ScoreDirection(microPrices, microVolumes);
+            string dirPrimary = ScoreDirection(primaryPrices, primaryVolumes);
+            string dirMacro   = ScoreDirection(macroPrices, macroVolumes);
+            string dirGlobal  = ScoreDirection(globalPrices, globalVolumes);
 
             var tfDirs = new Dictionary<string, string>
             {
@@ -117,7 +109,7 @@ public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
         }
     }
 
-    private (string micro, string primary, string macro, string global) Resolve4DTimeframes(string tf)
+    private static (string micro, string primary, string macro, string global) Resolve4DTimeframes(string tf)
     {
         return tf.ToLower() switch
         {
@@ -135,15 +127,14 @@ public class ConfluenceMatrixEngine : IConfluenceMatrixEngine
     /// TechnicalAnalysisEngine pipeline (HMA, ConnorsRSI, ADX, Volume) —
     /// replacing the former primitive 3-condition heuristic.
     /// </summary>
-    private string ScoreDirection(double[] prices)
+    private string ScoreDirection(double[] prices, double[] volumes)
     {
         if (prices == null || prices.Length < 10) return "NEUTRAL";
 
         // Reuse the authoritative scoring function with its HMA + Connors RSI + ADX + Volume weighting.
-        // Volumes are not available here, so we pass an empty array — the engine handles this gracefully.
-        var (score, _, _, _, _, _) = _taEngine.ScoreTimeframe(
+        var (score, _, _, _, _, _) = taEngine.ScoreTimeframe(
             prices,
-            volumes: Array.Empty<double>(),
+            volumes: volumes,
             candles: null
         );
 

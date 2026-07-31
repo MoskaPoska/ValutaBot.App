@@ -1,3 +1,4 @@
+using ValutaBot.App.MiniApp.Data.Repositories;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,7 +20,7 @@ public static class TradeOutcomeTracker
         {
             if (_initialized) return;
 
-            var outcomes = await BotDatabase.LoadTradeOutcomesAsync(1000);
+            var outcomes = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.LoadTradeOutcomesAsync(1000);
             BotLogger.Info($"[TradeOutcomeTracker] Loaded {outcomes.Count} historical outcomes from PostgreSQL DB.");
 
             foreach (var outcome in outcomes)
@@ -60,7 +61,7 @@ public static class TradeOutcomeTracker
                 VerifiedAt = DateTime.UtcNow.ToString("o")
             };
 
-            await BotDatabase.SaveTradeOutcomeAsync(outcomeRecord);
+            await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.SaveTradeOutcomeAsync(outcomeRecord);
 
             bool wasCorrect = record.WasCorrect ?? false;
             double exitPriceVal = record.ExitPrice ?? record.EntryPrice;
@@ -88,12 +89,8 @@ public static class TradeOutcomeTracker
             }
             else
             {
-                AutoCalibrationEngine.RecordSourceOutcome("GLOBAL",       record.Asset, record.Timeframe, wasCorrect);
-                AutoCalibrationEngine.RecordSourceOutcome("LIGHTGBM",    record.Asset, record.Timeframe, wasCorrect);
-                AutoCalibrationEngine.RecordSourceOutcome("SKENDER_MATH", record.Asset, record.Timeframe, wasCorrect);
-                AutoCalibrationEngine.RecordSourceOutcome("SMC",          record.Asset, record.Timeframe, wasCorrect);
-                AutoCalibrationEngine.RecordSourceOutcome("ONNX",         record.Asset, record.Timeframe, wasCorrect);
-                AutoCalibrationEngine.RecordSourceOutcome("NATIVE_ML",    record.Asset, record.Timeframe, wasCorrect);
+                // Old trade with no source directions tracked. Only record global outcome.
+                AutoCalibrationEngine.RecordSourceOutcome("GLOBAL", record.Asset, record.Timeframe, wasCorrect);
             }
 
             _ = Task.Run(async () =>

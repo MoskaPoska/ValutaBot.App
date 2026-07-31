@@ -72,7 +72,7 @@ public static class SignalTracker
             SourceDirections = sourceDirections ?? new Dictionary<string, string>()
         };
 
-        await BotDatabase.SavePendingTradeAsync(record);
+        await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.SavePendingTradeAsync(record);
 
         Console.WriteLine($"[Tracker] Recorded {direction} {asset}/{timeframe} @ {price:F5} " +
                           $"— verify in {verifyDelaySecs}s");
@@ -82,31 +82,31 @@ public static class SignalTracker
 
     public static async Task<AccuracyStats> GetOverallStatsAsync()
     {
-        var (total, verified, correct) = await BotDatabase.GetOverallStatsAsync();
+        var (total, verified, correct) = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetOverallStatsAsync();
         return new AccuracyStats("ALL", total, verified, correct);
     }
 
     public static async Task<AccuracyStats> GetStatsAsync(string asset, string timeframe)
     {
-        var (total, verified, correct) = await BotDatabase.GetStatsAsync(asset, timeframe);
+        var (total, verified, correct) = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetStatsAsync(asset, timeframe);
         return new AccuracyStats($"{asset}_{timeframe}", total, verified, correct);
     }
 
     public static async Task<AccuracyStats[]> GetAllStatsAsync()
     {
-        var rows = await BotDatabase.GetAllStatsAsync();
+        var rows = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetAllStatsAsync();
         return rows.Select(r => new AccuracyStats($"{r.asset}_{r.timeframe}", r.verified, r.verified, r.correct)).ToArray();
     }
 
     public static async Task<int> GetPendingCountAsync()
     {
-        var (total, verified, _) = await BotDatabase.GetOverallStatsAsync();
+        var (total, verified, _) = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetOverallStatsAsync();
         return total - verified;
     }
 
     public static async Task<(string name, double agreeRatePct, double weight, int count)[]> GetSignalStatsAsync()
     {
-        var votes = await BotDatabase.GetAllSignalVotesAsync();
+        var votes = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetAllSignalVotesAsync();
         return votes.Select(v =>
         {
             double agreeRate = v.verified > 0 ? (double)v.correct / v.verified : 0.5;
@@ -115,22 +115,27 @@ public static class SignalTracker
         }).OrderByDescending(s => s.Item2).ToArray();
     }
 
-    public static async Task<double> GetSignalWeightAsync(string signalName, double baseWeight = 1.0)
+    public static double CalculateSignalWeight(System.Collections.Generic.IEnumerable<(string signalName, int correct, int verified)> votes, string signalName, double baseWeight = 1.0)
     {
-        var votes = await BotDatabase.GetAllSignalVotesAsync(); // ideally we'd cache this or query by name
-        var v = votes.FirstOrDefault(x => x.signalName == signalName);
+        var v = System.Linq.Enumerable.FirstOrDefault(votes, x => x.signalName == signalName);
         if (v.verified < 5) return baseWeight;
         double agreeRate = (double)v.correct / v.verified;
         double adjustment = agreeRate / 0.5;
-        return Math.Clamp(baseWeight * adjustment, 0.2, 2.0);
+        return System.Math.Clamp(baseWeight * adjustment, 0.2, 2.0);
+    }
+
+    public static async Task<double> GetSignalWeightAsync(string signalName, double baseWeight = 1.0)
+    {
+        var votes = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetAllSignalVotesAsync();
+        return CalculateSignalWeight(votes, signalName, baseWeight);
     }
 
     // ── Background Verification ────────────────────────────────────────────
 
-    private static async Task VerifyPendingAsync()
+    public static async Task VerifyPendingAsync()
     {
         var now = DateTime.UtcNow;
-        var toCheck = await BotDatabase.GetPendingTradesToVerifyAsync(now);
+        var toCheck = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetPendingTradesToVerifyAsync(now);
 
         if (toCheck.Count == 0) return;
 
@@ -141,7 +146,7 @@ public static class SignalTracker
             // Drop predictions older than 24h that still can't be verified
             if ((now - record.CreatedAt).TotalHours > 24)
             {
-                await BotDatabase.DeletePendingTradeAsync(record.Id);
+                await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.DeletePendingTradeAsync(record.Id);
                 continue;
             }
 
@@ -155,14 +160,14 @@ public static class SignalTracker
             double minMove = isSubMin ? 1e-8 : (record.IsForex ? 0.00002 : 0.00010);
             if (Math.Abs(priceDiff) < minMove)
             {
-                await BotDatabase.DeletePendingTradeAsync(record.Id);
+                await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.DeletePendingTradeAsync(record.Id);
                 Console.WriteLine($"[Tracker] ~ {record.Asset}/{record.Timeframe} — flat market, discarded");
                 continue;
             }
 
             if (record.Direction == "NEUTRAL")
             {
-                await BotDatabase.DeletePendingTradeAsync(record.Id);
+                await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.DeletePendingTradeAsync(record.Id);
                 continue;
             }
 
@@ -179,14 +184,14 @@ public static class SignalTracker
                     if (kv.Value != "NEUTRAL")
                     {
                         bool wasSourceCorrect = kv.Value == winDirection;
-                        await BotDatabase.RecordSignalVoteAsync(kv.Key, wasSourceCorrect);
+                        await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.RecordSignalVoteAsync(kv.Key, wasSourceCorrect);
                     }
                 }
             }
 
             _ = TradeOutcomeTracker.OnTradeVerifiedAsync(record);
 
-            await BotDatabase.DeletePendingTradeAsync(record.Id);
+            await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.DeletePendingTradeAsync(record.Id);
 
             string icon = correct ? "✅" : "❌";
             Console.WriteLine(

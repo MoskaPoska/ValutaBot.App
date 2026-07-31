@@ -129,7 +129,10 @@ public static partial class MiniAppUI
                     <div class='sb-title' id='sbTitle'>АНАЛИЗИРУЮ РЫНОК<span class='blink'>.</span></div>
                     <div class='sb-sub' id='sbSub'>ЗАГРУЗКА ДАННЫХ</div>
                 </div>
-                <div class='sb-bars'><div class='sbb'></div><div class='sbb'></div><div class='sbb'></div><div class='sbb'></div><div class='sbb'></div></div>
+                <div class='sb-bars'>
+                    <div class='glitch-overlay' id='glitchOverlay'></div>
+                    <div class='sbb'></div><div class='sbb'></div><div class='sbb'></div><div class='sbb'></div><div class='sbb'></div>
+                </div>
             </div>
         </div>
 
@@ -184,7 +187,7 @@ public static partial class MiniAppUI
                     <div><span class='ml-badge' style='background:linear-gradient(135deg,#10b981,#059669)'>🎰 Монте-Карло</span><span class='ml-label'>Риск &amp; Матожидание</span></div>
                     <span style='font-size:9px;color:#10b981;font-weight:700' id='mcSimCount'>1,000 прогонов</span>
                 </div>
-                <div style='display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;padding:4px 0'>
+                <div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;padding:4px 0'>
                     <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
                         <div style='font-size:9px;color:var(--subtext)'>Матожидание (EV)</div>
                         <div style='font-size:11.5px;font-weight:700;color:#10b981;margin-top:2px' id='mcEv'>--</div>
@@ -192,6 +195,10 @@ public static partial class MiniAppUI
                     <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
                         <div style='font-size:9px;color:var(--subtext)'>Риск по Келли</div>
                         <div style='font-size:11.5px;font-weight:700;color:#f59e0b;margin-top:2px' id='mcKelly'>--</div>
+                    </div>
+                    <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
+                        <div style='font-size:9px;color:var(--subtext)'>Walk-Forward</div>
+                        <div style='font-size:11.5px;font-weight:700;color:#10b981;margin-top:2px' id='wfStatus'>Ready</div>
                     </div>
                 </div>
             </div>
@@ -229,6 +236,33 @@ public static partial class MiniAppUI
                 <div class='level-line' id='ll3'><span class='tag l3'>L3</span><span class='info'>Мульти-ТФ</span><span class='result' id='ll3res'></span></div>
                 <div class='levels-divider'></div>
                 <div class='levels-total'><span id='ltotalVotes'>--</span><span class='dir' id='ltotalDir'>--</span></div>
+            </div>
+
+            <!-- 4D Confluence Radar Matrix -->
+            <div class='radar-card' id='radarCard' style='display:none'>
+                <div class='ml-header' style='margin-bottom:10px'><span class='ml-badge' style='background:linear-gradient(135deg,#06b6d4,#3b82f6)'>📡 4D-Matrix</span><span class='ml-label'>Радар Слияния</span></div>
+                <div class='radar-container'>
+                    <svg id='radarSvg' viewBox='0 0 200 200'>
+                        <g class='radar-grid'>
+                            <path d='M100 20 L180 100 L100 180 L20 100 Z'/>
+                            <path d='M100 40 L160 100 L100 160 L40 100 Z'/>
+                            <path d='M100 60 L140 100 L100 140 L60 100 Z'/>
+                            <path d='M100 80 L120 100 L100 120 L80 100 Z'/>
+                            <line x1='100' y1='20' x2='100' y2='180'/>
+                            <line x1='20' y1='100' x2='180' y2='100'/>
+                        </g>
+                        <path id='radarPolygon' d='M100 100 L100 100 L100 100 L100 100 Z' class='radar-poly'/>
+                        <circle id='radarPt1' cx='100' cy='100' r='3' class='radar-pt'/>
+                        <circle id='radarPt2' cx='100' cy='100' r='3' class='radar-pt'/>
+                        <circle id='radarPt3' cx='100' cy='100' r='3' class='radar-pt'/>
+                        <circle id='radarPt4' cx='100' cy='100' r='3' class='radar-pt'/>
+                        <text x='100' y='12' class='radar-lbl' text-anchor='middle'>Price Action</text>
+                        <text x='190' y='103' class='radar-lbl' text-anchor='start'>Volume</text>
+                        <text x='100' y='193' class='radar-lbl' text-anchor='middle'>SMC</text>
+                        <text x='10' y='103' class='radar-lbl' text-anchor='end'>Multi-TF</text>
+                    </svg>
+                    <div class='radar-scanline'></div>
+                </div>
             </div>
         </div>
     </div>

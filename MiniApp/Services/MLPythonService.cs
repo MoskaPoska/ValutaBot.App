@@ -2,9 +2,6 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Polly;
-using Polly.Timeout;
-
 namespace ValutaBot.MiniApp;
 
 /// <summary>
@@ -14,14 +11,10 @@ namespace ValutaBot.MiniApp;
 /// </summary>
 public static class MLPythonService
 {
-    private static readonly HttpClient _client = new HttpClient(); // Timeout managed by Polly
+     // Timeout managed by Polly
     private static string _baseUrl = string.Empty;
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
-    
-    // Polly Resilience Pipeline (Circuit Breaker + Timeout)
-    private static ResiliencePipeline<HttpResponseMessage>? _pipeline;
-
-    // ── Result type ────────────────────────────────────────────────────────
+// ── Result type ────────────────────────────────────────────────────────
 
     public record MLPythonPrediction(
         string Direction,       // "BUY" | "PUT" | "NEUTRAL"
@@ -36,39 +29,7 @@ public static class MLPythonService
     public static void Init(string? baseUrl)
     {
         _baseUrl = (baseUrl ?? string.Empty).TrimEnd('/');
-        
-        // Build Polly v8 Pipeline
-        _pipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
-            .AddTimeout(TimeSpan.FromSeconds(8)) // Fast timeout
-            .AddCircuitBreaker(new Polly.CircuitBreaker.CircuitBreakerStrategyOptions<HttpResponseMessage>
-            {
-                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                    .Handle<HttpRequestException>()
-                    .Handle<TimeoutRejectedException>()
-                    .HandleResult(response => (int)response.StatusCode >= 500),
-                FailureRatio = 0.5,
-                SamplingDuration = TimeSpan.FromSeconds(10),
-                MinimumThroughput = 2,
-                BreakDuration = TimeSpan.FromMinutes(3),
-                OnOpened = args => 
-                {
-                    BotLogger.Warn($"[MLPython] Circuit breaker opened for 3 minutes due to: {args.Outcome.Exception?.Message ?? "500 Error"}");
-                    return default;
-                },
-                OnHalfOpened = args =>
-                {
-                    BotLogger.Info("[MLPython] Circuit breaker half-open — testing connection...");
-                    return default;
-                },
-                OnClosed = args =>
-                {
-                    BotLogger.Info("[MLPython] Circuit breaker closed — service restored.");
-                    return default;
-                }
-            })
-            .Build();
-
-        if (!string.IsNullOrWhiteSpace(_baseUrl))
+if (!string.IsNullOrWhiteSpace(_baseUrl))
         {
             BotLogger.Info($"[MLPython] Service URL: {_baseUrl}");
             if (_baseUrl.Contains("localhost") || _baseUrl.Contains("127.0.0.1"))
@@ -146,7 +107,7 @@ public static class MLPythonService
         MiniAppController.OhlcCandle[] candles,
         bool isForex = false)
     {
-        if (string.IsNullOrWhiteSpace(_baseUrl) || _pipeline == null)
+        if (string.IsNullOrWhiteSpace(_baseUrl))
             return null;
 
         try
@@ -175,9 +136,7 @@ public static class MLPythonService
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _pipeline.ExecuteAsync(async ct => 
-                await _client.PostAsync(new Uri($"{_baseUrl}/predict"), content, ct)
-            );
+            var response = await MiniAppController.HttpFactory!.CreateClient("MLPythonService").PostAsync(new Uri($"{_baseUrl}/predict"), content);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -226,7 +185,7 @@ public static class MLPythonService
         string direction,
         bool wasWin)
     {
-        if (string.IsNullOrWhiteSpace(_baseUrl) || _pipeline == null) return;
+        if (string.IsNullOrWhiteSpace(_baseUrl)) return;
 
         try
         {
@@ -244,9 +203,7 @@ public static class MLPythonService
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             
-            var response = await _pipeline.ExecuteAsync(async ct => 
-                await _client.PostAsync(new Uri($"{_baseUrl}/feedback"), content, ct)
-            );
+            var response = await MiniAppController.HttpFactory!.CreateClient("MLPythonService").PostAsync(new Uri($"{_baseUrl}/feedback"), content);
             
             if (response.IsSuccessStatusCode)
             {
@@ -296,7 +253,7 @@ public static class MLPythonService
     // ── DTO ────────────────────────────────────────────────────────────────
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Instantiated by System.Text.Json deserialization")]
-    private class PredictResponseDto
+    internal class PredictResponseDto
     {
         [JsonPropertyName("direction")]    public string?  Direction    { get; set; }
         [JsonPropertyName("confidence")]   public double   Confidence   { get; set; }

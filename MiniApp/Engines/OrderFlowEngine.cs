@@ -6,11 +6,13 @@ namespace ValutaBot.MiniApp;
 /// Focuses exclusively on Institutional Block Trades, Volume Cluster Anomalies, and Real Momentum Progress.
 /// </summary>
 public static class OrderFlowEngine
+
 {
     public record OrderFlowResult(
         double BuyVolume,
         double SellVolume,
         double DeltaRatio,
+        double CumulativeVolumeDelta,
         string OrderFlowState, // "STRONG_BULLISH_FLOW" | "STRONG_BEARISH_FLOW" | "BULLISH_ABSORPTION" | "BEARISH_ABSORPTION" | "SPOOFING_TRAP" | "BALANCED"
         double ScoreContribution,
         bool IsInstitutionalBlockTrade,
@@ -18,27 +20,41 @@ public static class OrderFlowEngine
     );
 
     public static OrderFlowResult AnalyzeOrderFlow(
-        double[] prices,
-        double[] volumes,
-        MiniAppController.OhlcCandle[]? candles = null)
+        ReadOnlySpan<double> prices,
+        ReadOnlySpan<double> volumes,
+        ReadOnlySpan<MiniAppController.OhlcCandle> candles = default)
     {
         if (prices == null || prices.Length < 5 || volumes == null || volumes.Length < 5)
         {
-            return new OrderFlowResult(0, 0, 1.0, "BALANCED", 0, false, "Недостаточно свечей для анализа потока ордеров.");
+            return new OrderFlowResult(0, 0, 1.0, 0, "BALANCED", 0, false, "Недостаточно свечей для анализа потока ордеров.");
         }
 
         int n = Math.Min(prices.Length, volumes.Length);
         
         // ─── 1. Calculate Volume Baseline & Threshold for Block Trades ───
-        double avgVolume = volumes.Take(n - 1).TakeLast(20).Where(v => v > 0).DefaultIfEmpty(1.0).Average();
+        int spanStart = Math.Max(0, n - 21);
+        int spanLen = Math.Min(20, n - 1 - spanStart);
+        var volWindow = volumes.Slice(spanStart, spanLen);
+        double sum = 0;
+        int count = 0;
+        foreach (var v in volWindow)
+        {
+            if (v > 0)
+            {
+                sum += v;
+                count++;
+            }
+        }
+        double avgVolume = count > 0 ? sum / count : 1.0;
         double noiseThreshold = avgVolume * 0.60;      // Filter out micro-trade noise
         double blockTradeThreshold = avgVolume * 1.70;  // Threshold for Institutional Anomaly Clusters
 
         double totalBuyVol = 0;
         double totalSellVol = 0;
         bool hasInstitutionalBlockTrade = false;
+        double cumulativeVolumeDelta = 0;
 
-        if (candles != null && candles.Length >= 5)
+        if (!candles.IsEmpty && candles.Length >= 5)
         {
             int checkCount = Math.Min(12, candles.Length);
             for (int i = candles.Length - checkCount; i < candles.Length; i++)
@@ -60,8 +76,11 @@ public static class OrderFlowEngine
                     double buyRatio = (c.Close - c.Low) / range;
                     double sellRatio = (c.High - c.Close) / range;
 
-                    totalBuyVol += totalVol * buyRatio;
-                    totalSellVol += totalVol * sellRatio;
+                    double buyV = totalVol * buyRatio;
+                    double sellV = totalVol * sellRatio;
+                    totalBuyVol += buyV;
+                    totalSellVol += sellV;
+                    cumulativeVolumeDelta += (buyV - sellV);
                 }
                 else
                 {
@@ -84,8 +103,16 @@ public static class OrderFlowEngine
                     hasInstitutionalBlockTrade = true;
 
                 double priceDiff = i > 0 ? prices[i] - prices[i - 1] : 0;
-                if (priceDiff > 0) totalBuyVol += vol;
-                else if (priceDiff < 0) totalSellVol += vol;
+                if (priceDiff > 0)
+                {
+                    totalBuyVol += vol;
+                    cumulativeVolumeDelta += vol;
+                }
+                else if (priceDiff < 0)
+                {
+                    totalSellVol += vol;
+                    cumulativeVolumeDelta -= vol;
+                }
                 else
                 {
                     totalBuyVol += vol * 0.5;
@@ -103,7 +130,19 @@ public static class OrderFlowEngine
 
         // ─── 2. Spoofing Detection (must come FIRST — overlaps with Absorption on deltaRatio > 1.8) ───
         // Spoofing: high buy volume but price goes NOWHERE → artificial order book manipulation
-        if (deltaRatio > 1.8 && Math.Abs(priceDelta) < 1e-7)
+        if (deltaRatio > 1.8 && cumulativeVolumeDelta > 0 && priceDelta < -1e-9)
+        {
+            state = "BEARISH_ABSORPTION";
+            scoreContribution = -0.30;
+            desc = "CVD Divergence (Bearish Absorption): Скрытые продажи при росте дельты.";
+        }
+        else if (deltaRatio < 0.55 && cumulativeVolumeDelta < 0 && priceDelta > 1e-9)
+        {
+            state = "BULLISH_ABSORPTION";
+            scoreContribution = 0.30;
+            desc = "CVD Divergence (Bullish Absorption): Скрытые покупки при падении дельты.";
+        }
+        else if (deltaRatio > 1.8 && Math.Abs(priceDelta) < 1e-7)
         {
             state = "SPOOFING_TRAP";
             scoreContribution = 0;
@@ -149,16 +188,14 @@ public static class OrderFlowEngine
             desc = "Поток ордеров очищен от шума и находится в балансе.";
         }
         return new OrderFlowResult(
-            Math.Round(totalBuyVol, 1),
-            Math.Round(totalSellVol, 1),
-            Math.Round(deltaRatio, 2),
-            state,
-            scoreContribution,
-            hasInstitutionalBlockTrade,
-            desc
+            BuyVolume: Math.Round(totalBuyVol, 1),
+            SellVolume: Math.Round(totalSellVol, 1),
+            DeltaRatio: Math.Round(deltaRatio, 2),
+            CumulativeVolumeDelta: Math.Round(cumulativeVolumeDelta, 2),
+            OrderFlowState: state,
+            ScoreContribution: Math.Round(scoreContribution, 2),
+            IsInstitutionalBlockTrade: hasInstitutionalBlockTrade,
+            Description: desc
         );
     }
 }
-
-
-

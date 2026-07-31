@@ -43,15 +43,4 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
         return await context.ExecuteAnalysisAsync();
     }
 
-    public ITimeframeAnalyzer GetAnalyzer(string timeframe)
-    {
-        string tf = timeframe.ToLower().Trim();
-        return tf switch
-        {
-            "5s" or "10s" or "15s" or "30s" or "s5" or "s10" or "s15" or "s30" => new SubMinuteMicrostructureAnalyzer(),
-            "1m" or "m1" => new OneMinuteEnsembleAnalyzer(),
-            "5m" or "15m" or "30m" or "1h" or "m5" or "m15" or "m30" or "h1" => new FiveMinutesStructuralAnalyzer(),
-            _ => new OneMinuteEnsembleAnalyzer()
-        };
-    }
 }

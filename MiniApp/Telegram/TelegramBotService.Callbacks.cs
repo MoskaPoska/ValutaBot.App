@@ -1,3 +1,4 @@
+using ValutaBot.App.MiniApp.Data.Repositories;
 using System;
 using System.Text;
 using System.Text.Json;
@@ -9,8 +10,6 @@ public partial class TelegramBotService
 {
     private static async Task HandleCallback(string token, string queryId, long chatId, string data, int messageId, string username, string webAppUrl)
     {
-        // Track activity
-        UserLastActivity[chatId] = DateTime.UtcNow;
 
         if (data == "check_reg")
         {
@@ -36,17 +35,17 @@ public partial class TelegramBotService
             await AnswerCallbackQuery(token, queryId, "Проверка депозита...");
             
             bool hasDeposited = false;
-            var reg = await BotDatabase.GetPocketRegistrationAsync(pocketId);
+            var reg = await ValutaBot.App.MiniApp.Data.Repositories.RegistrationRepository.GetPocketRegistrationAsync(pocketId);
             if (reg != null)
             {
                 hasDeposited = reg.HasDeposited;
                 reg.ChatId = chatId;
-                await BotDatabase.SaveRegistrationAsync(reg);
+                await ValutaBot.App.MiniApp.Data.Repositories.RegistrationRepository.SaveRegistrationAsync(reg);
             }
             
             if (hasDeposited)
             {
-                await BotDatabase.AddAllowedUserAsync(chatId);
+                await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.AddAllowedUserAsync(chatId);
                 await SendMessage(token, chatId, "✅ <b>Депозит подтвержден. Доступ открыт.</b>");
                 await SendUserWelcome(token, chatId, webAppUrl);
             }
@@ -77,7 +76,7 @@ public partial class TelegramBotService
         else if (data.StartsWith("approve_"))
         {
             bool isSenderAdmin;
-            isSenderAdmin = await BotDatabase.IsAdminAsync(chatId);
+            isSenderAdmin = await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.IsAdminAsync(chatId);
 
             if (!isSenderAdmin)
             {
@@ -90,7 +89,7 @@ public partial class TelegramBotService
                 await AnswerCallbackQuery(token, queryId, "❌ Неверный формат ID.");
                 return;
             }
-            await BotDatabase.AddAllowedUserAsync(userChatId);
+            await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.AddAllowedUserAsync(userChatId);
 
             UserSubmittedIds.TryRemove(userChatId, out var pocketId);
             await AnswerCallbackQuery(token, queryId, "Заявка одобрена!");
@@ -110,7 +109,7 @@ public partial class TelegramBotService
         else if (data.StartsWith("decline_"))
         {
             bool isSenderAdmin;
-            isSenderAdmin = await BotDatabase.IsAdminAsync(chatId);
+            isSenderAdmin = await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.IsAdminAsync(chatId);
 
             if (!isSenderAdmin)
             {

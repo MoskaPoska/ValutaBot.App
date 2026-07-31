@@ -12,11 +12,6 @@ namespace ValutaBot.MiniApp;
 
 public static partial class TwelveDataService
 {
-    private static readonly HttpClient _http = new(new SocketsHttpHandler
-    {
-        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
-        EnableMultipleHttp2Connections = true
-    }) { Timeout = TimeSpan.FromSeconds(10) };
     
     private static readonly IMemoryCache _memoryCache = new MemoryCache(new MemoryCacheOptions());
     private static string? _apiKey;
@@ -73,7 +68,7 @@ public static partial class TwelveDataService
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.UserAgent.ParseAdd("ValutaBot/1.0");
 
-            using var response = await _http.SendAsync(request);
+            using var response = await MiniAppController.HttpFactory!.CreateClient("TwelveDataService").SendAsync(request);
             
             var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString };
             var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<TwelveDataResponse>(response.Content, opts);
@@ -231,12 +226,11 @@ public static partial class TwelveDataService
         string symbol = ConvertToTwelveSymbol(rawAsset) ?? "";
         if (string.IsNullOrEmpty(symbol)) return null;
 
-        string url = "https://api.twelvedata.com/price?symbol=$([Uri]::EscapeDataString($symbol))&apikey=$apiKey";
+        string url = $"https://api.twelvedata.com/price?symbol={Uri.EscapeDataString(symbol)}&apikey={apiKey}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        using var response = await _http.SendAsync(request);
+        using var response = await MiniAppController.HttpFactory!.CreateClient("TwelveDataService").SendAsync(request);
         
-        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<TwelveDataPriceResponse>(response.Content, opts);
+        var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync(response.Content, ValutaBotJsonContext.Default.TwelveDataPriceResponse);
         
         if (doc != null && double.TryParse(doc.Price, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double price))
         {

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Caching.Memory;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -15,18 +16,18 @@ public partial class TelegramBotService : BackgroundService
     internal static string GetBaseUrl() => _baseUrl;
     internal static void SetBaseUrl(string url) => _baseUrl = url?.TrimEnd('/') ?? _baseUrl;
 
-    private static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
+    internal static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
         EnableMultipleHttp2Connections = true
     }) { Timeout = TimeSpan.FromSeconds(35) };
 
-    private static readonly ConcurrentDictionary<long, DateTime> UserLastActivity = new();
+    private static readonly IMemoryCache UserLastActivity = new MemoryCache(new MemoryCacheOptions());
     private static string _webAppUrl = "https://chowder-dreamland-spotlight.ngrok-free.dev";
 
     public static async Task<bool> IsUserAllowed(long chatId)
     {
-        return await BotDatabase.IsAdminAsync(chatId) || await BotDatabase.IsUserAllowedAsync(chatId);
+        return await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.IsAdminAsync(chatId) || await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.IsUserAllowedAsync(chatId);
     }
 
     public static async Task SendMessageToAdmins(string text)
@@ -34,7 +35,7 @@ public partial class TelegramBotService : BackgroundService
         string? token = TelegramNotifier.GetToken();
         if (string.IsNullOrEmpty(token)) return;
 
-        List<long> adminsToNotify = await BotDatabase.GetAdminChatIdsAsync();
+        List<long> adminsToNotify = await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.GetAdminChatIdsAsync();
 
         foreach (long adminId in adminsToNotify)
         {
@@ -42,7 +43,7 @@ public partial class TelegramBotService : BackgroundService
         }
     }
 
-    private enum UserState
+    internal enum UserState
     {
         None,
         AwaitingId,
@@ -50,8 +51,8 @@ public partial class TelegramBotService : BackgroundService
         AwaitingAddAdminId
     }
 
-    private static readonly ConcurrentDictionary<long, UserState> UserStates = new();
-    private static readonly ConcurrentDictionary<long, string> UserSubmittedIds = new();
+    internal static readonly ConcurrentDictionary<long, UserState> UserStates = new();
+    internal static readonly ConcurrentDictionary<long, string> UserSubmittedIds = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -67,18 +68,18 @@ public partial class TelegramBotService : BackgroundService
 
         Console.WriteLine($"[TG Bot] Service started. WebApp URL: {_webAppUrl}");
 
-        await BotDatabase.InitializeAsync();
+        await ValutaBot.App.MiniApp.Data.DbConnectionFactory.InitializeAsync();
 
         // Auto-seed admin IDs 1103551505, 901492845 and any env ADMIN_CHAT_ID / ADMIN_IDS
-        await BotDatabase.AddAdminAsync(1103551505);
-        await BotDatabase.AddAdminAsync(901492845);
+        await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.AddAdminAsync(1103551505);
+        await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.AddAdminAsync(901492845);
 
         string envAdmin = Environment.GetEnvironmentVariable("ADMIN_CHAT_ID") ?? Environment.GetEnvironmentVariable("ADMIN_IDS") ?? "";
         foreach (var part in envAdmin.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
         {
             if (long.TryParse(part, out long parsedEnvAdmin))
             {
-                await BotDatabase.AddAdminAsync(parsedEnvAdmin);
+                await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.AddAdminAsync(parsedEnvAdmin);
             }
         }
 
@@ -89,7 +90,7 @@ public partial class TelegramBotService : BackgroundService
             try
             {
                 string url = $"https://api.telegram.org/bot{token}/getUpdates?offset={offset}&timeout=30";
-                var response = await _httpClient.GetAsync(url, stoppingToken);
+                var response = await MiniAppController.HttpFactory!.CreateClient("Telegram").GetAsync(url, stoppingToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     await Task.Delay(5000, stoppingToken);
@@ -116,6 +117,14 @@ public partial class TelegramBotService : BackgroundService
                                 username = fromUser.TryGetProperty("username", out var uProp) ? (uProp.GetString() ?? "") : "";
                             }
 
+                            // SECURITY: Anti-Spam Rate Limiter (Max 1 msg per second)
+                            if (UserLastActivity.TryGetValue(chatId, out _))
+                            {
+                                BotLogger.Warn($"[Anti-Spam 🛡️] Dropped flood message from {chatId}");
+                                continue;
+                            }
+                            UserLastActivity.Set(chatId, true, TimeSpan.FromSeconds(1));
+
                             _ = Task.Run(async () =>
                             {
                                 try { await HandleMessage(token, chatId, text, username, _webAppUrl); }
@@ -134,6 +143,14 @@ public partial class TelegramBotService : BackgroundService
                             {
                                 username = fromUser.TryGetProperty("username", out var uProp) ? (uProp.GetString() ?? "") : "";
                             }
+
+                            // SECURITY: Anti-Spam Rate Limiter for Callbacks
+                            if (UserLastActivity.TryGetValue(chatId, out _))
+                            {
+                                BotLogger.Warn($"[Anti-Spam 🛡️] Dropped flood callback from {chatId}");
+                                continue;
+                            }
+                            UserLastActivity.Set(chatId, true, TimeSpan.FromSeconds(1));
 
                             _ = Task.Run(async () =>
                             {
@@ -156,7 +173,7 @@ public partial class TelegramBotService : BackgroundService
         }
     }
 
-    private static async Task SendMessage(string token, long chatId, string text)
+    internal static async Task SendMessage(string token, long chatId, string text)
     {
         var client = TelegramNotifier.GetBotClient() ?? new TelegramBotClient(token);
         try
@@ -176,7 +193,7 @@ public partial class TelegramBotService : BackgroundService
             var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var resp = await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
+            var resp = await MiniAppController.HttpFactory!.CreateClient("Telegram").PostAsync($"https://api.telegram.org/bot{token}/sendMessage", content);
             if (!resp.IsSuccessStatusCode)
             {
                 var err = await resp.Content.ReadAsStringAsync();
@@ -228,7 +245,7 @@ public partial class TelegramBotService : BackgroundService
             };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync($"https://api.telegram.org/bot{token}/setChatMenuButton", content);
+            await MiniAppController.HttpFactory!.CreateClient("Telegram").PostAsync($"https://api.telegram.org/bot{token}/setChatMenuButton", content);
         }
         catch { }
     }
@@ -257,3 +274,4 @@ public partial class TelegramBotService : BackgroundService
         }
     }
 }
+

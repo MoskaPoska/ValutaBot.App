@@ -3,7 +3,9 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
-using System.Web;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -22,19 +24,57 @@ public static partial class MiniAppController
 
     public record OhlcCandle(double Open, double High, double Low, double Close, double Volume);
 
+    public static System.Net.Http.IHttpClientFactory? HttpFactory { get; private set; }
+
     public static void Start(string[] args, int port = 5000)
     {
         Console.WriteLine("=====================================================");
-        Console.WriteLine("[Live Core] TradeBE_bot вЂ” MiniApp Server");
+        Console.WriteLine("[Live Core] TradeBE_bot — MiniApp Server");
         Console.WriteLine($"[+] Port: {port}");
         Console.WriteLine("=====================================================");
 
         var builder = WebApplication.CreateBuilder(args);
         builder.Services.AddCors(options =>
         {
-            options.AddPolicy("AllowMiniApp", p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+            options.AddPolicy("AllowMiniApp", p => p
+                .AllowAnyOrigin()
+                .WithMethods("GET", "POST", "OPTIONS")
+                .WithHeaders("X-Telegram-Init-Data", "Content-Type", "Accept"));
         });
         builder.Services.AddHostedService<TelegramBotService>();
+        builder.Services.AddHttpClient("Binance").AddStandardResilienceHandler();
+        builder.Services.AddHttpClient("TwelveData").AddStandardResilienceHandler();
+        builder.Services.AddHttpClient("FNG").AddStandardResilienceHandler();
+        builder.Services.AddHttpClient("MLPythonService").AddStandardResilienceHandler();
+        builder.Services.AddHttpClient("Telegram").AddStandardResilienceHandler();
+
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.OnRejected = async (context, token) =>
+            {
+                context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+                await context.HttpContext.Response.WriteAsync("{\"error\":\"Слишком много запросов. Подождите несколько секунд.\"}");
+            };
+
+            options.AddPolicy("Global", context =>
+            {
+                string ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
+                string initData = context.Request.Headers["X-Telegram-Init-Data"].ToString();
+                string fingerprint = $"{ip}|{initData}";
+                
+                return RateLimitPartition.GetTokenBucketLimiter(fingerprint, _ =>
+                    new TokenBucketRateLimiterOptions
+                    {
+                        TokenLimit = 10,
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0,
+                        ReplenishmentPeriod = TimeSpan.FromSeconds(2),
+                        TokensPerPeriod = 1,
+                        AutoReplenishment = true
+                    });
+            });
+        });
 
         // Launch Real-Time WebSocket stream for major CME proxy forex streams (0ms latency)
         string[] topStreamSymbols = { "BTCUSDT", "ETHUSDT", "EURUSDT", "GBPUSDT", "AUDUSDT" };
@@ -47,8 +87,21 @@ public static partial class MiniAppController
         MLPythonService.Init(builder.Configuration["MLService:BaseUrl"] ?? Environment.GetEnvironmentVariable("ML_SERVICE_URL") ?? "http://localhost:8765");
 
         var app = builder.Build();
+        HttpFactory = app.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>();
         app.UseCors("AllowMiniApp");
-        app.UseMiddleware<TokenBucketRateLimiterMiddleware>();
+        
+        // SECURITY: Global HTTP Security Headers (prevent MIME-sniffing, XSS, etc.)
+        app.Use(async (context, next) =>
+        {
+            context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
+            context.Response.Headers.Append("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+            // Allow framing only from Telegram (to allow WebApp to work inside Telegram UI)
+            context.Response.Headers.Append("Content-Security-Policy", "frame-ancestors 'self' https://web.telegram.org tg://*");
+            await next();
+        });
+
+        app.UseRateLimiter();
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
         app.MapGet("/", async (HttpContext context) =>
@@ -60,13 +113,13 @@ public static partial class MiniAppController
                 !context.Request.Headers.ContainsKey("ngrok-skip-browser-warning") &&
                 !context.Request.Query.ContainsKey("ngrok_passed"))
             {
-                string bypassScript = $@"<!DOCTYPE html><html><head><script>
+                string bypassScript = @"<!DOCTYPE html><html><head><script>
                         var xhr = new XMLHttpRequest();
                         xhr.open('GET', window.location.href, true);
                         xhr.setRequestHeader('ngrok-skip-browser-warning', 'true');
-                        xhr.onreadystatechange = function () {{ if (xhr.readyState === 4) {{ var url = new URL(window.location.href); url.searchParams.set('ngrok_passed', '1'); window.location.href = url.toString(); }} }};
+                        xhr.onreadystatechange = function () { if (xhr.readyState === 4) { var url = new URL(window.location.href); url.searchParams.set('ngrok_passed', '1'); window.location.href = url.toString(); } };
                         xhr.send();
-                    </script></head><body style='background:#0d0e1e; display:flex; justify-content:center; align-items:center; height:100vh; color:#8a4bfb; font-family:sans-serif;'>Р—Р°РіСЂСѓР·РєР° С‚РµСЂРјРёРЅР°Р»Р°...</body></html>";
+                    </script></head><body style='background:#0d0e1e; display:flex; justify-content:center; align-items:center; height:100vh; color:#8a4bfb; font-family:sans-serif;'>Загрузка терминала...</body></html>";
                 await context.Response.WriteAsync(bypassScript);
                 return;
             }
@@ -81,9 +134,6 @@ public static partial class MiniAppController
             var (isAuthorized, authError) = await AuthService.IsRequestAuthorized(context);
             if (!isAuthorized)
                 return Results.Json(new { error = authError }, statusCode: 401);
-
-            if (AuthService.IsRateLimited(context, out string? limitError))
-                return Results.Json(new { error = limitError }, statusCode: 429);
 
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
@@ -112,15 +162,14 @@ public static partial class MiniAppController
                 Console.WriteLine($"[API ERR] /api/analyze failed: {ex}");
                 return Results.Json(new
                 {
-                    error = ex.Message,
-                    message = ex.Message,
-                    details = ex.ToString()
+                    error = "Internal server error during analysis. Please try again later.",
+                    message = "An error occurred."
                 });
             }
-        });
+        }).RequireRateLimiting("Global");
 
-        app.MapGet("/api/stats", HandleGetStats);
-        app.MapGet("/api/signal-stats", HandleGetSignalStats);
+        app.MapGet("/api/stats", HandleGetStats).RequireRateLimiting("Global");
+        app.MapGet("/api/signal-stats", HandleGetSignalStats).RequireRateLimiting("Global");
 
         app.MapGet("/api/fear-greed", async (HttpContext context) =>
         {
@@ -133,15 +182,21 @@ public static partial class MiniAppController
             return Results.Json(fng);
         });
 
-
-
-
-
-        /* в”Ђв”Ђв”Ђ Postback Endpoint в”Ђв”Ђв”Ђ */
+        /* ─── Postback Endpoint ─── */
         app.MapGet("/api/postback", async (HttpContext context) =>
         {
             var query = context.Request.Query;
             
+            // SECURITY: Verify Postback Secret
+            string expectedSecret = Environment.GetEnvironmentVariable("POSTBACK_SECRET") ?? "test_secret_123";
+            string providedSecret = query.TryGetValue("secret", out var secVal) ? secVal.ToString().Trim() : "";
+            
+            if (string.IsNullOrEmpty(providedSecret) || providedSecret != expectedSecret)
+            {
+                BotLogger.Warn($"[Security] Unauthorized postback attempt blocked (Invalid Secret). IP: {context.Connection.RemoteIpAddress}");
+                return Results.Unauthorized();
+            }
+
             string pocketId = query.TryGetValue("pocketId", out var pVal) ? pVal.ToString().Trim() : "";
             string status = query.TryGetValue("status", out var sVal) ? sVal.ToString().Trim().ToLower() : "";
             
@@ -162,7 +217,7 @@ public static partial class MiniAppController
                 return Results.BadRequest(new { success = false, error = "pocketId is required" });
             }
 
-            Console.WriteLine($"[Postback] Received: pocketId={pocketId}, chatId={chatId}, status={status}, deposit={deposit}");
+            BotLogger.Info($"[Postback 🔒] Verified Postback: pocketId={pocketId}, chatId={chatId}, status={status}, deposit={deposit}");
 
             await TelegramBotService.ProcessPostback(chatId, pocketId, status, deposit);
 
@@ -193,10 +248,10 @@ public static partial class MiniAppController
 
 
 
-    /* в”Ђв”Ђв”Ђ Indicators в”Ђв”Ђв”Ђ */
-    /* в”Ђв”Ђв”Ђ Fear & Greed Index в”Ђв”Ђв”Ђ */
+    /* ─── Indicators ─── */
+    /* ─── Fear & Greed Index ─── */
 
-    private static readonly HttpClient _fngHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    
 
     private static async Task<object> GetFearGreedIndex()
     {
@@ -206,7 +261,7 @@ public static partial class MiniAppController
 
         try
         {
-            var json = await _fngHttp.GetStringAsync("https://api.alternative.me/fng/?limit=1");
+            var json = await HttpFactory!.CreateClient("FNG").GetStringAsync("https://api.alternative.me/fng/?limit=1");
             using var doc = JsonDocument.Parse(json);
             var data = doc.RootElement.GetProperty("data")[0];
             var result = new
@@ -223,7 +278,3 @@ public static partial class MiniAppController
         }
     }
 }
-
-
-
-

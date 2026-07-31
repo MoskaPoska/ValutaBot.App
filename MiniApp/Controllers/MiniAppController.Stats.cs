@@ -1,3 +1,4 @@
+using ValutaBot.App.MiniApp.Data.Repositories;
 using System;
 using System.Globalization;
 using System.Linq;
@@ -40,7 +41,7 @@ public static partial class MiniAppController
                 count     = s.count
             });
 
-        var recentRecords = await BotDatabase.LoadTradeOutcomesAsync(20);
+        var recentRecords = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.LoadTradeOutcomesAsync(20);
         var recent = recentRecords
             .Select(r => new
             {

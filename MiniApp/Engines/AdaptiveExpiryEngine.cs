@@ -7,9 +7,6 @@ namespace ValutaBot.MiniApp;
 /// </summary>
 public class AdaptiveExpiryEngine : IAdaptiveExpiryEngine
 {
-    public AdaptiveExpiryEngine()
-    {
-    }
     public record OptimalExpiryResult(
         int ExpirySeconds,
         string ExpiryText,

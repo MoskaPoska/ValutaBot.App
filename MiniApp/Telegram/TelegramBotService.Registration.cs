@@ -25,7 +25,7 @@ public partial class TelegramBotService
             return;
         }
 
-        var reg = await BotDatabase.GetPocketRegistrationAsync(pocketId);
+        var reg = await ValutaBot.App.MiniApp.Data.Repositories.RegistrationRepository.GetPocketRegistrationAsync(pocketId);
         if (reg == null)
         {
             reg = new PocketRegistration { PocketId = pocketId };
@@ -44,11 +44,11 @@ public partial class TelegramBotService
             reg.DepositAmount += deposit;
         }
         
-        await BotDatabase.SaveRegistrationAsync(reg);
+        await ValutaBot.App.MiniApp.Data.Repositories.RegistrationRepository.SaveRegistrationAsync(reg);
 
         if ((status == "deposit" || deposit > 0) && chatId > 0)
         {
-            await BotDatabase.AddAllowedUserAsync(chatId);
+            await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.AddAllowedUserAsync(chatId);
             string? token = TelegramNotifier.GetToken();
             if (!string.IsNullOrEmpty(token))
             {

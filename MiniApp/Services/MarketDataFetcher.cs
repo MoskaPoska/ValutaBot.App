@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Polly;
@@ -35,20 +35,11 @@ public class MarketClosedException : Exception
 public class MarketDataFetcher
 {
     public static MarketDataFetcher Instance { get; set; } = new MarketDataFetcher();
-    private static readonly HttpClient _httpClient = new HttpClient(new SocketsHttpHandler
-    {
-        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
-        EnableMultipleHttp2Connections = true
-    }) { Timeout = TimeSpan.FromSeconds(15) };
+    
+    // Rate limit protection cache for HTTP fallback
+    private static readonly ConcurrentDictionary<string, (DateTime Expiration, MiniAppController.OhlcCandle[] Data)> _klinesCache = new();
 
-    private static readonly ResiliencePipeline _retryPipeline = new ResiliencePipelineBuilder()
-        .AddRetry(new Polly.Retry.RetryStrategyOptions
-        {
-            ShouldHandle = new PredicateBuilder().Handle<HttpRequestException>().Handle<TaskCanceledException>(),
-            MaxRetryAttempts = 3,
-            DelayGenerator = static args => new ValueTask<TimeSpan?>(TimeSpan.FromMilliseconds(500 * (args.AttemptNumber + 1)))
-        })
-        .Build();
+    /* removed pipeline */ 
 
     public string IntervalMap(string tf) => tf.ToLower() switch
     {
@@ -103,10 +94,20 @@ public class MarketDataFetcher
             return resultFast;
         }
 
-        string url = "https://api.binance.com/api/v3/klines?symbol=$symbol&interval=$interval&limit=$limit";
+        return await FetchBinanceKlinsAsync(symbol, interval, limit) ?? Array.Empty<MiniAppController.OhlcCandle>();
+    }
+
+    private static async Task<MiniAppController.OhlcCandle[]?> FetchBinanceKlinsAsync(string symbol, string interval, int limit)
+    {
+        string cacheKey = $"{symbol}_{interval}_{limit}";
+        if (_klinesCache.TryGetValue(cacheKey, out var cached))
+        {
+            if (DateTime.UtcNow < cached.Expiration) return cached.Data;
+        }
+
+        string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
         
-        var _numOpts = new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString };
-        var arr = await _retryPipeline.ExecuteAsync(async ct => await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(_httpClient, new Uri(url), _numOpts, ct));
+        var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(MiniAppController.HttpFactory!.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
         
         if (arr == null || arr.Length == 0) return Array.Empty<MiniAppController.OhlcCandle>();
 
@@ -116,10 +117,12 @@ public class MarketDataFetcher
             var k = arr[i];
             result[i] = new MiniAppController.OhlcCandle(k[1], k[2], k[3], k[4], k[5]);
         }
+        
+        _klinesCache[cacheKey] = (DateTime.UtcNow.AddSeconds(2), result);
         return result;
     }
 
-    public async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50, string? rawAsset = null, string? rawInterval = null)
+    public async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50)
     {
         var ohlc = await FetchBinanceOhlcCandlesAsync(symbol, interval, limit);
         if (ohlc.Length == 0) return (Array.Empty<double>(), Array.Empty<double>());
@@ -136,7 +139,7 @@ public class MarketDataFetcher
         return (prices, volumes);
     }
 
-    public async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50, int cacheTtlSeconds = 10)
+    public async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50)
     {
         string interval = IntervalMap(rawInterval);
         string cacheSym = originalAsset ?? symbol ?? "UNKNOWN";
@@ -152,7 +155,7 @@ public class MarketDataFetcher
                     Array.Copy(wsPrices, exactPrices, count);
                     Array.Copy(wsVolumes, exactVolumes, count);
                     
-                    BotLogger.Info("[MarketDataFetcher] Served live WebSocket candles for $symbol ($interval) in 0ms.");
+                    BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
 
                     return (exactPrices, exactVolumes);
                 }
@@ -185,7 +188,7 @@ public class MarketDataFetcher
 
         try
         {
-            var res = await FetchBinanceCandles(symbol, interval, limit, originalAsset ?? symbol, rawInterval);
+            var res = await FetchBinanceCandles(symbol, interval, limit);
             return res;
         }
         catch
@@ -199,32 +202,18 @@ public class MarketDataFetcher
                 }
             }
 
-            throw new ExchangeUnavailableException("Fallback blocked for $(originalAsset ?? symbol)", "Биржа недоступна.");
+            throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", "Биржа недоступна.");
         }
     }
     
     public async Task<double?> FetchHistoricalPriceAsync(string symbol, long endTimeMs)
     {
-        return await _retryPipeline.ExecuteAsync<double?>(async (CancellationToken ct) =>
+        string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&endTime={endTimeMs}&limit=1";
+        var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync(MiniAppController.HttpFactory!.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
+        if (arr != null && arr.Length > 0 && arr[0].Length >= 5)
         {
-            string url = "https://api.binance.com/api/v3/klines?symbol=$symbol&interval=1m&endTime=$endTimeMs&limit=1";
-            var response = await _httpClient.GetAsync(url, ct);
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
-            {
-                var kline = doc.RootElement[0];
-                if (kline.ValueKind == JsonValueKind.Array && kline.GetArrayLength() >= 5)
-                {
-                    string closeStr = kline[4].GetString() ?? "0";
-                    if (double.TryParse(closeStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double closePrice))
-                    {
-                        return closePrice;
-                    }
-                }
-            }
-            return null;
-        });
+            return arr[0][4];
+        }
+        return null;
     }
 }

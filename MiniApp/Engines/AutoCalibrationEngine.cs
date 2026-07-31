@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System;
 
 namespace ValutaBot.MiniApp;
 
@@ -28,19 +29,72 @@ public static class AutoCalibrationEngine
 
     private static readonly ConcurrentDictionary<string, SourceStats> _statsMap = new();
 
-    public static MarketRegime DetectMarketRegime(double adx, double volRatio, double rsi)
+    public static MarketRegime DetectMarketRegime(double adx, double volRatio, double rsi, ReadOnlySpan<double> prices = default)
     {
-        if (adx >= 25.0 && volRatio <= 2.0)
+        double entropy = prices.IsEmpty ? 0.5 : CalculateShannonEntropy(prices);
+
+        // Dominant regime classification (used for logging/labels)
+        if (adx >= 25.0 && volRatio <= 2.0 && entropy < 0.75)
         {
             return MarketRegime.TrendingImpulse;
         }
 
-        if (volRatio > 1.75 || Math.Abs(rsi - 50.0) > 28.0)
+        if (entropy > 0.90 || volRatio > 1.75 || Math.Abs(rsi - 50.0) > 28.0)
         {
             return MarketRegime.HighVolatilityChaos;
         }
 
         return MarketRegime.RangingFlat;
+    }
+
+    private static double CalculateShannonEntropy(ReadOnlySpan<double> prices)
+    {
+        int len = Math.Min(prices.Length, 1000);
+        if (len < 10) return 1.0;
+
+        // Sturges' rule for optimal number of bins
+        int bins = (int)Math.Ceiling(1.0 + Math.Log2(len));
+
+        Span<double> returns = stackalloc double[len - 1];
+        double minRet = double.MaxValue;
+        double maxRet = double.MinValue;
+
+        int startIndex = prices.Length - len;
+        for (int i = 1; i < len; i++)
+        {
+            double prev = prices[startIndex + i - 1];
+            double curr = prices[startIndex + i];
+            double ret = prev != 0 ? (curr - prev) / prev : 0;
+            returns[i - 1] = ret;
+            if (ret < minRet) minRet = ret;
+            if (ret > maxRet) maxRet = ret;
+        }
+
+        if (maxRet - minRet < 1e-9) return 0.0;
+
+        Span<int> histogram = stackalloc int[bins];
+        double binWidth = (maxRet - minRet) / bins;
+
+        foreach (var r in returns)
+        {
+            int bin = (int)((r - minRet) / binWidth);
+            if (bin >= bins) bin = bins - 1;
+            histogram[bin]++;
+        }
+
+        double entropy = 0.0;
+        int totalReturns = returns.Length;
+        foreach (var count in histogram)
+        {
+            if (count > 0)
+            {
+                double p = (double)count / totalReturns;
+                entropy -= p * Math.Log2(p);
+            }
+        }
+        
+        double maxEntropy = Math.Log2(bins);
+        return entropy / maxEntropy;
     }
 
     public static double GetCalibratedRegimeWeight(
@@ -50,98 +104,80 @@ public static class AutoCalibrationEngine
         double adx,
         double volRatio,
         double rsi,
-        double defaultBaseWeight = 1.0)
+        double defaultBaseWeight = 1.0,
+        ReadOnlySpan<double> prices = default)
     {
         ArgumentNullException.ThrowIfNull(sourceName);
         ArgumentNullException.ThrowIfNull(asset);
         ArgumentNullException.ThrowIfNull(timeframe);
 
-        var regime = DetectMarketRegime(adx, volRatio, rsi);
+        var dominantRegime = DetectMarketRegime(adx, volRatio, rsi, prices);
 
-        // ─── 1. Apply Market Regime Preset Base Weight ───
-        double regimeBaseWeight = (regime, sourceName.ToUpper(CultureInfo.InvariantCulture)) switch
+        // 1. Fuzzy Regime Base Weight Matrix
+        // Instead of hard-switching, we calculate a continuous blending score (0.0 to 1.0)
+        double trendScore = Math.Clamp((adx - 15.0) / 20.0, 0.0, 1.0); // 15 ADX = 0, 35 ADX = 1
+        double chaosScore = Math.Clamp(prices.IsEmpty ? 0.5 : CalculateShannonEntropy(prices), 0.0, 1.0);
+        double flatScore  = Math.Clamp(1.0 - trendScore - (chaosScore * 0.5), 0.0, 1.0);
+
+        double regimeMultiplier = 1.0;
+        
+        if (sourceName == "LIGHTGBM")
         {
-            // TRENDING IMPULSE: SMC & OrderFlow dominate
-            (MarketRegime.TrendingImpulse, "SMC")          => 2.20,
-            (MarketRegime.TrendingImpulse, "ORDERFLOW")    => 2.00,
-            (MarketRegime.TrendingImpulse, "LIGHTGBM")     => 1.50,
-            (MarketRegime.TrendingImpulse, "ONNX")         => 1.40,
-            (MarketRegime.TrendingImpulse, "NATIVE_ML")    => 1.20,
-            (MarketRegime.TrendingImpulse, "SKENDER_MATH") => 0.80,
-            // Note: CLAUDE_AI removed — engine deprecated
-
-            // RANGING FLAT: Skender Math (Connors RSI/HMA) & ONNX dominate
-            (MarketRegime.RangingFlat, "SKENDER_MATH")     => 2.20,
-            (MarketRegime.RangingFlat, "ONNX")             => 1.50,
-            (MarketRegime.RangingFlat, "NATIVE_ML")        => 0.80,
-            (MarketRegime.RangingFlat, "LIGHTGBM")         => 0.60,
-            (MarketRegime.RangingFlat, "SMC")              => 1.20,
-            (MarketRegime.RangingFlat, "ORDERFLOW")        => 0.50,
-            // Note: CLAUDE_AI removed — engine deprecated
-
-            // HIGH VOLATILITY CHAOS: OrderFlow Absorption & Skender Math dominate
-            (MarketRegime.HighVolatilityChaos, "ORDERFLOW")    => 2.20,
-            (MarketRegime.HighVolatilityChaos, "SKENDER_MATH") => 1.80,
-            (MarketRegime.HighVolatilityChaos, "SMC")          => 1.00,
-            (MarketRegime.HighVolatilityChaos, "ONNX")         => 0.80,
-            (MarketRegime.HighVolatilityChaos, "LIGHTGBM")     => 0.50,
-            (MarketRegime.HighVolatilityChaos, "NATIVE_ML")    => 0.50,
-            // Note: CLAUDE_AI removed — engine deprecated
-
-            _ => defaultBaseWeight
-        };
-
-        // ─── 2. Apply Rolling Empirical Win Rate Multiplier ───
-        string key = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_{asset.ToUpper(CultureInfo.InvariantCulture)}_{timeframe.ToLower(CultureInfo.InvariantCulture)}";
-        if (!_statsMap.TryGetValue(key, out var stats) || stats.Total < 5)
+            // LightGBM performs best in trends, okay in flat, bad in chaos
+            regimeMultiplier = (trendScore * 1.35) + (flatScore * 1.15) + (chaosScore * 0.70);
+        }
+        else if (sourceName == "SKENDER_MATH")
         {
-            string fallbackKey = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_GLOBAL";
-            _statsMap.TryGetValue(fallbackKey, out stats);
+            // Skender Math performs well in flat and trend, bad in chaos
+            regimeMultiplier = (trendScore * 1.25) + (flatScore * 1.10) + (chaosScore * 0.80);
         }
 
-        double winRate = stats != null && stats.Total >= 5 ? stats.WinRate : 0.50;
-        double winRateMultiplier = winRate switch
-        {
-            >= 0.80 => 1.6,
-            >= 0.70 => 1.3,
-            >= 0.55 => 1.0,
-            >= 0.45 => 0.7,
-            _ => 0.4
-        };
+        double baseWeight = defaultBaseWeight * regimeMultiplier;
 
-        double finalWeight = Math.Round(regimeBaseWeight * winRateMultiplier, 2);
-        BotLogger.Info($"[AutoCalibration] {sourceName} ({asset} {timeframe}) | Regime: {regime} | Base: {regimeBaseWeight:F2}x | WR: {winRate * 100:F1}% -> Final Weight: {finalWeight}x");
-        return finalWeight;
+        // 2. Rolling Empirical Win-Rate Calibration
+        string statsKey = $"{sourceName}_{asset}_{timeframe}";
+        if (_statsMap.TryGetValue(statsKey, out var stats) && stats.Total >= 10)
+        {
+            double wr = stats.WinRate;
+            
+            // Sigmoid-style non-linear reward/punishment
+            double calibrationFactor = 1.0;
+            if (wr > 0.65) calibrationFactor = 1.0 + (wr - 0.65) * 2.5; // Exponential reward for >65%
+            else if (wr < 0.45) calibrationFactor = 0.5 + (wr / 0.45) * 0.5; // Harsh penalty for <45%
+            
+            return Math.Round(baseWeight * calibrationFactor, 2);
+        }
+
+        return Math.Round(baseWeight, 2);
     }
 
     public static void RecordSourceOutcome(string sourceName, string asset, string timeframe, bool isWin)
     {
-        ArgumentNullException.ThrowIfNull(sourceName);
-        ArgumentNullException.ThrowIfNull(asset);
-        ArgumentNullException.ThrowIfNull(timeframe);
+        string statsKey = $"{sourceName}_{asset}_{timeframe}";
+        var stats = _statsMap.GetOrAdd(statsKey, _ => new SourceStats());
 
-        string specificKey = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_{asset.ToUpper(CultureInfo.InvariantCulture)}_{timeframe.ToLower(CultureInfo.InvariantCulture)}";
-        string globalKey = $"{sourceName.ToUpper(CultureInfo.InvariantCulture)}_GLOBAL";
-
-        UpdateStats(_statsMap.GetOrAdd(specificKey, _ => new SourceStats()), isWin);
-        UpdateStats(_statsMap.GetOrAdd(globalKey, _ => new SourceStats()), isWin);
-    }
-
-    private static void UpdateStats(SourceStats stats, bool isWin)
-    {
         lock (stats)
         {
-            stats.TotalTrades++;
             if (isWin) stats.Wins++;
             else stats.Losses++;
+            stats.TotalTrades++;
 
-            // Apply exponential forgetting factor every 10 records (not every record).
-            // This keeps recent performance more relevant without wiping old data instantly.
-            if (stats.TotalTrades > 0 && stats.TotalTrades % 10 == 0 && stats.TotalTrades >= 50)
+            // Window sliding to keep recent relevance (decay)
+            if (stats.Total > 200)
             {
-                stats.Wins   = Math.Max(stats.Wins   > 0 ? 1 : 0, (int)Math.Round(stats.Wins   * 0.9));
-                stats.Losses = Math.Max(stats.Losses > 0 ? 1 : 0, (int)Math.Round(stats.Losses * 0.9));
+                stats.Wins = (int)(stats.Wins * 0.9);
+                stats.Losses = (int)(stats.Losses * 0.9);
             }
         }
+    }
+
+    public static string GetStatsReport(string sourceName, string asset, string timeframe)
+    {
+        string statsKey = $"{sourceName}_{asset}_{timeframe}";
+        if (_statsMap.TryGetValue(statsKey, out var stats))
+        {
+            return $"[Auto-Calib] {sourceName}: W={stats.Wins} L={stats.Losses} (WR: {stats.WinRate:P1})";
+        }
+        return $"[Auto-Calib] {sourceName}: ��� ������";
     }
 }

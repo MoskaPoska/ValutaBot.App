@@ -24,11 +24,19 @@ public static class ContinuousStateEngine
     /// <summary>
     /// Computes continuous physical velocity, acceleration, and Kalman state vector.
     /// </summary>
-    public static ContinuousStateResult EvaluateContinuousState(double[] prices, string asset = "GLOBAL", string timeframe = "m1")
+    public static ContinuousStateResult EvaluateContinuousState(ReadOnlySpan<double> prices, string asset = "GLOBAL", string timeframe = "m1")
     {
         if (prices == null || prices.Length < 10)
         {
-            return new ContinuousStateResult(0, 0, 0, "STABLE", 0, "Недостаточно тиков для непрерывного вектора состояния.");
+            return new ContinuousStateResult(0, 0, 0, "UNKNOWN", 0, "Недостаточно данных для непрерывного анализа.");
+        }
+
+        foreach (var p in prices)
+        {
+            if (double.IsNaN(p) || double.IsInfinity(p))
+            {
+                return new ContinuousStateResult(0, 0, 0, "UNKNOWN", 0, "Обнаружено повреждение данных (NaN/Infinity).");
+            }
         }
 
         int n = prices.Length;
@@ -105,26 +113,28 @@ public static class ContinuousStateEngine
         );
     }
 
-    private static double FilterKalmanContinuous(double[] prices, string stateKey)
+    private static double FilterKalmanContinuous(ReadOnlySpan<double> prices, string stateKey)
     {
-        double processNoise = 0.01;
-        double measurementNoise = 0.1;
+        double currentPrice = prices[^1];
+        double processNoise = currentPrice * 0.0001; // 0.01% of price
+        double measurementNoise = currentPrice * 0.001; // 0.1% of price
 
         if (!_kalmanState.TryGetValue(stateKey, out var state))
         {
             double est = prices[0];
-            double err = 1.0;
-            foreach (double p in prices)
-            {
+            double err = currentPrice * 0.01;
+            for(int i = 0; i < prices.Length; i++) 
+            { 
+                double p = prices[i];
                 double k = err / (err + measurementNoise);
                 est = est + k * (p - est);
                 err = (1.0 - k) * err + processNoise;
             }
-            state = (est, err);
+            state = (est, err); 
         }
         else
         {
-            double p = prices[^1];
+            double p = currentPrice;
             double k = state.errorEstimate / (state.errorEstimate + measurementNoise);
             state.estimate = state.estimate + k * (p - state.estimate);
             state.errorEstimate = (1.0 - k) * state.errorEstimate + processNoise;
