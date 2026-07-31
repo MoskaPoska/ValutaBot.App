@@ -165,8 +165,8 @@ public static partial class MiniAppController
                 Console.WriteLine($"[API ERR] /api/analyze failed: {ex}");
                 return Results.Json(new
                 {
-                    error = "Internal server error during analysis. Please try again later.",
-                    message = "An error occurred."
+                    error = ex.Message,
+                    message = ex.ToString()
                 });
             }
         }).RequireRateLimiting("Global");

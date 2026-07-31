@@ -70,8 +70,7 @@ public static partial class TwelveDataService
 
             using var response = await MiniAppController.HttpFactory!.CreateClient("TwelveDataService").SendAsync(request);
             
-            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString };
-            var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync<TwelveDataResponse>(response.Content, opts);
+            var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync(response.Content, ValutaBotJsonContext.Default.TwelveDataResponse);
 
             if (doc?.Status == "error")
             {

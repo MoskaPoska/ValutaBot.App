@@ -63,6 +63,11 @@ internal class MarketAnalysisContext
         {
             await InitializeDataAsync();
 
+            if (_mainPrices == null || _mainPrices.Length == 0)
+            {
+                throw new Exception("Недостаточно данных для анализа. Биржа или провайдер вернули пустой результат.");
+            }
+
             var gatekeeper = _handler._taEngine.ValidateMarketGatekeeper(_mainPrices, _ohlcCandles);
             if (!gatekeeper.IsTradeable)
             {
