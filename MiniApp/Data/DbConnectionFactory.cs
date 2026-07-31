@@ -113,6 +113,9 @@ namespace ValutaBot.App.MiniApp.Data
                     was_correct BOOLEAN NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                ALTER TABLE allowed_users ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT '';
+                ALTER TABLE all_users ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT '';
             ");
 
             BotLogger.Info("[PostgreSQL DB] Database tables initialized successfully.");
