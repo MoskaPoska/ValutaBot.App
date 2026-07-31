@@ -13,7 +13,25 @@ namespace ValutaBot.App.MiniApp.Data
 
         public static string GetConnectionString()
         {
-            return Environment.GetEnvironmentVariable("DATABASE_URL") ?? "";
+            var envVar = Environment.GetEnvironmentVariable("DATABASE_URL") ?? "";
+            if (string.IsNullOrEmpty(envVar)) return "";
+
+            if (envVar.StartsWith("postgres://") || envVar.StartsWith("postgresql://"))
+            {
+                var uri = new Uri(envVar);
+                var userInfo = uri.UserInfo.Split(':');
+                var builder = new NpgsqlConnectionStringBuilder
+                {
+                    Host = uri.Host,
+                    Port = uri.Port > 0 ? uri.Port : 5432,
+                    Username = userInfo.Length > 0 ? userInfo[0] : "",
+                    Password = userInfo.Length > 1 ? userInfo[1] : "",
+                    Database = uri.LocalPath.TrimStart('/')
+                };
+                return builder.ToString();
+            }
+
+            return envVar;
         }
 
         public static NpgsqlConnection GetConnection() 
