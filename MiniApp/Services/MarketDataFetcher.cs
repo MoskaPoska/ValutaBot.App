@@ -173,7 +173,7 @@ public class MarketDataFetcher
             {
                 var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit);
                 if (tdResult != null)
-                    return tdResult.Value;
+                    return (tdResult.Value.prices, tdResult.Value.volumes);
             }
 
             string cleanAsset = AssetSanitizer.Sanitize(originalAsset ?? "BTCUSDT");
@@ -198,7 +198,7 @@ public class MarketDataFetcher
                 var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit);
                 if (tdResult != null)
                 {
-                    return tdResult.Value;
+                    return (tdResult.Value.prices, tdResult.Value.volumes);
                 }
             }
 

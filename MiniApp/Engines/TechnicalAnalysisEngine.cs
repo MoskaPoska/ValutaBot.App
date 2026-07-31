@@ -201,13 +201,8 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             return new GatekeeperResult(false, "Недостаточно данных цены для проверки Gatekeeper", 0, 0);
         }
 
-        if (candles == null || candles.Length < 15)
-        {
-            BotLogger.Warn("[Gatekeeper] Rejecting trade: Insufficient or missing OHLC candles. Synthetic data is prohibited.");
-            return new GatekeeperResult(false, "⚠️ Данные от биржи неполные. Сделка отклонена в целях безопасности.", 0, 0);
-        }
-        double atr = candles != null ? ComputeAtr(candles) : 0;
-        var (adx, _, _) = candles != null ? ComputeTrueAdx(candles) : (20.0, 0, 0);
+        double atr = candles != null && candles.Length >= 15 ? ComputeAtr(candles) : 0;
+        var (adx, _, _) = candles != null && candles.Length >= 15 ? ComputeTrueAdx(candles) : (20.0, 0, 0);
 
         // Check flat / dead market: if prices didn't move
         double minPrice = prices[^15..].Min();

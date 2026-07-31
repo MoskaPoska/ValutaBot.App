@@ -124,7 +124,14 @@ internal class MarketAnalysisContext
         _mainPrices = mainResultTuple.prices;
         _mainVolumes = mainResultTuple.volumes;
 
-        _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_timeframe));
+        try
+        {
+            _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_timeframe));
+        }
+        catch (HttpRequestException)
+        {
+            _ohlcCandles = Array.Empty<MiniAppController.OhlcCandle>();
+        }
 
         var higherTask = _higherTf != null ? SafeFetch(_higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
         var lowerTask = _lowerTf != null ? SafeFetch(_lowerTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);

@@ -33,11 +33,11 @@ public static partial class TwelveDataService
         return _apiKey;
     }
 
-    public static async Task<(double[] prices, double[] volumes)?> FetchCandlesAsync(string rawAsset, string interval, int limit = 100, int cacheTtlSeconds = 10)
+    public static async Task<(double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles)?> FetchCandlesAsync(string rawAsset, string interval, int limit = 100, int cacheTtlSeconds = 10)
     {
         string key = $"TWELVE_DATA_{AssetSanitizer.Sanitize(rawAsset)}_{interval.ToLower()}";
 
-        if (cacheTtlSeconds > 0 && _memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) cachedData))
+        if (cacheTtlSeconds > 0 && _memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) cachedData))
         {
             BotLogger.Info($"[TwelveData] Using IMemoryCache data for {rawAsset} ({interval})");
             return cachedData;
@@ -49,7 +49,7 @@ public static partial class TwelveDataService
         var lease = _rateLimiter.AttemptAcquire();
         if (!lease.IsAcquired)
         {
-            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
+            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) lastData))
             {
                 BotLogger.Info($"[TwelveData] Rate limit safety triggered. Serving IMemoryCache for {rawAsset} ({interval}).");
                 return lastData;
@@ -80,7 +80,7 @@ public static partial class TwelveDataService
 
             if (doc?.Values == null)
             {
-                if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
+                if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) lastData))
                 {
                     BotLogger.Warn($"[TwelveData] No values in response, serving IMemoryCache for {rawAsset}");
                     return lastData;
@@ -92,7 +92,7 @@ public static partial class TwelveDataService
             int count = arr.Count;
             if (count < 10)
             {
-                if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
+                if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) lastData))
                 {
                     BotLogger.Warn($"[TwelveData] Too few candles ({count}), serving IMemoryCache for {rawAsset}");
                     return lastData;
@@ -116,16 +116,16 @@ public static partial class TwelveDataService
 
             if (cacheTtlSeconds > 0)
             {
-                _memoryCache.Set(key, (prices, volumes), TimeSpan.FromSeconds(cacheTtlSeconds));
+                _memoryCache.Set(key, (prices, volumes, ohlc), TimeSpan.FromSeconds(cacheTtlSeconds));
             }
             BotLogger.Info($"[TwelveData] Successfully fetched {prices.Length} candles for {symbol} ({interval})");
-            return (prices, volumes);
+            return (prices, volumes, ohlc);
         }
         catch (JsonException jsonEx)
         {
             BotLogger.Warn($"[TwelveData] JSON parse error for {rawAsset}", jsonEx);
 
-            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
+            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) lastData))
             {
                 BotLogger.Info($"[TwelveData] Serving IMemoryCache fallback data for {rawAsset}");
                 return lastData;
@@ -136,7 +136,7 @@ public static partial class TwelveDataService
         {
             BotLogger.Warn($"[TwelveData] Fetch failed for {rawAsset}: {ex.Message}");
 
-            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes) lastData))
+            if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) lastData))
             {
                 BotLogger.Info($"[TwelveData] Serving IMemoryCache fallback data for {rawAsset}");
                 return lastData;
