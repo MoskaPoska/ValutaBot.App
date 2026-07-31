@@ -83,11 +83,7 @@ public static partial class MiniAppUI
             const menuEl = document.getElementById(m);
             if (menuEl) menuEl.classList.toggle('show');
         }
-        let lastPriceVal = 0; catch(e) {}
-                priceSocket = null;
-            }
-            lastPriceVal = 0;
-        }
+        let lastPriceVal = 0;
 
         function updateLivePriceUI(price) {
             const valEl = document.getElementById('livePriceValue');
