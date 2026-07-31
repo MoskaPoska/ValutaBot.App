@@ -90,15 +90,13 @@ public partial class TelegramBotService
 
         string text = "✅ <b>Доступ открыт!</b>\n\nИспользуйте кнопку <b>📊 Открыть TradeAI</b> в меню внизу чата, чтобы запустить анализатор.";
 
-        string cacheBustedUrl = $"{webAppUrl}?v={DateTime.UtcNow.Ticks}";
-
         var keyboard = new
         {
             keyboard = new object[]
             {
                 new object[]
                 {
-                    new { text = "📊 Открыть TradeAI", web_app = new { url = cacheBustedUrl } }
+                    new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
                 },
                 new object[]
                 {
@@ -128,15 +126,13 @@ public partial class TelegramBotService
 
         string text = "👑 <b>Панель администратора TradeAI</b>";
 
-        string cacheBustedUrl = $"{webAppUrl}?v={DateTime.UtcNow.Ticks}";
-
         var keyboard = new
         {
             keyboard = new object[]
             {
                 new object[]
                 {
-                    new { text = "📊 Открыть TradeAI", web_app = new { url = cacheBustedUrl } }
+                    new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
                 },
                 new object[]
                 {
