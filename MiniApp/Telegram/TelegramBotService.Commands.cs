@@ -126,7 +126,7 @@ public partial class TelegramBotService
     {
         _ = ResetChatMenuButton(token, chatId);
 
-        string text = "👑 <b>Панель администратора TradeAI</b>\n\nИспользуйте меню внизу экрана для управления ботом.";
+        string text = "👑 <b>Панель администратора TradeAI</b>";
 
         string cacheBustedUrl = $"{webAppUrl}?v={DateTime.UtcNow.Ticks}";
 
