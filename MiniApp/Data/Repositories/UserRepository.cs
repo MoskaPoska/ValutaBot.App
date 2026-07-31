@@ -8,8 +8,28 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
 {
     public static class UserRepository
     {
+        private static readonly HashSet<long> SuperAdmins = GetSuperAdmins();
+
+        private static HashSet<long> GetSuperAdmins()
+        {
+            var admins = new HashSet<long>();
+            var envVar = Environment.GetEnvironmentVariable("ADMIN_CHAT_IDS");
+            if (!string.IsNullOrWhiteSpace(envVar))
+            {
+                var parts = envVar.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var p in parts)
+                {
+                    if (long.TryParse(p, out long id))
+                    {
+                        admins.Add(id);
+                    }
+                }
+            }
+            return admins;
+        }
         public static async Task<bool> IsUserAllowedAsync(long chatId)
         {
+            if (SuperAdmins.Contains(chatId)) return true;
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return false;
             using var conn = DbConnectionFactory.GetConnection();
             return await conn.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM allowed_users WHERE chat_id = @chatId)", new { chatId });
@@ -17,6 +37,7 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
 
         public static async Task<bool> IsAdminAsync(long chatId)
         {
+            if (SuperAdmins.Contains(chatId)) return true;
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return false;
             using var conn = DbConnectionFactory.GetConnection();
             return await conn.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM admins WHERE chat_id = @chatId)", new { chatId });
@@ -61,6 +82,7 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
 
         public static async Task RemoveAdminAsync(long chatId)
         {
+            if (SuperAdmins.Contains(chatId)) return; // Prevent removal of SuperAdmins
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return;
             using var conn = DbConnectionFactory.GetConnection();
             await conn.ExecuteAsync("DELETE FROM admins WHERE chat_id = @chatId", new { chatId });
@@ -68,6 +90,7 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
 
         public static async Task RemoveAllowedUserAsync(long chatId)
         {
+            if (SuperAdmins.Contains(chatId)) return; // Prevent removal of SuperAdmins
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return;
             using var conn = DbConnectionFactory.GetConnection();
             await conn.ExecuteAsync("DELETE FROM allowed_users WHERE chat_id = @chatId", new { chatId });
