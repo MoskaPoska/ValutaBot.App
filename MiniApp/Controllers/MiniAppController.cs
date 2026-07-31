@@ -46,7 +46,10 @@ public static partial class MiniAppController
         builder.Services.AddHttpClient("TwelveData").AddStandardResilienceHandler();
         builder.Services.AddHttpClient("FNG").AddStandardResilienceHandler();
         builder.Services.AddHttpClient("MLPythonService").AddStandardResilienceHandler();
-        builder.Services.AddHttpClient("Telegram").AddStandardResilienceHandler();
+        builder.Services.AddHttpClient("Telegram", client => 
+        {
+            client.Timeout = TimeSpan.FromSeconds(60); // Must be longer than getUpdates timeout=30
+        });
 
         builder.Services.AddRateLimiter(options =>
         {

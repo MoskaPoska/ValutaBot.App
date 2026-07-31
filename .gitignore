@@ -6,3 +6,12 @@ obj/
 .vs/
 .DS_Store
 appsettings.json
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+.venv/
+venv/
+ValutaBot.db
