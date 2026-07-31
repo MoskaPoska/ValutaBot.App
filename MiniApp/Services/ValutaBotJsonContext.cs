@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace ValutaBot.MiniApp
 {
-    [JsonSourceGenerationOptions(NumberHandling = JsonNumberHandling.AllowReadingFromString)]
+    [JsonSourceGenerationOptions(NumberHandling = JsonNumberHandling.AllowReadingFromString, PropertyNameCaseInsensitive = true)]
     [JsonSerializable(typeof(double[][]))]
     [JsonSerializable(typeof(ValutaBot.MiniApp.TwelveDataService.TwelveDataResponse))]
     [JsonSerializable(typeof(ValutaBot.MiniApp.TwelveDataService.TwelveDataPriceResponse))]
