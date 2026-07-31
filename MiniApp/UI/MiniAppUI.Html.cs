@@ -170,14 +170,14 @@ public static partial class MiniAppUI
 
         <!-- Tab 2: AI Details and Technical Levels -->
         <div id='tabContentAI' style='display:none'>
-            <!-- System Breakdown Cards (Claude AI + LightGBM ML) -->
-            <div class='news-card' id='claudeCard' style='display:none;margin-bottom:8px'>
+            <!-- System Breakdown Cards (LLM Report) -->
+            <div class='news-card' id='llmCard' style='display:none;margin-bottom:8px'>
                 <div class='news-header'>
                     <span class='news-badge' id='aiModelBadge'>🧠 AI</span>
                     <span class='news-label'>анализ графика</span>
-                    <span class='news-sentiment' id='claudeSentiment'>--</span>
+                    <span class='news-sentiment' id='llmSentiment'>--</span>
                 </div>
-                <div class='news-summary' id='claudeReasoning' style='max-height:140px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext);white-space:pre-wrap'></div>
+                <div class='news-summary' id='llmReasoning' style='max-height:140px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext);white-space:pre-wrap'></div>
             </div>
 
 
@@ -230,40 +230,6 @@ public static partial class MiniAppUI
                 </div>
             </div>
 
-            <div class='levels-bar' id='levelsBar' style='margin-top:10px'>
-                <div class='level-line' id='ll1'><span class='tag l1'>L1</span><span class='info'>Индикаторы</span><span class='result' id='ll1res'></span></div>
-                <div class='level-line' id='ll2'><span class='tag l2'>L2</span><span class='info'>S/R + Объём</span><span class='result' id='ll2res'></span></div>
-                <div class='level-line' id='ll3'><span class='tag l3'>L3</span><span class='info'>Мульти-ТФ</span><span class='result' id='ll3res'></span></div>
-                <div class='levels-divider'></div>
-                <div class='levels-total'><span id='ltotalVotes'>--</span><span class='dir' id='ltotalDir'>--</span></div>
-            </div>
-
-            <!-- 4D Confluence Radar Matrix -->
-            <div class='radar-card' id='radarCard' style='display:none'>
-                <div class='ml-header' style='margin-bottom:10px'><span class='ml-badge' style='background:linear-gradient(135deg,#06b6d4,#3b82f6)'>📡 4D-Matrix</span><span class='ml-label'>Радар Слияния</span></div>
-                <div class='radar-container'>
-                    <svg id='radarSvg' viewBox='0 0 200 200'>
-                        <g class='radar-grid'>
-                            <path d='M100 20 L180 100 L100 180 L20 100 Z'/>
-                            <path d='M100 40 L160 100 L100 160 L40 100 Z'/>
-                            <path d='M100 60 L140 100 L100 140 L60 100 Z'/>
-                            <path d='M100 80 L120 100 L100 120 L80 100 Z'/>
-                            <line x1='100' y1='20' x2='100' y2='180'/>
-                            <line x1='20' y1='100' x2='180' y2='100'/>
-                        </g>
-                        <path id='radarPolygon' d='M100 100 L100 100 L100 100 L100 100 Z' class='radar-poly'/>
-                        <circle id='radarPt1' cx='100' cy='100' r='3' class='radar-pt'/>
-                        <circle id='radarPt2' cx='100' cy='100' r='3' class='radar-pt'/>
-                        <circle id='radarPt3' cx='100' cy='100' r='3' class='radar-pt'/>
-                        <circle id='radarPt4' cx='100' cy='100' r='3' class='radar-pt'/>
-                        <text x='100' y='12' class='radar-lbl' text-anchor='middle'>Price Action</text>
-                        <text x='190' y='103' class='radar-lbl' text-anchor='start'>Volume</text>
-                        <text x='100' y='193' class='radar-lbl' text-anchor='middle'>SMC</text>
-                        <text x='10' y='103' class='radar-lbl' text-anchor='end'>Multi-TF</text>
-                    </svg>
-                    <div class='radar-scanline'></div>
-                </div>
-            </div>
         </div>
     </div>
     ";

@@ -7,7 +7,7 @@ namespace ValutaBot.App.MiniApp.Telegram.Commands
     {
         public bool CanHandle(long chatId, string command, string cleanText)
         {
-            return command == "/help" || cleanText == "❓ Инструкция";
+            return command == "/help" || cleanText == "❓ Инструкция" || cleanText == "❓ Инструкция как пользоваться ботом";
         }
 
         public async Task ExecuteAsync(long chatId, string command, string cleanText, bool isAdmin, string token, string webAppUrl)

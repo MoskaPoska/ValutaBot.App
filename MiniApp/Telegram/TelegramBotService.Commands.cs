@@ -56,23 +56,36 @@ public partial class TelegramBotService
         {
             keyboard = new object[]
             {
-                new object[] { new { text = "❓ Инструкция" } }
+                new object[] { new { text = "❓ Инструкция как пользоваться ботом" } }
             },
             resize_keyboard = true
         };
 
         try
         {
-            var payload = new 
+            // Send first message with Inline Keyboard (Registration)
+            var payloadInline = new 
             { 
                 chat_id = chatId, 
                 text, 
                 parse_mode = "HTML", 
                 reply_markup = inlineKeyboard 
             };
-            var json = JsonSerializer.Serialize(payload);
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
+            var jsonInline = JsonSerializer.Serialize(payloadInline);
+            using var contentInline = new StringContent(jsonInline, Encoding.UTF8, "application/json");
+            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), contentInline);
+
+            // Send second message with Reply Keyboard (Instructions)
+            var payloadReply = new 
+            { 
+                chat_id = chatId, 
+                text = "Используйте меню ниже для дополнительных команд:", 
+                parse_mode = "HTML", 
+                reply_markup = replyKeyboard 
+            };
+            var jsonReply = JsonSerializer.Serialize(payloadReply);
+            using var contentReply = new StringContent(jsonReply, Encoding.UTF8, "application/json");
+            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), contentReply);
         }
         catch (Exception ex)
         {
@@ -98,7 +111,7 @@ public partial class TelegramBotService
                 },
                 new object[]
                 {
-                    new { text = "❓ Инструкция" }
+                    new { text = "❓ Инструкция как пользоваться ботом" }
                 }
             },
             resize_keyboard = true,
