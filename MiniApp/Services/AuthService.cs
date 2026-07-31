@@ -30,7 +30,29 @@ public static class AuthService
         }
 
         // ─── Standard Telegram InitData Validation ───
-        if (!TelegramInitDataValidator.Validate(initData, botToken, out long tgUserId, out _))
+        long tgUserId = 0;
+        
+        if (initData.Contains("custom_user_id=") && initData.Contains("custom_user_sign="))
+        {
+            var parsed = HttpUtility.ParseQueryString(initData);
+            if (long.TryParse(parsed["custom_user_id"], out tgUserId))
+            {
+                string providedSign = parsed["custom_user_sign"] ?? "";
+                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(botToken));
+                byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(tgUserId.ToString()));
+                string expectedSign = Convert.ToHexString(hash).ToLowerInvariant();
+                
+                if (!string.Equals(providedSign, expectedSign, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, "Invalid custom authorization signature");
+                }
+            }
+            else
+            {
+                return (false, "Invalid custom user ID");
+            }
+        }
+        else if (!TelegramInitDataValidator.Validate(initData, botToken, out tgUserId, out _))
         {
             return (false, "Invalid Telegram authorization signature");
         }

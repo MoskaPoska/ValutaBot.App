@@ -84,44 +84,45 @@ public partial class TelegramBotService
         }
     }
 
+    private static string GetCustomWebAppUrl(string baseUrl, long chatId, string botToken)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(botToken));
+        byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(chatId.ToString()));
+        string sign = Convert.ToHexString(hash).ToLowerInvariant();
+        string separator = baseUrl.Contains("?") ? "&" : "?";
+        return $"{baseUrl}{separator}custom_user_id={chatId}&custom_user_sign={sign}";
+    }
+
     internal static async Task SendUserWelcome(string token, long chatId, string webAppUrl)
     {
         _ = ResetChatMenuButton(token, chatId);
+        string customUrl = GetCustomWebAppUrl(webAppUrl, chatId, token);
 
-        string text = "✅ <b>Доступ открыт!</b>\n\nНажмите кнопку <b>📊 Открыть TradeAI</b> ниже, чтобы запустить анализатор.";
+        string text = "✅ <b>Доступ открыт!</b>\n\nИспользуйте кнопку <b>📊 Открыть TradeAI</b> в меню внизу чата, чтобы запустить анализатор.";
 
         var keyboard = new
         {
-            inline_keyboard = new object[]
+            keyboard = new object[]
             {
                 new object[]
                 {
-                    new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
+                    new { text = "📊 Открыть TradeAI", web_app = new { url = customUrl } }
+                },
+                new object[]
+                {
+                    new { text = "❓ Инструкция как пользоваться ботом" }
                 }
-            }
+            },
+            resize_keyboard = true,
+            is_persistent = true
         };
 
         try
         {
-            // Send inline keyboard message
             var payload = new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = keyboard };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
-
-            // Send a reply keyboard just for instructions
-            var replyKb = new
-            {
-                keyboard = new object[]
-                {
-                    new object[] { new { text = "❓ Инструкция как пользоваться ботом" } }
-                },
-                resize_keyboard = true,
-                is_persistent = true
-            };
-            var payloadReply = new { chat_id = chatId, text = "Дополнительные команды:", reply_markup = replyKb };
-            using var contentReply = new StringContent(JsonSerializer.Serialize(payloadReply), Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), contentReply);
         }
         catch (Exception ex)
         {
@@ -132,18 +133,26 @@ public partial class TelegramBotService
     internal static async Task SendAdminWelcome(string token, long chatId, string webAppUrl)
     {
         _ = ResetChatMenuButton(token, chatId);
+        string customUrl = GetCustomWebAppUrl(webAppUrl, chatId, token);
 
         string text = "👑 <b>Панель администратора TradeAI</b>";
 
         var keyboard = new
         {
-            inline_keyboard = new object[]
+            keyboard = new object[]
             {
                 new object[]
                 {
-                    new { text = "📊 Открыть TradeAI", web_app = new { url = webAppUrl } }
+                    new { text = "📊 Открыть TradeAI", web_app = new { url = customUrl } }
+                },
+                new object[]
+                {
+                    new { text = "👥 Всего юзеров" },
+                    new { text = "👑 Добавить админа" },
+                    new { text = "🚫 Удалить доступ" }
                 }
-            }
+            },
+            resize_keyboard = true
         };
 
         try
@@ -152,24 +161,6 @@ public partial class TelegramBotService
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), content);
-
-            var replyKb = new
-            {
-                keyboard = new object[]
-                {
-                    new object[]
-                    {
-                        new { text = "👥 Всего юзеров" },
-                        new { text = "👑 Добавить админа" },
-                        new { text = "🚫 Удалить доступ" }
-                    }
-                },
-                resize_keyboard = true,
-                is_persistent = true
-            };
-            var payloadReply = new { chat_id = chatId, text = "Команды админа:", reply_markup = replyKb };
-            using var contentReply = new StringContent(JsonSerializer.Serialize(payloadReply), Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), contentReply);
         }
         catch (Exception ex)
         {
