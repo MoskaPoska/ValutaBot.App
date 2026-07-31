@@ -75,17 +75,8 @@ public partial class TelegramBotService
             using var contentInline = new StringContent(jsonInline, Encoding.UTF8, "application/json");
             await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), contentInline);
 
-            // Send second message with Reply Keyboard (Instructions)
-            var payloadReply = new 
-            { 
-                chat_id = chatId, 
-                text = "Используйте меню ниже для дополнительных команд:", 
-                parse_mode = "HTML", 
-                reply_markup = replyKeyboard 
-            };
-            var jsonReply = JsonSerializer.Serialize(payloadReply);
-            using var contentReply = new StringContent(jsonReply, Encoding.UTF8, "application/json");
-            await _httpClient.PostAsync(new Uri($"https://api.telegram.org/bot{token}/sendMessage"), contentReply);
+            // The user explicitly requested to remove the second message (the one with the reply keyboard)
+            // so we only send the first message with the inline keyboard.
         }
         catch (Exception ex)
         {
