@@ -241,7 +241,12 @@ public partial class TelegramBotService : BackgroundService
             var payload = new
             {
                 chat_id = chatId,
-                menu_button = new { type = "default" }
+                menu_button = new
+                {
+                    type = "web_app",
+                    text = "TradeAI",
+                    web_app = new { url = _webAppUrl }
+                }
             };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
