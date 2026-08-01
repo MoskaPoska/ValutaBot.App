@@ -80,7 +80,7 @@ public static partial class MiniAppController
         });
 
         // Launch Real-Time WebSocket stream for major CME proxy forex streams (0ms latency)
-        string[] topStreamSymbols = { "BTCUSDT", "ETHUSDT", "EURUSDT", "GBPUSDT", "AUDUSDT" };
+        string[] topStreamSymbols = { "EURUSDT", "GBPUSDT", "AUDUSDT", "USDJPY" };
         BinanceWebSocketStream.StartStream(topStreamSymbols, "1m");
 
         // Init Telegram notifier from config or env (set in Railway dashboard)

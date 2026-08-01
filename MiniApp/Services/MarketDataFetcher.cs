@@ -176,13 +176,13 @@ public class MarketDataFetcher
                     return (tdResult.Value.prices, tdResult.Value.volumes);
             }
 
-            string cleanAsset = AssetSanitizer.Sanitize(originalAsset ?? "BTCUSDT");
+            string cleanAsset = AssetSanitizer.Sanitize(originalAsset ?? "EURUSDT");
             symbol = cleanAsset switch
             {
-                "BTCUSDT" or "BTC" or "BTCUSD" => "BTCUSDT",
-                "ETHUSDT" or "ETH" or "ETHUSD" => "ETHUSDT",
-                "SOLUSDT" or "SOL" or "SOLUSD" => "SOLUSDT",
-                _ => "BTCUSDT"
+                "EURUSD" or "EURUSDT" => "EURUSDT",
+                "GBPUSD" or "GBPUSDT" => "GBPUSDT",
+                "AUDUSD" or "AUDUSDT" => "AUDUSDT",
+                _ => cleanAsset.EndsWith("USDT") ? cleanAsset : cleanAsset + "USDT"
             };
         }
 
