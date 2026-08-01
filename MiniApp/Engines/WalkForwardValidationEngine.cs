@@ -9,7 +9,7 @@ namespace ValutaBot.MiniApp;
 /// Prevents ML over-fitting drawdowns during sudden market regime shifts & news events
 /// by running in-memory Out-of-Sample (OOS) backtesting and tracking drawdown cooloff phases.
 /// </summary>
-public class WalkForwardValidationEngine(ITechnicalAnalysisEngine taEngine) : IWalkForwardValidationEngine
+public class WalkForwardValidationEngine : IWalkForwardValidationEngine
 {
     private class CooloffState
     {

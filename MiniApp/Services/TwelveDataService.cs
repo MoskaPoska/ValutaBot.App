@@ -111,7 +111,7 @@ public static partial class TwelveDataService
                 
                 prices[revIdx] = v.Close;
                 volumes[revIdx] = v.Volume;
-                ohlc[revIdx] = new MiniAppController.OhlcCandle(v.Open, v.High, v.Low, v.Close, v.Volume);
+                ohlc[revIdx] = new MiniAppController.OhlcCandle(v.Open, v.High, v.Low, v.Close, v.Volume, string.IsNullOrEmpty(v.Datetime) ? DateTime.UtcNow.AddMinutes(revIdx - count) : DateTime.Parse(v.Datetime));
             }
 
             if (cacheTtlSeconds > 0)
@@ -207,6 +207,7 @@ public static partial class TwelveDataService
 
     public class TwelveDataCandle
     {
+        public string? Datetime { get; set; }
         public double Open { get; set; }
         public double High { get; set; }
         public double Low { get; set; }

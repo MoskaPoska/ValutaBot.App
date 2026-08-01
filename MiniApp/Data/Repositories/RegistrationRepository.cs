@@ -13,7 +13,7 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
         {
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return 0;
             using var conn = DbConnectionFactory.GetConnection();
-            return await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM registrations");
+            return (int)await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM registrations");
         }
 
         public static async Task<List<TelegramBotService.PocketRegistration>> GetLatestRegistrationsAsync(int limit = 15)

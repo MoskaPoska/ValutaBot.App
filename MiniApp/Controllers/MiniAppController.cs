@@ -22,7 +22,7 @@ public static partial class MiniAppController
 
     public static string? LastExceptionMessage { get; set; }
 
-    public record OhlcCandle(double Open, double High, double Low, double Close, double Volume);
+    public record OhlcCandle(double Open, double High, double Low, double Close, double Volume, DateTime Timestamp = default);
 
     public static System.Net.Http.IHttpClientFactory? HttpFactory { get; private set; }
 
@@ -149,7 +149,7 @@ public static partial class MiniAppController
             {
                 var taEngine = new TechnicalAnalysisEngine();
                 var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(
-                    taEngine, MarketDataFetcher.Instance, new WalkForwardValidationEngine(taEngine),
+                    taEngine, taEngine, taEngine, MarketDataFetcher.Instance, new WalkForwardValidationEngine(),
                     new ConfluenceMatrixEngine(MarketDataFetcher.Instance, taEngine), new AdaptiveExpiryEngine());
                 var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization

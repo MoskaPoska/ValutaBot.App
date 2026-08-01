@@ -13,8 +13,7 @@ public record ConfluenceMatrixResult(
     string SummaryReasoning,     // Formatted text summary for AI consensus card
     Dictionary<string, string> TimeframeDirections // TF -> "BUY" | "PUT"
 );
-
-public class ConfluenceMatrixEngine(MarketDataFetcher fetcher, ITechnicalAnalysisEngine taEngine) : IConfluenceMatrixEngine
+public class ConfluenceMatrixEngine(MarketDataFetcher fetcher, IMarketAnalyzer marketAnalyzer) : IConfluenceMatrixEngine
 {
     /// <summary>
     /// Evaluates 4D Multi-Timeframe Confluence Matrix across 4 synchronized timeframes in parallel.
@@ -132,8 +131,8 @@ public class ConfluenceMatrixEngine(MarketDataFetcher fetcher, ITechnicalAnalysi
         if (prices == null || prices.Length < 10) return "NEUTRAL";
 
         // Reuse the authoritative scoring function with its HMA + Connors RSI + ADX + Volume weighting.
-        var (score, _, _, _, _, _) = taEngine.ScoreTimeframe(
-            prices,
+        var (score, _, _, _, _, _) = marketAnalyzer.ScoreTimeframe(
+            "internal", "internal", prices,
             volumes: volumes,
             candles: null
         );

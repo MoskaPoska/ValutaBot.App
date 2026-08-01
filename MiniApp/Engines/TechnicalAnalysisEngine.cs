@@ -1,229 +1,588 @@
-using Skender.Stock.Indicators;
+using System;
+using System.Numerics;
 
 namespace ValutaBot.MiniApp;
 
-/// <summary>
-/// Technical analysis engine using the industry-standard Skender.Stock.Indicators library.
-/// Provides SIMD-optimized, zero-lag adaptive calculations for HMA (Hull Moving Average),
-/// KAMA (Kaufman Adaptive Moving Average), Connors RSI, MACD, True ADX, ATR, and Bollinger Bands.
-/// </summary>
+public class StatefulRsi
+{
+    private readonly int _period;
+    private int _count;
+    private double _avgGain;
+    private double _avgLoss;
+    private double _prevPrice;
+
+    public StatefulRsi(int period = 14) { _period = period; }
+
+    public double Update(double price)
+    {
+        if (_count == 0)
+        {
+            _prevPrice = price;
+            _count++;
+            return 50.0;
+        }
+        double diff = price - _prevPrice;
+        _prevPrice = price;
+
+        if (_count <= _period)
+        {
+            if (diff > 0) _avgGain += diff;
+            else _avgLoss -= diff;
+            if (_count == _period)
+            {
+                _avgGain /= _period;
+                _avgLoss /= _period;
+            }
+            _count++;
+            if (_count <= _period) return 50.0;
+        }
+        else
+        {
+            double gain = diff > 0 ? diff : 0;
+            double loss = diff < 0 ? -diff : 0;
+            _avgGain = (_avgGain * (_period - 1) + gain) / _period;
+            _avgLoss = (_avgLoss * (_period - 1) + loss) / _period;
+            _count++;
+        }
+        if (_avgLoss < 1e-10) return 100.0;
+        return 100.0 - (100.0 / (1.0 + (_avgGain / _avgLoss)));
+    }
+}
+
+public class StatefulConnorsRsi
+{
+    private readonly StatefulRsi _rsi = new(3);
+    private readonly StatefulRsi _streakRsi = new(2);
+    private double _currentStreak;
+    private double _prevPrice;
+    private int _count;
+    private readonly int _rankPeriod = 10;
+    private readonly double[] _returnsHistory;
+    private int _returnsCount;
+
+    public StatefulConnorsRsi() { _returnsHistory = new double[_rankPeriod]; }
+    
+    public double Update(double price)
+    {
+        double rsiVal = _rsi.Update(price);
+        if (_count > 0)
+        {
+            if (price > _prevPrice) _currentStreak = _currentStreak > 0 ? _currentStreak + 1 : 1;
+            else if (price < _prevPrice) _currentStreak = _currentStreak < 0 ? _currentStreak - 1 : -1;
+            else _currentStreak = 0;
+        }
+        double streakRsiVal = _streakRsi.Update(_currentStreak);
+        double currentReturn = 0;
+        if (_count > 0 && Math.Abs(_prevPrice) > 1e-10) currentReturn = (price - _prevPrice) / _prevPrice;
+        
+        int winCount = 0;
+        int totalRanked = 0;
+        for (int i = 0; i < _returnsCount; i++)
+        {
+            if (currentReturn > _returnsHistory[i]) winCount++;
+            totalRanked++;
+        }
+        double pctRank = totalRanked > 0 ? (winCount / (double)totalRanked) * 100.0 : 50.0;
+        
+        if (_returnsCount < _rankPeriod) 
+        {
+            _returnsHistory[_returnsCount] = currentReturn;
+            _returnsCount++;
+        }
+        else
+        {
+            Array.Copy(_returnsHistory, 1, _returnsHistory, 0, _rankPeriod - 1);
+            _returnsHistory[_rankPeriod - 1] = currentReturn;
+        }
+        
+        _prevPrice = price;
+        _count++;
+        return (rsiVal + streakRsiVal + pctRank) / 3.0;
+    }
+}
+
+public class StatefulHma
+{
+    private readonly int _period;
+    private readonly int _halfPeriod;
+    private readonly int _sqrtPeriod;
+    private readonly double[] _priceHistory;
+    private int _priceCount;
+    private readonly double[] _diffHistory;
+    private int _diffCount;
+
+    public StatefulHma(int period = 9)
+    {
+        _period = period;
+        _halfPeriod = period / 2;
+        _sqrtPeriod = (int)Math.Sqrt(period);
+        _priceHistory = new double[period];
+        _diffHistory = new double[_sqrtPeriod];
+    }
+    
+    public double Update(double price)
+    {
+        if (_priceCount < _period)
+        {
+            _priceHistory[_priceCount] = price;
+            _priceCount++;
+        }
+        else
+        {
+            Array.Copy(_priceHistory, 1, _priceHistory, 0, _period - 1);
+            _priceHistory[_period - 1] = price;
+        }
+        
+        if (_priceCount == _period)
+        {
+            double wmaHalf = Wma(_priceHistory, _halfPeriod);
+            double wmaFull = Wma(_priceHistory, _period);
+            double diff = 2.0 * wmaHalf - wmaFull;
+            
+            if (_diffCount < _sqrtPeriod)
+            {
+                _diffHistory[_diffCount] = diff;
+                _diffCount++;
+            }
+            else
+            {
+                Array.Copy(_diffHistory, 1, _diffHistory, 0, _sqrtPeriod - 1);
+                _diffHistory[_sqrtPeriod - 1] = diff;
+            }
+            
+            if (_diffCount == _sqrtPeriod)
+            {
+                return Wma(_diffHistory, _sqrtPeriod);
+            }
+        }
+        return price;
+    }
+    
+    private double Wma(double[] arr, int period)
+    {
+        double sum = 0;
+        double weightSum = 0;
+        int startIndex = arr.Length - period;
+        for (int i = 0; i < period; i++)
+        {
+            double w = i + 1;
+            sum += arr[startIndex + i] * w;
+            weightSum += w;
+        }
+        return weightSum > 0 ? sum / weightSum : 0;
+    }
+}
+
+public class StatefulEma
+{
+    private readonly int _period;
+    private readonly double _k;
+    private int _count;
+    private double _ema;
+    private double _sum;
+
+    public StatefulEma(int period = 9)
+    {
+        _period = period;
+        _k = 2.0 / (period + 1.0);
+    }
+
+    public double Update(double price)
+    {
+        if (_count < _period)
+        {
+            _sum += price;
+            _count++;
+            if (_count == _period) _ema = _sum / _period;
+            return _count < _period ? price : _ema;
+        }
+        _ema = (price - _ema) * _k + _ema;
+        _count++;
+        return _ema;
+    }
+}
+
+public class StatefulAtr
+{
+    private readonly int _period;
+    private int _count;
+    private double _atr;
+    private double _prevClose;
+    private double _sumTr;
+    
+    public double LastAtr { get; private set; }
+
+    public StatefulAtr(int period = 14) { _period = period; }
+
+    public double Update(double high, double low, double close)
+    {
+        if (_count == 0)
+        {
+            _prevClose = close;
+            _count++;
+            return 0.0;
+        }
+        double tr = Math.Max(high - low, Math.Max(Math.Abs(high - _prevClose), Math.Abs(low - _prevClose)));
+        _prevClose = close;
+
+        if (_count <= _period)
+        {
+            _sumTr += tr;
+            if (_count == _period) _atr = _sumTr / _period;
+            _count++;
+            LastAtr = _count <= _period ? 0.0 : _atr;
+            return LastAtr;
+        }
+        _atr = (_atr * (_period - 1) + tr) / _period;
+        _count++;
+        LastAtr = _atr;
+        return _atr;
+    }
+}
+
+public class StatefulTrueAdx
+{
+    private readonly int _period;
+    private int _count;
+    private double _prevClose, _prevHigh, _prevLow;
+    private double _smoothTr, _smoothPdm, _smoothMdm;
+    private double _adx;
+    private readonly double[] _dxHistory;
+    private double _sumDx;
+
+    public double LastPdi { get; private set; }
+    public double LastMdi { get; private set; }
+    public double LastAdx { get; private set; }
+
+    public StatefulTrueAdx(int period = 14)
+    {
+        _period = period;
+        _dxHistory = new double[period];
+    }
+
+    public double Update(double high, double low, double close)
+    {
+        if (_count == 0)
+        {
+            _prevClose = close; _prevHigh = high; _prevLow = low;
+            _count++; return 20.0;
+        }
+
+        double tr = Math.Max(high - low, Math.Max(Math.Abs(high - _prevClose), Math.Abs(low - _prevClose)));
+        double upMove = high - _prevHigh;
+        double downMove = _prevLow - low;
+        
+        double pdm = (upMove > downMove && upMove > 0) ? upMove : 0;
+        double mdm = (downMove > upMove && downMove > 0) ? downMove : 0;
+
+        _prevClose = close; _prevHigh = high; _prevLow = low;
+
+        if (_count <= _period)
+        {
+            _smoothTr += tr; _smoothPdm += pdm; _smoothMdm += mdm;
+            _count++; return 20.0;
+        }
+
+        if (_count > _period + 1)
+        {
+            _smoothTr = _smoothTr - (_smoothTr / _period) + tr;
+            _smoothPdm = _smoothPdm - (_smoothPdm / _period) + pdm;
+            _smoothMdm = _smoothMdm - (_smoothMdm / _period) + mdm;
+        }
+
+        LastPdi = _smoothTr == 0 ? 0 : 100.0 * _smoothPdm / _smoothTr;
+        LastMdi = _smoothTr == 0 ? 0 : 100.0 * _smoothMdm / _smoothTr;
+        double dx = (LastPdi + LastMdi) == 0 ? 0 : 100.0 * Math.Abs(LastPdi - LastMdi) / (LastPdi + LastMdi);
+
+        if (_count <= _period * 2)
+        {
+            _dxHistory[_count - _period - 1] = dx;
+            if (_count == _period * 2)
+            {
+                for(int i=0; i<_period; i++) _sumDx += _dxHistory[i];
+                _adx = _sumDx / _period;
+            }
+        }
+        else
+        {
+            _adx = (_adx * (_period - 1) + dx) / _period;
+        }
+
+        _count++;
+        LastAdx = _count <= _period * 2 ? 20.0 : _adx;
+        return LastAdx;
+    }
+}
+
 public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
 {
     public static ITechnicalAnalysisEngine Instance { get; set; } = new TechnicalAnalysisEngine();
-    /// <param name="intervalMinutes">Candle interval in minutes (e.g. 1 for m1, 5 for m5, 0.25 for s15). Used to space Quote timestamps correctly so Skender time-dependent calculations work properly.</param>
-    private static IEnumerable<Quote> ConvertToQuotes(double[] prices, double[]? volumes = null, MiniAppController.OhlcCandle[]? candles = null, double intervalMinutes = 1.0)
-    {
-        TimeSpan interval = TimeSpan.FromMinutes(intervalMinutes);
 
-        if (candles != null && candles.Length > 0)
+    private class CacheState
+    {
+        public StatefulRsi Rsi;
+        public long RsiLastTick;
+        public double RsiLast;
+        public StatefulConnorsRsi ConnorsRsi;
+        public long ConnorsRsiLastTick;
+        public double ConnorsRsiLast;
+        public StatefulHma Hma;
+        public long HmaLastTick;
+        public double HmaLast;
+        public StatefulEma Ema;
+        public long EmaLastTick;
+        public double EmaLast;
+        public StatefulTrueAdx Adx;
+        public long AdxLastTick;
+        public StatefulAtr Atr;
+        public long AtrLastTick;
+    }
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string, string), CacheState> _cache = new();
+
+    public double ComputeRsi(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
+    {
+        if (candles.Length <= period) return 50.0;
+        var state = _cache.GetOrAdd((asset, timeframe), _ => new CacheState());
+        lock (state)
         {
-            DateTime startTime = DateTime.UtcNow - interval * candles.Length;
-            for (int i = 0; i < candles.Length; i++)
-            {
-                var c = candles[i];
-                yield return new Quote
-                {
-                    Date = startTime + interval * i,
-                    Open = (decimal)c.Open,
-                    High = (decimal)c.High,
-                    Low = (decimal)c.Low,
-                    Close = (decimal)c.Close,
-                    Volume = (decimal)c.Volume
-                };
+            int unseenCount = 0;
+            for (int i = candles.Length - 1; i >= 0; i--) {
+                if (candles[i].Timestamp.Ticks <= state.RsiLastTick) break;
+                unseenCount++;
             }
-        }
-        else if (prices != null && prices.Length > 0)
-        {
-            DateTime startTime = DateTime.UtcNow - interval * prices.Length;
-            decimal lastValidPrice = (decimal)(double.IsNaN(prices[0]) || double.IsInfinity(prices[0]) ? 0.0 : prices[0]);
-
-            for (int i = 0; i < prices.Length; i++)
+            if (state.Rsi == null || unseenCount > 10 || (candles.Length > 0 && candles[^1].Timestamp.Ticks < state.RsiLastTick))
             {
-                double currentP = prices[i];
-                if (double.IsNaN(currentP) || double.IsInfinity(currentP))
-                {
-                    // Fallback to last valid price to prevent decimal cast OverflowException
-                    currentP = (double)lastValidPrice;
-                }
-                
-                decimal p = (decimal)currentP;
-                lastValidPrice = p;
-
-                decimal v = (volumes != null && i < volumes.Length) 
-                    ? (double.IsNaN(volumes[i]) || double.IsInfinity(volumes[i]) ? 1.0m : (decimal)volumes[i]) 
-                    : 1.0m;
-
-                yield return new Quote
-                {
-                    Date = startTime + interval * i,
-                    Open = p,
-                    High = p,
-                    Low = p,
-                    Close = p,
-                    Volume = v
-                };
+                state.Rsi = new StatefulRsi(period);
+                state.RsiLast = 50.0;
+                for (int i = 0; i < candles.Length; i++) state.RsiLast = state.Rsi.Update(candles[i].Close);
+                state.RsiLastTick = candles[^1].Timestamp.Ticks;
             }
+            else if (unseenCount > 0)
+            {
+                for (int i = candles.Length - unseenCount; i < candles.Length; i++)
+                    state.RsiLast = state.Rsi.Update(candles[i].Close);
+                state.RsiLastTick = candles[^1].Timestamp.Ticks;
+            }
+            return state.RsiLast;
         }
     }
 
-    public double ComputeRsi(double[] data, int period = 14)
+    public double ComputeConnorsRsi(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles)
     {
-        var quotes = ConvertToQuotes(data);
-        if (data.Length < period + 1) return 50.0;
-
-        var results = quotes.GetRsi(period);
-        var last = results.LastOrDefault();
-        return last?.Rsi.HasValue == true ? (double)last.Rsi.Value : 50.0;
-    }
-
-    public double ComputeConnorsRsi(double[] data)
-    {
-        var quotes = ConvertToQuotes(data);
-        if (data.Length < 20) return ComputeRsi(data, 14);
-
-        try
+        if (candles.Length < 20) return ComputeRsi(asset, timeframe, candles, 14);
+        var state = _cache.GetOrAdd((asset, timeframe), _ => new CacheState());
+        lock (state)
         {
-            var results = quotes.GetConnorsRsi(3, 2, 10);
-            var last = results.LastOrDefault();
-            return last?.ConnorsRsi.HasValue == true ? (double)last.ConnorsRsi.Value : ComputeRsi(data, 14);
+            int unseenCount = 0;
+            for (int i = candles.Length - 1; i >= 0; i--) {
+                if (candles[i].Timestamp.Ticks <= state.ConnorsRsiLastTick) break;
+                unseenCount++;
+            }
+            if (state.ConnorsRsi == null || unseenCount > 10 || (candles.Length > 0 && candles[^1].Timestamp.Ticks < state.ConnorsRsiLastTick))
+            {
+                state.ConnorsRsi = new StatefulConnorsRsi();
+                state.ConnorsRsiLast = 50.0;
+                for (int i = 0; i < candles.Length; i++) state.ConnorsRsiLast = state.ConnorsRsi.Update(candles[i].Close);
+                state.ConnorsRsiLastTick = candles[^1].Timestamp.Ticks;
+            }
+            else if (unseenCount > 0)
+            {
+                for (int i = candles.Length - unseenCount; i < candles.Length; i++)
+                    state.ConnorsRsiLast = state.ConnorsRsi.Update(candles[i].Close);
+                state.ConnorsRsiLastTick = candles[^1].Timestamp.Ticks;
+            }
+            return state.ConnorsRsiLast;
         }
-        catch
+    }
+
+    public double ComputeHma(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 9)
+    {
+        if (candles.Length < period) return candles.Length > 0 ? candles[^1].Close : 0.0;
+        var state = _cache.GetOrAdd((asset, timeframe), _ => new CacheState());
+        lock (state)
         {
-            return ComputeRsi(data, 14);
+            int unseenCount = 0;
+            for (int i = candles.Length - 1; i >= 0; i--) {
+                if (candles[i].Timestamp.Ticks <= state.HmaLastTick) break;
+                unseenCount++;
+            }
+            if (state.Hma == null || unseenCount > 10 || (candles.Length > 0 && candles[^1].Timestamp.Ticks < state.HmaLastTick))
+            {
+                state.Hma = new StatefulHma(period);
+                state.HmaLast = 0.0;
+                for (int i = 0; i < candles.Length; i++) state.HmaLast = state.Hma.Update(candles[i].Close);
+                state.HmaLastTick = candles[^1].Timestamp.Ticks;
+            }
+            else if (unseenCount > 0)
+            {
+                for (int i = candles.Length - unseenCount; i < candles.Length; i++)
+                    state.HmaLast = state.Hma.Update(candles[i].Close);
+                state.HmaLastTick = candles[^1].Timestamp.Ticks;
+            }
+            return state.HmaLast;
         }
     }
 
-    public double ComputeHma(double[] data, int period = 9)
+    public double ComputeEma(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 9)
     {
-        var quotes = ConvertToQuotes(data);
-        if (data.Length < period) return data.Length > 0 ? data[^1] : 0.0;
-
-        try
+        if (candles.Length == 0) return 0.0;
+        var state = _cache.GetOrAdd((asset, timeframe), _ => new CacheState());
+        lock (state)
         {
-            var results = quotes.GetHma(period);
-            var last = results.LastOrDefault();
-            return last?.Hma.HasValue == true ? (double)last.Hma.Value : ComputeEma(data, period);
+            int unseenCount = 0;
+            for (int i = candles.Length - 1; i >= 0; i--) {
+                if (candles[i].Timestamp.Ticks <= state.EmaLastTick) break;
+                unseenCount++;
+            }
+            if (state.Ema == null || unseenCount > 10 || (candles.Length > 0 && candles[^1].Timestamp.Ticks < state.EmaLastTick))
+            {
+                state.Ema = new StatefulEma(period);
+                state.EmaLast = 0.0;
+                for (int i = 0; i < candles.Length; i++) state.EmaLast = state.Ema.Update(candles[i].Close);
+                state.EmaLastTick = candles[^1].Timestamp.Ticks;
+            }
+            else if (unseenCount > 0)
+            {
+                for (int i = candles.Length - unseenCount; i < candles.Length; i++)
+                    state.EmaLast = state.Ema.Update(candles[i].Close);
+                state.EmaLastTick = candles[^1].Timestamp.Ticks;
+            }
+            return state.EmaLast;
         }
-        catch
+    }
+
+    public (double adx, double pdi, double mdi) ComputeTrueAdx(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
+    {
+        if (candles.Length <= period) return (20.0, 0.0, 0.0);
+        var state = _cache.GetOrAdd((asset, timeframe), _ => new CacheState());
+        lock (state)
         {
-            return ComputeEma(data, period);
+            int unseenCount = 0;
+            for (int i = candles.Length - 1; i >= 0; i--) {
+                if (candles[i].Timestamp.Ticks <= state.AdxLastTick) break;
+                unseenCount++;
+            }
+            if (state.Adx == null || unseenCount > 10 || (candles.Length > 0 && candles[^1].Timestamp.Ticks < state.AdxLastTick))
+            {
+                state.Adx = new StatefulTrueAdx(period);
+                for (int i = 0; i < candles.Length; i++) state.Adx.Update(candles[i].High, candles[i].Low, candles[i].Close);
+                state.AdxLastTick = candles[^1].Timestamp.Ticks;
+            }
+            else if (unseenCount > 0)
+            {
+                for (int i = candles.Length - unseenCount; i < candles.Length; i++)
+                    state.Adx.Update(candles[i].High, candles[i].Low, candles[i].Close);
+                state.AdxLastTick = candles[^1].Timestamp.Ticks;
+            }
+            return (state.Adx.LastAdx, state.Adx.LastPdi, state.Adx.LastMdi); 
         }
     }
 
-    public double ComputeEma(double[] data, int period = 9)
+    public double ComputeAtr(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
     {
-        var quotes = ConvertToQuotes(data);
-        if (data.Length < period) return data.Length > 0 ? data[^1] : 0.0;
-
-        var results = quotes.GetEma(period);
-        var last = results.LastOrDefault();
-        return last?.Ema.HasValue == true ? (double)last.Ema.Value : data[^1];
+        if (candles.Length <= period) return 0.0;
+        var state = _cache.GetOrAdd((asset, timeframe), _ => new CacheState());
+        lock (state)
+        {
+            int unseenCount = 0;
+            for (int i = candles.Length - 1; i >= 0; i--) {
+                if (candles[i].Timestamp.Ticks <= state.AtrLastTick) break;
+                unseenCount++;
+            }
+            if (state.Atr == null || unseenCount > 10 || (candles.Length > 0 && candles[^1].Timestamp.Ticks < state.AtrLastTick))
+            {
+                state.Atr = new StatefulAtr(period);
+                for (int i = 0; i < candles.Length; i++) state.Atr.Update(candles[i].High, candles[i].Low, candles[i].Close);
+                state.AtrLastTick = candles[^1].Timestamp.Ticks;
+            }
+            else if (unseenCount > 0)
+            {
+                for (int i = candles.Length - unseenCount; i < candles.Length; i++)
+                    state.Atr.Update(candles[i].High, candles[i].Low, candles[i].Close);
+                state.AtrLastTick = candles[^1].Timestamp.Ticks;
+            }
+            return state.Atr.LastAtr;
+        }
     }
-
-
-    public (double adx, double pdi, double mdi) ComputeTrueAdx(MiniAppController.OhlcCandle[] candles, int period = 14)
-    {
-        var quotes = ConvertToQuotes(Array.Empty<double>(), candles: candles);
-        if (candles.Length < period + 1) return (20.0, 0.0, 0.0);
-
-        var results = quotes.GetAdx(period);
-        var last = results.LastOrDefault();
-        if (last == null) return (20.0, 0.0, 0.0);
-
-        double adx = last.Adx.HasValue ? (double)last.Adx.Value : 20.0;
-        double pdi = last.Pdi.HasValue ? (double)last.Pdi.Value : 0.0;
-        double mdi = last.Mdi.HasValue ? (double)last.Mdi.Value : 0.0;
-
-        return (adx, pdi, mdi);
-    }
-
-    public double ComputeAtr(MiniAppController.OhlcCandle[] candles, int period = 14)
-    {
-        var quotes = ConvertToQuotes(Array.Empty<double>(), candles: candles);
-        if (candles.Length < period) return 0;
-
-        var results = quotes.GetAtr(period);
-        var last = results.LastOrDefault();
-        return last?.Atr.HasValue == true ? (double)last.Atr.Value : 0.0;
-    }
-
 
     public (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal) ScoreTimeframe(
-        double[] prices, double[] volumes, MiniAppController.OhlcCandle[]? candles = null,
+        string asset, string timeframe, ReadOnlySpan<double> prices, ReadOnlySpan<double> volumes, ReadOnlySpan<MiniAppController.OhlcCandle> candles = default,
         double? adxOverride = null, double? atrOverride = null, bool isForex = false)
     {
-        if (prices.Length < 14) return (0.0, 50.0, 50.0, 0.0, 0.0, 0.0);
+        if (prices.Length < 14 || candles.Length < 14) return (0.0, 50.0, 50.0, 0.0, 0.0, 0.0);
 
-        double rsi = ComputeConnorsRsi(prices);
-        double hma = ComputeHma(prices, 9);
+        double rsi = ComputeConnorsRsi(asset, timeframe, candles);
+        double hma = ComputeHma(asset, timeframe, candles, 9);
         double lastPrice = prices[^1];
 
         var (adxVal, pdiVal, mdiVal) = adxOverride.HasValue
             ? (adxOverride.Value, 0.0, 0.0)
-            : (candles != null ? ComputeTrueAdx(candles) : (20.0, 0.0, 0.0));
+            : (candles.Length > 0 ? ComputeTrueAdx(asset, timeframe, candles) : (20.0, 0.0, 0.0));
 
         double atrVal = atrOverride.HasValue
             ? atrOverride.Value
-            : (candles != null ? ComputeAtr(candles) : 0);
+            : (candles.Length > 0 ? ComputeAtr(asset, timeframe, candles) : 0);
 
         double score = 0;
         double confidence = 60.0;
 
-        // Proportional Connors RSI scoring (-1.0 to +1.0)
-        // Adjusted denominator to 40.0 to require more extreme RSI for high scores
-        score += (rsi - 50) / 40.0;
+        score += (rsi - 50.0) / 40.0;
 
-        // HMA (Hull Moving Average zero-lag) scoring
-        // Lowered from 0.35 to 0.15 so HMA alone cannot breach probability thresholds
         if (lastPrice > hma) score += 0.15;
         else if (lastPrice < hma) score -= 0.15;
 
-        // ADX scoring
-        if (adxVal > 25)
+        if (adxVal > 25.0)
         {
-            confidence += Math.Min((adxVal - 25) * 0.8, 20);
+            confidence += Math.Min((adxVal - 25.0) * 0.8, 20.0);
             if (pdiVal > mdiVal && pdiVal > 0) score += 0.25;
             else if (mdiVal > pdiVal && mdiVal > 0) score -= 0.25;
         }
 
-        // Volume strength scoring — directional volume ratio contributes to score
         double volStrength = 0.0;
         if (volumes.Length >= 5)
         {
-            double avgVol = volumes.Take(volumes.Length - 1).TakeLast(20).Average();
+            int volCount = 0;
+            double volSum = 0;
+            int startIdx = Math.Max(0, volumes.Length - 21);
+            for (int i = startIdx; i < volumes.Length - 1; i++)
+            {
+                volSum += volumes[i];
+                volCount++;
+            }
+            double avgVol = volCount > 0 ? volSum / volCount : 0.0;
             double lastVol = volumes[^1];
-            if (avgVol > 0)
+            if (avgVol > 1e-9)
             {
                 double ratio = lastVol / avgVol;
-                double priceChange = prices.Length >= 2 ? prices[^1] - prices[^2] : 0;
-                // Volume surge (ratio > 1.5) in a price direction adds confirmation weight
-                // Clamped to ±0.20 so volume alone cannot force a signal
-                volStrength = (priceChange >= 0 ? 1 : -1) * Math.Max(0.0, Math.Min(ratio - 1.0, 1.0));
+                double priceChange = prices.Length >= 2 ? prices[^1] - prices[^2] : 0.0;
+                volStrength = (priceChange >= 0 ? 1.0 : -1.0) * Math.Max(0.0, Math.Min(ratio - 1.0, 1.0));
                 score += Math.Clamp(volStrength * 0.15, -0.20, 0.20);
             }
         }
 
-        return (score, Math.Clamp(confidence, 50, 95), Math.Round(rsi, 1), Math.Round(hma, 5), Math.Round(volStrength, 2), Math.Round(atrVal, 6));
+        return (score, Math.Clamp(confidence, 50.0, 95.0), Math.Round(rsi, 1), Math.Round(hma, 5), Math.Round(volStrength, 2), Math.Round(atrVal, 6));
     }
 
     public record GatekeeperResult(bool IsTradeable, string Reason, double Atr, double Adx);
 
-    public GatekeeperResult ValidateMarketGatekeeper(double[] prices, MiniAppController.OhlcCandle[]? candles = null)
+    public GatekeeperResult ValidateMarketGatekeeper(string asset, string timeframe, ReadOnlySpan<double> prices, ReadOnlySpan<MiniAppController.OhlcCandle> candles = default)
     {
-        if (prices == null || prices.Length < 15)
+        if (prices.Length < 15) return new GatekeeperResult(false, "Недостаточно данных цены для проверки Gatekeeper", 0, 0);
+
+        double atr = candles.Length >= 15 ? ComputeAtr(asset, timeframe, candles) : 0;
+        var (adx, _, _) = candles.Length >= 15 ? ComputeTrueAdx(asset, timeframe, candles) : (20.0, 0, 0);
+
+        double minPrice = double.MaxValue;
+        double maxPrice = double.MinValue;
+        int startIdx = prices.Length - 15;
+        for (int i = startIdx; i < prices.Length; i++)
         {
-            return new GatekeeperResult(false, "Недостаточно данных цены для проверки Gatekeeper", 0, 0);
+            if (prices[i] < minPrice) minPrice = prices[i];
+            if (prices[i] > maxPrice) maxPrice = prices[i];
         }
-
-        double atr = candles != null && candles.Length >= 15 ? ComputeAtr(candles) : 0;
-        var (adx, _, _) = candles != null && candles.Length >= 15 ? ComputeTrueAdx(candles) : (20.0, 0, 0);
-
-        // Check flat / dead market: if prices didn't move
-        double minPrice = prices[^15..].Min();
-        double maxPrice = prices[^15..].Max();
+        
         double priceRange = maxPrice - minPrice;
-
-        double deadMarketThreshold = Math.Max(1e-7, atr * 0.10);
+        double deadMarketThreshold = Math.Max(1e-10, atr * 0.10);
 
         if (priceRange < deadMarketThreshold)
         {
@@ -231,13 +590,14 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             return new GatekeeperResult(false, "⚠️ Рынок в состоянии застоя (нет колебаний цены).", atr, adx);
         }
 
-        // Check for Flash Crash / Abnormal Squeeze
         double maxCandleRange = 0;
-        if (candles != null && candles.Length > 0)
+        if (candles.Length > 0)
         {
-            foreach (var c in candles.TakeLast(3))
+            int cStartIdx = Math.Max(0, candles.Length - 3);
+            for (int i = cStartIdx; i < candles.Length; i++)
             {
-                if (c.High - c.Low > maxCandleRange) maxCandleRange = c.High - c.Low;
+                double range = candles[i].High - candles[i].Low;
+                if (range > maxCandleRange) maxCandleRange = range;
             }
         }
         
@@ -250,34 +610,40 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         return new GatekeeperResult(true, "Рынок активен", atr, adx);
     }
 
-    public double CalculateVolatilityRatio(double[] prices)
+    public double CalculateVolatilityRatio(ReadOnlySpan<double> prices)
     {
-        if (prices == null || prices.Length < 26) return 1.0;
+        if (prices.Length < 26) return 1.0;
 
-        double[] returns = new double[25];
+        Span<double> returns = stackalloc double[25];
         for (int i = 0; i < 25; i++)
         {
             int idx = prices.Length - 25 + i;
-            returns[i] = Math.Log(prices[idx] / (prices[idx - 1] + 1e-10));
+            returns[i] = Math.Log(prices[idx] / (prices[idx - 1] == 0 ? 1e-10 : prices[idx - 1]));
         }
 
-        var shortReturns = returns.TakeLast(5).ToArray();
-        var longReturns = returns.Take(20).ToArray();
+        double shortVol = StandardDeviationScalar(returns.Slice(20, 5));
+        double longVol = StandardDeviationScalar(returns.Slice(0, 20));
 
-        double shortVol = StandardDeviation(shortReturns);
-        double longVol = StandardDeviation(longReturns);
-
-        if (longVol < 1e-9) return 1.0;
+        if (longVol < 1e-10) return 1.0;
         return shortVol / longVol;
     }
 
-    private static double StandardDeviation(double[] values)
+    private static double StandardDeviationScalar(ReadOnlySpan<double> values)
     {
-        if (values.Length < 2) return 0.0;
-        double avg = values.Average();
+        int count = values.Length;
+        if (count < 2) return 0.0;
+        
         double sum = 0;
-        foreach (var v in values) sum += (v - avg) * (v - avg);
-        return Math.Sqrt(sum / (values.Length - 1));
+        for (int i = 0; i < count; i++) sum += values[i];
+        double mean = sum / count;
+        
+        double sqSum = 0;
+        for (int i = 0; i < count; i++)
+        {
+            double diff = values[i] - mean;
+            sqSum += diff * diff;
+        }
+        
+        return Math.Sqrt(sqSum / (count - 1));
     }
 }
-

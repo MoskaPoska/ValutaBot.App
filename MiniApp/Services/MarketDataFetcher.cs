@@ -87,7 +87,7 @@ public class MarketDataFetcher
             int startIdx = count - limit;
             for (int i = 0; i < limit; i++)
             {
-                resultFast[i] = new MiniAppController.OhlcCandle(wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsVolumes[startIdx + i]);
+                resultFast[i] = new MiniAppController.OhlcCandle(wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsVolumes[startIdx + i], DateTime.UtcNow.AddSeconds(i - limit));
             }
             System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
             System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
@@ -115,7 +115,7 @@ public class MarketDataFetcher
         for (int i = 0; i < arr.Length; i++)
         {
             var k = arr[i];
-            result[i] = new MiniAppController.OhlcCandle(k[1], k[2], k[3], k[4], k[5]);
+            result[i] = new MiniAppController.OhlcCandle(k[1], k[2], k[3], k[4], k[5], DateTimeOffset.FromUnixTimeMilliseconds((long)k[0]).UtcDateTime);
         }
         
         _klinesCache[cacheKey] = (DateTime.UtcNow.AddSeconds(2), result);

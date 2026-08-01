@@ -41,7 +41,7 @@ internal static class Program
     private static async System.Threading.Tasks.Task RunLocalTests()
     {
         var ta = new TechnicalAnalysisEngine();
-        var wfEngine = new WalkForwardValidationEngine(ta);
+        var wfEngine = new WalkForwardValidationEngine();
         var cmEngine = new ConfluenceMatrixEngine(new MarketDataFetcher(), ta);
         var aeEngine = new AdaptiveExpiryEngine();
         Console.WriteLine("==================================================");
@@ -127,7 +127,7 @@ internal static class Program
             
             // Test weekend fallback for EUR/USD
             Console.WriteLine("Fetching EUR/USD (simulated weekend fallback)...");
-            var res = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("EUR/USD OTC", "m1"), System.Threading.CancellationToken.None);
+            var res = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, ta, ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("EUR/USD OTC", "m1"), System.Threading.CancellationToken.None);
             string resJson = JsonSerializer.Serialize(res, options);
             
             Assert("EUR/USD OTC fetching", resJson.Contains("direction") && !resJson.Contains("error"));
@@ -145,7 +145,7 @@ internal static class Program
                 BotLogger.Info("[Crash Test] Forced WebSocket socket disconnection executed successfully.");
 
                 // Request market analysis immediately after forced disconnect
-                var fallbackRes = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("BTC/USDT OTC", "m1"), System.Threading.CancellationToken.None);
+                var fallbackRes = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, ta, ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("BTC/USDT OTC", "m1"), System.Threading.CancellationToken.None);
                 string fallbackJson = JsonSerializer.Serialize(fallbackRes, options);
 
                 Assert("Post-Disconnect Fallback Resilience", fallbackJson.Contains("direction") && !fallbackJson.Contains("error"), "System seamlessly switched to REST fallback upon socket disconnect");
@@ -166,7 +166,7 @@ internal static class Program
                 flatPrices[i] = 1.0500; 
                 flatCandles[i] = new MiniAppController.OhlcCandle(1.0500, 1.0500, 1.0500, 1.0500, 100);
             }
-            var gatekeeperRes = (new TechnicalAnalysisEngine()).ValidateMarketGatekeeper(flatPrices, flatCandles);
+            var gatekeeperRes = (new TechnicalAnalysisEngine()).ValidateMarketGatekeeper("TEST", "m1", flatPrices, flatCandles);
             Assert("Gatekeeper detects flat market", gatekeeperRes.IsTradeable == false && gatekeeperRes.Reason.Contains("засто"), $"Expected false/застой, got {gatekeeperRes.IsTradeable}/{gatekeeperRes.Reason}");
 
             // 8.2 Walk-Forward with too few candles
@@ -234,9 +234,9 @@ internal static class Program
             // 9.4 Technical Analysis Data Resiliency (Null/Empty Arrays)
             try 
             {
-                double[] emptyArr = Array.Empty<double>();
-                var hmaRes = (new TechnicalAnalysisEngine()).ComputeHma(emptyArr);
-                var rsiRes = (new TechnicalAnalysisEngine()).ComputeConnorsRsi(emptyArr);
+                MiniAppController.OhlcCandle[] emptyArr = Array.Empty<MiniAppController.OhlcCandle>();
+                var hmaRes = (new TechnicalAnalysisEngine()).ComputeHma("TEST", "m1", emptyArr);
+                var rsiRes = (new TechnicalAnalysisEngine()).ComputeConnorsRsi("TEST", "m1", emptyArr);
                 Assert("TechnicalAnalysis handles empty arrays safely", hmaRes == 0.0 && rsiRes == 50.0, "Expected safe fallback values");
             }
             catch (Exception ex)

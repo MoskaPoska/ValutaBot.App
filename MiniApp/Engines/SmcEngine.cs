@@ -61,10 +61,19 @@ public static class SmcEngine
         double minFvgGap = atr * 0.20;
 
         // ─── 1. Liquidity Sweep Detection (Снятие ликвидности над/под свинг-уровнями) ───
-        int spanStart = System.Math.Max(0, n - 33);
-        int spanLen = System.Math.Min(30, n - 3 - spanStart);
-        double recentHigh = candles.Take(n - 3).TakeLast(15).Max(c => c.High);
-        double recentLow = candles.Take(n - 3).TakeLast(15).Min(c => c.Low);
+        int spanStart = Math.Max(0, n - 33);
+        int spanLen = Math.Min(30, n - 3 - spanStart);
+        
+        double recentHigh = double.MinValue;
+        double recentLow = double.MaxValue;
+        int lookbackEnd = n - 3;
+        int lookbackStart = Math.Max(0, lookbackEnd - 15);
+        for (int i = lookbackStart; i < lookbackEnd; i++)
+        {
+            var c = candles[i];
+            if (c.High > recentHigh) recentHigh = c.High;
+            if (c.Low < recentLow) recentLow = c.Low;
+        }
 
         bool bullishSweep = prevClosedCandle.Low < recentLow && closedCandle.Close > recentLow;
         bool bearishSweep = prevClosedCandle.High > recentHigh && closedCandle.Close < recentHigh;

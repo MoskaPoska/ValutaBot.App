@@ -55,14 +55,14 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
         {
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return 0;
             using var conn = DbConnectionFactory.GetConnection();
-            return await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM all_users");
+            return (int)await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM all_users");
         }
 
         public static async Task<int> GetAllowedUsersCountAsync()
         {
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return 0;
             using var conn = DbConnectionFactory.GetConnection();
-            return await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM allowed_users");
+            return (int)await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM allowed_users");
         }
 
         public static async Task AddAllowedUserAsync(long chatId)

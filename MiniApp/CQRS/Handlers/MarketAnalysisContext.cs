@@ -68,7 +68,7 @@ internal class MarketAnalysisContext
                 throw new Exception("Недостаточно данных для анализа. Биржа или провайдер вернули пустой результат.");
             }
 
-            var gatekeeper = _handler._taEngine.ValidateMarketGatekeeper(_mainPrices, _ohlcCandles);
+            var gatekeeper = _handler._riskGatekeeper.ValidateMarketGatekeeper(_asset, _timeframe, _mainPrices, _ohlcCandles);
             if (!gatekeeper.IsTradeable)
             {
                 BotLogger.Warn($"[Analysis] Gatekeeper aborted trade for {_asset} ({_timeframe}): {gatekeeper.Reason}");
@@ -242,10 +242,10 @@ internal class MarketAnalysisContext
 
     private async Task EvaluateTechnicalIndicatorsAsync()
     {
-        (_mainAdx, _mainPdi, _mainMdi) = _ohlcCandles != null ? _handler._taEngine.ComputeTrueAdx(_ohlcCandles) : (20.0, 0.0, 0.0);
-        _mainAtr = _ohlcCandles != null ? _handler._taEngine.ComputeAtr(_ohlcCandles) : 0;
+        (_mainAdx, _mainPdi, _mainMdi) = _ohlcCandles != null ? _handler._mathEngine.ComputeTrueAdx(_asset, _timeframe, _ohlcCandles) : (20.0, 0.0, 0.0);
+        _mainAtr = _ohlcCandles != null ? _handler._mathEngine.ComputeAtr(_asset, _timeframe, _ohlcCandles) : 0;
 
-        _mainResult = _handler._taEngine.ScoreTimeframe(_mainPrices, _mainVolumes ?? Array.Empty<double>(), candles: _ohlcCandles, adxOverride: _mainAdx, atrOverride: _mainAtr, isForex: _isForex);
+        _mainResult = _handler._marketAnalyzer.ScoreTimeframe(_asset, _timeframe, _mainPrices, _mainVolumes ?? Array.Empty<double>(), candles: _ohlcCandles, adxOverride: _mainAdx, atrOverride: _mainAtr, isForex: _isForex);
 
         if (_higherResultData != null)
         {
@@ -260,9 +260,9 @@ internal class MarketAnalysisContext
                 BotLogger.Info($"[MTF SMC Validation] Alignment: {mtfValidation.AlignmentStatus} | Multiplier={mtfValidation.ConfluenceMultiplier:F2}x | {mtfValidation.Description}");
             }
 
-            var (hAdx, hPdi, hMdi) = higherOhlc != null ? _handler._taEngine.ComputeTrueAdx(higherOhlc) : (20.0, 0.0, 0.0);
-            double hAtr = higherOhlc != null ? _handler._taEngine.ComputeAtr(higherOhlc) : 0;
-            var higherResult = _handler._taEngine.ScoreTimeframe(_higherResultData.Value.prices, _higherResultData.Value.volumes ?? Array.Empty<double>(), candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: _isForex);
+            var (hAdx, hPdi, hMdi) = higherOhlc != null ? _handler._mathEngine.ComputeTrueAdx(_asset, _higherTf ?? "", higherOhlc) : (20.0, 0.0, 0.0);
+            double hAtr = higherOhlc != null ? _handler._mathEngine.ComputeAtr(_asset, _higherTf ?? "", higherOhlc) : 0;
+            var higherResult = _handler._marketAnalyzer.ScoreTimeframe(_asset, _higherTf ?? "", _higherResultData.Value.prices, _higherResultData.Value.volumes ?? Array.Empty<double>(), candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: _isForex);
             
             _conflictPenalty *= GetMarketAnalysisQueryHandler.MfConflictPenalty(_mainResult, higherResult);
 
@@ -352,7 +352,7 @@ internal class MarketAnalysisContext
         else if (matrixResult.ProbabilityBoost > 0) finalProbability = Math.Clamp(finalProbability + matrixResult.ProbabilityBoost, 55, 95);
 
         int timeframeSec = _handler._fetcher.TimeframeSeconds(_timeframe);
-        double volRatio = _handler._taEngine.CalculateVolatilityRatio(_mainPrices);
+        double volRatio = _handler._marketAnalyzer.CalculateVolatilityRatio(_mainPrices);
         var adaptiveExpiry = _handler._aeEngine.CalculateOptimalExpiry(_asset, _timeframe, _mainAtr, volRatio, _smcResult, isSubMinute);
         
         // --- PRODUCTION KILL SWITCH (Pre-Simulation) ---

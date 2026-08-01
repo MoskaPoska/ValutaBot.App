@@ -7,23 +7,29 @@ namespace ValutaBot.MiniApp.CQRS.Handlers;
 
 public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQuery, object>
 {
-    internal readonly ITechnicalAnalysisEngine _taEngine;
+    internal readonly IMathEngine _mathEngine;
+    internal readonly IMarketAnalyzer _marketAnalyzer;
+    internal readonly IRiskGatekeeper _riskGatekeeper;
     internal readonly IWalkForwardValidationEngine _wfEngine;
     internal readonly IConfluenceMatrixEngine _cmEngine;
     internal readonly IAdaptiveExpiryEngine _aeEngine;
     internal readonly MarketDataFetcher _fetcher;
 
     public GetMarketAnalysisQueryHandler(
-        ITechnicalAnalysisEngine taEngine, 
+        IMathEngine mathEngine,
+        IMarketAnalyzer marketAnalyzer,
+        IRiskGatekeeper riskGatekeeper,
         MarketDataFetcher fetcher, 
         IWalkForwardValidationEngine wfEngine, 
         IConfluenceMatrixEngine cmEngine, 
         IAdaptiveExpiryEngine aeEngine)
     {
+        _mathEngine = mathEngine;
+        _marketAnalyzer = marketAnalyzer;
+        _riskGatekeeper = riskGatekeeper;
         _wfEngine = wfEngine;
         _cmEngine = cmEngine;
         _aeEngine = aeEngine;
-        _taEngine = taEngine;
         _fetcher = fetcher;
     }
 
