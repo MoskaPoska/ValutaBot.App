@@ -457,6 +457,136 @@ namespace ValutaBot.Tests
             return sb.ToString();
         }
 
+        [Fact]
+        public async Task Gatekeeper_FlashCrash_ShouldBlockTrade()
+        {
+            // Arrange
+            _output.WriteLine("[Test] Starting 'Flash Crash' (Gatekeeper) scenario...");
+
+            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            string binanceResponse = GenerateFlashCrashJson(150);
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(binanceResponse)
+                });
+            
+            var httpClient = new HttpClient(mockHandler.Object);
+            var mockFactory = new Mock<IHttpClientFactory>();
+            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+            MiniAppController.HttpFactory = mockFactory.Object;
+
+            var taEngine = new TechnicalAnalysisEngine();
+            var wfEngine = new WalkForwardValidationEngine(taEngine);
+            var cmEngine = new ConfluenceMatrixEngine(MarketDataFetcher.Instance, taEngine);
+            var aeEngine = new AdaptiveExpiryEngine();
+            var fetcher = MarketDataFetcher.Instance;
+
+            var handler = new GetMarketAnalysisQueryHandler(cmEngine, aeEngine, wfEngine, fetcher, taEngine);
+            var context = new MarketAnalysisContext(handler, "EURUSD", "m5");
+
+            // Act
+            var resultObj = await context.ExecuteAnalysisAsync();
+            var resultStr = System.Text.Json.JsonSerializer.Serialize(resultObj);
+            
+            _output.WriteLine($"[Test] Final Result String: {resultStr}");
+
+            // Assert
+            // Ensure the Gatekeeper catches the flash crash and blocks trading.
+            Assert.Contains("Flash Crash", resultStr);
+            Assert.Contains("\"direction\":\"NEUTRAL\"", resultStr);
+        }
+
+        [Fact]
+        public async Task MlServiceCrash_ShouldDegradeGracefully()
+        {
+            // Arrange
+            _output.WriteLine("[Test] Starting 'ML Service Crash' scenario...");
+
+            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            string binanceResponse = GenerateMockBinanceJson(150);
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(binanceResponse)
+                });
+            
+            // Mock ML Service to throw an exception / return 500
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("localhost") || req.RequestUri.Port == 5001),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+            var httpClient = new HttpClient(mockHandler.Object);
+            var mockFactory = new Mock<IHttpClientFactory>();
+            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+            MiniAppController.HttpFactory = mockFactory.Object;
+
+            var taEngine = new TechnicalAnalysisEngine();
+            var wfEngine = new WalkForwardValidationEngine(taEngine);
+            var cmEngine = new ConfluenceMatrixEngine(MarketDataFetcher.Instance, taEngine);
+            var aeEngine = new AdaptiveExpiryEngine();
+            var fetcher = MarketDataFetcher.Instance;
+
+            var handler = new GetMarketAnalysisQueryHandler(cmEngine, aeEngine, wfEngine, fetcher, taEngine);
+            var context = new MarketAnalysisContext(handler, "EURUSD", "m5");
+
+            // Act
+            var resultObj = await context.ExecuteAnalysisAsync();
+            var resultStr = System.Text.Json.JsonSerializer.Serialize(resultObj);
+            
+            _output.WriteLine($"[Test] Final Result String: {resultStr}");
+
+            // Assert
+            // The bot should NOT crash. It should fall back gracefully.
+            // ML probability might be 0, but the overall pipeline should return a valid object.
+            Assert.DoesNotContain("Connection refused", resultStr); // Stack traces shouldn't leak
+            Assert.Contains("\"direction\"", resultStr); // We still have a signal output (can be NEUTRAL or based purely on TA)
+        }
+
+        private string GenerateFlashCrashJson(int count)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("[");
+            double price = 1.1000;
+            for (int i = 0; i < count; i++)
+            {
+                double open = price;
+                double close = price + 0.0001; 
+                double high = close + 0.0001; 
+                double low = open - 0.0001;
+                
+                // FLASH CRASH on the very last candle
+                if (i == count - 1)
+                {
+                    high = open;
+                    close = open - 0.0500; // 500 pips drop in 1 candle!
+                    low = close - 0.0010;
+                }
+
+                sb.Append($"[1600000000000,\"{open}\",\"{high}\",\"{low}\",\"{close}\",\"100\",1600000059999,\"0\",100,\"0\",\"0\",\"0\"]");
+                if (i < count - 1) sb.Append(",");
+                price = close;
+            }
+            sb.Append("]");
+            return sb.ToString();
+        }
+
         private string GenerateMockTwelveDataJson(int count)
         {
             var sb = new System.Text.StringBuilder();

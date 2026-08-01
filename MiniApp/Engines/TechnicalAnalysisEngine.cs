@@ -217,6 +217,22 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             return new GatekeeperResult(false, "⚠️ Рынок в состоянии застоя (нет колебаний цены).", atr, adx);
         }
 
+        // Check for Flash Crash / Abnormal Squeeze
+        double maxCandleRange = 0;
+        if (candles != null && candles.Length > 0)
+        {
+            foreach (var c in candles.TakeLast(3))
+            {
+                if (c.High - c.Low > maxCandleRange) maxCandleRange = c.High - c.Low;
+            }
+        }
+        
+        if (atr > 0 && maxCandleRange > atr * 4.0)
+        {
+            BotLogger.Warn($"[Gatekeeper] Market Flash Crash detected! Single candle range {maxCandleRange} is > 4x ATR {atr}.");
+            return new GatekeeperResult(false, "⚠️ Обнаружен аномальный выброс волатильности (Сквиз/Flash Crash). Торговля приостановлена для защиты депозита.", atr, adx);
+        }
+
         return new GatekeeperResult(true, "Рынок активен", atr, adx);
     }
 
