@@ -168,12 +168,12 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
         {
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return (0, 0, 0);
             using var conn = DbConnectionFactory.GetConnection();
-            int pending = (int)await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM pending_trades");
+            int pending = (int)(await conn.ExecuteScalarAsync<long?>("SELECT COUNT(*) FROM pending_trades") ?? 0L);
             var res = await conn.QueryFirstOrDefaultAsync(
                 "SELECT COUNT(*) as Verified, COALESCE(SUM(CASE WHEN was_win THEN 1 ELSE 0 END), 0) as Correct FROM trade_outcomes");
             
-            int verified = res != null ? (int)(long)res.Verified : 0;
-            int correct = res != null ? (int)(long)res.Correct : 0;
+            int verified = res != null ? Convert.ToInt32(res.Verified) : 0;
+            int correct = res != null ? Convert.ToInt32(res.Correct) : 0;
             return (pending + verified, verified, correct);
         }
 
@@ -181,13 +181,13 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
         {
             if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return (0, 0, 0);
             using var conn = DbConnectionFactory.GetConnection();
-            int pending = (int)await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM pending_trades WHERE asset = @asset AND timeframe = @timeframe", new { asset, timeframe });
+            int pending = (int)(await conn.ExecuteScalarAsync<long?>("SELECT COUNT(*) FROM pending_trades WHERE asset = @asset AND timeframe = @timeframe", new { asset, timeframe }) ?? 0L);
             var res = await conn.QueryFirstOrDefaultAsync(
                 "SELECT COUNT(*) as Verified, COALESCE(SUM(CASE WHEN was_win THEN 1 ELSE 0 END), 0) as Correct FROM trade_outcomes WHERE asset = @asset AND timeframe = @timeframe",
                 new { asset, timeframe });
             
-            int verified = res != null ? (int)(long)res.Verified : 0;
-            int correct = res != null ? (int)(long)res.Correct : 0;
+            int verified = res != null ? Convert.ToInt32(res.Verified) : 0;
+            int correct = res != null ? Convert.ToInt32(res.Correct) : 0;
             return (pending + verified, verified, correct);
         }
 
@@ -201,7 +201,7 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
             var result = new List<(string, string, int, int)>();
             foreach (var r in rows)
             {
-                result.Add((r.asset, r.timeframe, (int)(long)r.verified, (int)(long)r.correct));
+                result.Add((r.asset, r.timeframe, Convert.ToInt32(r.verified), Convert.ToInt32(r.correct)));
             }
             return result;
         }
@@ -216,7 +216,7 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
             var result = new List<(string, int, int)>();
             foreach (var r in rows)
             {
-                result.Add((r.signal_name, (int)(long)r.verified, (int)(long)r.correct));
+                result.Add((r.signal_name, Convert.ToInt32(r.verified), Convert.ToInt32(r.correct)));
             }
             return result;
         }
