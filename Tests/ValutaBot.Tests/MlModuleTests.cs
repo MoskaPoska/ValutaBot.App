@@ -17,10 +17,10 @@ namespace ValutaBot.Tests
         }
 
         [Fact]
-        public void LightGbmEngine_ShouldTrainAndPredict()
+        public void EnsembleMlEngine_ShouldTrainAndPredict()
         {
             // Arrange
-            var mlEngine = new LightGbmEngine();
+            var mlEngine = new EnsembleMlEngine();
             
             var histData = new List<TradeFeatureData>
             {
@@ -32,17 +32,15 @@ namespace ValutaBot.Tests
             };
 
             // Act
-            mlEngine.TrainModel(histData);
+            mlEngine.TrainModels(histData);
             
             var testData = new TradeFeatureData { Open=8.5f, High=10, Low=8, Close=9.5f, Volume=1200, Rsi=35, ClusterDelta=30 };
-            var prediction = mlEngine.Predict(testData);
-            var (prob, rec) = mlEngine.AnalyzeProbability(prediction);
+            var prediction = mlEngine.PredictEnsemble(testData);
 
             // Assert
             Assert.NotNull(prediction);
-            Assert.True(prob >= 0f && prob <= 1f, "Probability should be bounded between 0 and 1");
-            Assert.NotNull(rec);
-            _output.WriteLine($"[LightGBM Test] Probability: {prob:P2}, Recommendation: {rec}");
+            Assert.True(prediction.AverageProbability >= 0f && prediction.AverageProbability <= 1f, "Probability should be bounded between 0 and 1");
+            _output.WriteLine($"[Ensemble Test] Probability: {prediction.AverageProbability:P2}, Consensus: {prediction.ConsensusPrediction}");
         }
 
         [Fact]
