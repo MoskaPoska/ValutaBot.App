@@ -153,6 +153,75 @@ namespace ValutaBot.Tests
             Assert.Contains("Биржа недоступна", ex.UserFriendlyMessage);
         }
 
+        [Fact]
+        public async Task WalkForward_Overriding_ML_When_Overfitted_ShouldBlockSignal()
+        {
+            // Arrange
+            _output.WriteLine("[Test] Starting 'Защита от переобучения' (Walk-Forward Overfitting Block) scenario...");
+
+            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+
+            // Mock Binance to return standard chart data
+            string binanceResponse = GenerateMockBinanceJson(150);
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(binanceResponse)
+                });
+            
+            // Mock TwelveData as fallback (or primary for weekday)
+            string twelveDataResponse = GenerateMockTwelveDataJson(150);
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.twelvedata.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(twelveDataResponse)
+                });
+
+            var httpClient = new HttpClient(mockHandler.Object);
+            var mockFactory = new Mock<IHttpClientFactory>();
+            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+            MiniAppController.HttpFactory = mockFactory.Object;
+
+            var taEngine = new TechnicalAnalysisEngine();
+            var wfEngine = new WalkForwardValidationEngine(taEngine);
+
+            // SIMULATE 3 CONSECUTIVE LOSSES TO TRIGGER WALK-FORWARD COOLOFF
+            wfEngine.RecordTradeOutcome("EURUSD", "m5", false);
+            wfEngine.RecordTradeOutcome("EURUSD", "m5", false);
+            wfEngine.RecordTradeOutcome("EURUSD", "m5", false);
+
+            var cmEngine = new ConfluenceMatrixEngine();
+            var aeEngine = new AdaptiveExpiryEngine();
+            var fetcher = MarketDataFetcher.Instance;
+
+            var handler = new GetMarketAnalysisQueryHandler(cmEngine, aeEngine, wfEngine, fetcher, taEngine);
+            var context = new MarketAnalysisContext(handler, "EURUSD", "m5");
+
+            // Act
+            var resultObj = await context.ExecuteAnalysisAsync();
+            var resultStr = System.Text.Json.JsonSerializer.Serialize(resultObj);
+            
+            _output.WriteLine($"[Test] Final Result String: {resultStr}");
+
+            // Assert
+            // Because WalkForward triggered a cooloff, the Kill Switch must force direction to NEUTRAL and probability to 0.
+            Assert.Contains("\"direction\":\"NEUTRAL\"", resultStr);
+            Assert.Contains("\"probability\":0", resultStr);
+            Assert.Contains("\"wfIsCooloffActive\":true", resultStr);
+        }
+
         private string GenerateMockTwelveDataJson(int count)
         {
             var sb = new System.Text.StringBuilder();
