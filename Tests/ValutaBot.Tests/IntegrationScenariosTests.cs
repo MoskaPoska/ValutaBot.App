@@ -105,6 +105,54 @@ namespace ValutaBot.Tests
             Assert.Contains("Нейро-Анализ", resultStr);
         }
 
+        [Fact]
+        public async Task WeekendOTC_BinanceCrash_ShouldThrowExchangeUnavailableException()
+        {
+            // Arrange
+            _output.WriteLine("[Test] Starting 'Субботний OTC' (Weekend Crash) scenario...");
+
+            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+
+            // Mock Binance to throw a network error
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ThrowsAsync(new HttpRequestException("Binance is down!"));
+
+            // Mock TwelveData to return empty/error since it's closed on weekends
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.twelvedata.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent("{\"status\":\"error\",\"message\":\"Market is closed\"}")
+                });
+
+            var httpClient = new HttpClient(mockHandler.Object);
+            var mockFactory = new Mock<IHttpClientFactory>();
+            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+            MiniAppController.HttpFactory = mockFactory.Object;
+
+            var fetcher = MarketDataFetcher.Instance;
+
+            // Act & Assert
+            var ex = await Assert.ThrowsAsync<ExchangeUnavailableException>(async () =>
+            {
+                // Passing EURUSDT as the symbol (which is what AssetSanitizer would map EURUSD to on a weekend)
+                await fetcher.FetchBinanceWithFallback("EURUSDT", "m1", "EUR/USD", 50);
+            });
+
+            _output.WriteLine($"[Test] Expected exception successfully caught: {ex.Message}");
+            Assert.Contains("Биржа недоступна", ex.UserFriendlyMessage);
+        }
+
         private string GenerateMockTwelveDataJson(int count)
         {
             var sb = new System.Text.StringBuilder();
