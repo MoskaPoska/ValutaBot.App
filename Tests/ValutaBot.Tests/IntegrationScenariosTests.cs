@@ -330,6 +330,133 @@ namespace ValutaBot.Tests
             return sb.ToString();
         }
 
+        [Fact]
+        public async Task OrderFlow_vs_ContinuousState_BullishAbsorption_ShouldOverrideFlatState()
+        {
+            // Arrange
+            _output.WriteLine("[Test] Starting 'Скрытое накопление' (OrderFlow vs ContinuousState) scenario...");
+
+            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            string binanceResponse = GenerateBullishAbsorptionJson(150);
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(binanceResponse)
+                });
+            
+            var httpClient = new HttpClient(mockHandler.Object);
+            var mockFactory = new Mock<IHttpClientFactory>();
+            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+            MiniAppController.HttpFactory = mockFactory.Object;
+
+            var taEngine = new TechnicalAnalysisEngine();
+            var wfEngine = new WalkForwardValidationEngine(taEngine);
+            var cmEngine = new ConfluenceMatrixEngine(MarketDataFetcher.Instance, taEngine);
+            var aeEngine = new AdaptiveExpiryEngine();
+            var fetcher = MarketDataFetcher.Instance;
+
+            var handler = new GetMarketAnalysisQueryHandler(cmEngine, aeEngine, wfEngine, fetcher, taEngine);
+            var context = new MarketAnalysisContext(handler, "EURUSD", "m5");
+
+            // Act
+            var resultObj = await context.ExecuteAnalysisAsync();
+            var resultStr = System.Text.Json.JsonSerializer.Serialize(resultObj);
+            
+            _output.WriteLine($"[Test] Final Result String: {resultStr}");
+
+            // Assert
+            // The ContinuousState is STABLE, but OrderFlow detects massive BULLISH ABSORPTION.
+            Assert.Contains("Bullish Absorption", resultStr);
+        }
+
+        [Fact]
+        public async Task AdaptiveExpiry_VolatilitySpike_ShouldIncreaseExpiry()
+        {
+            // Arrange
+            _output.WriteLine("[Test] Starting 'Штормовое предупреждение' (Adaptive Expiry) scenario...");
+
+            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            string binanceResponse = GenerateMockBinanceJson(150);
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(binanceResponse)
+                });
+            
+            var httpClient = new HttpClient(mockHandler.Object);
+            var mockFactory = new Mock<IHttpClientFactory>();
+            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+            MiniAppController.HttpFactory = mockFactory.Object;
+
+            // MOCK TA Engine to simulate extremely high volatility (VolRatio > 1.5)
+            var mockTaEngine = new Mock<ITechnicalAnalysisEngine>();
+            mockTaEngine.Setup(x => x.ValidateMarketGatekeeper(It.IsAny<double[]>(), It.IsAny<MiniAppController.OhlcCandle[]>()))
+                .Returns(new TechnicalAnalysisEngine.GatekeeperResult(true, "Mock"));
+            mockTaEngine.Setup(x => x.ScoreTimeframe(It.IsAny<double[]>(), It.IsAny<double[]>(), It.IsAny<MiniAppController.OhlcCandle[]>(), It.IsAny<double?>(), It.IsAny<double?>(), It.IsAny<bool>()))
+                .Returns((0.5, 90.0, 60.0, 1.1000, 1.0, 0.0010));
+            mockTaEngine.Setup(x => x.CalculateVolatilityRatio(It.IsAny<double[]>())).Returns(2.5); // HIGH VOLATILITY
+
+            // Also mock ComputeTrueAdx and ComputeAtr which are called by the context
+            mockTaEngine.Setup(x => x.ComputeTrueAdx(It.IsAny<MiniAppController.OhlcCandle[]>(), 14))
+                .Returns((25.0, 10.0, 5.0));
+            mockTaEngine.Setup(x => x.ComputeAtr(It.IsAny<MiniAppController.OhlcCandle[]>(), 14))
+                .Returns(0.0020);
+
+            var wfEngine = new WalkForwardValidationEngine(mockTaEngine.Object);
+            var cmEngine = new ConfluenceMatrixEngine(MarketDataFetcher.Instance, mockTaEngine.Object);
+            var aeEngine = new AdaptiveExpiryEngine();
+            var fetcher = MarketDataFetcher.Instance;
+
+            var handler = new GetMarketAnalysisQueryHandler(cmEngine, aeEngine, wfEngine, fetcher, mockTaEngine.Object);
+            var context = new MarketAnalysisContext(handler, "EURUSD", "m5"); // m5 standard expiry = 300s (5 min)
+
+            // Act
+            var resultObj = await context.ExecuteAnalysisAsync();
+            var resultStr = System.Text.Json.JsonSerializer.Serialize(resultObj);
+            
+            _output.WriteLine($"[Test] Final Result String: {resultStr}");
+
+            // Assert
+            // Because VolRatio = 2.5 (> 1.5), the AdaptiveExpiryEngine should double the expiry from 5 to 10 minutes.
+            // Check that the returned duration is "10 минут" or "10" candles depending on formatting.
+            Assert.Contains("турбулент", resultStr); // The reasoning contains "Рынок турбулентный"
+            Assert.Contains("\"expiryCandles\":2", resultStr); // 10 minutes / 5 minute timeframe = 2 candles
+        }
+
+        private string GenerateBullishAbsorptionJson(int count)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("[");
+            double price = 1.1000;
+            for (int i = 0; i < count; i++)
+            {
+                double open = price;
+                double close = price + 0.00001; // tiny up drift
+                double high = close + 0.00100; // huge upper wick -> selling pressure
+                double low = open - 0.00001;
+                
+                double volume = (i >= count - 10) ? 5000 : 100;
+
+                sb.Append($"[1600000000000,\"{open}\",\"{high}\",\"{low}\",\"{close}\",\"{volume}\",1600000059999,\"0\",100,\"0\",\"0\",\"0\"]");
+                if (i < count - 1) sb.Append(",");
+                price = close;
+            }
+            sb.Append("]");
+            return sb.ToString();
+        }
+
         private string GenerateMockTwelveDataJson(int count)
         {
             var sb = new System.Text.StringBuilder();
