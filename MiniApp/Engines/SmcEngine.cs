@@ -139,18 +139,19 @@ public static class SmcEngine
                         continue;
 
                     bool isMitigated = false;
-                    double obBodyTop = Math.Max(candle.Open, candle.Close);
-                    double obBodyBottom = Math.Min(candle.Open, candle.Close);
+                    double obTop = candle.High;
+                    double obBottom = candle.Low;
 
                     for (int j = i + 1; j < n - 1; j++)
                     {
                         var futureCandle = candles[j];
-                        if (isBullishObCandidate && futureCandle.Low <= obBodyBottom)
+                        // Mitigated when future price taps the top of the Bullish OB or bottom of the Bearish OB
+                        if (isBullishObCandidate && futureCandle.Low <= obTop)
                         {
                             isMitigated = true;
                             break;
                         }
-                        else if (isBearishObCandidate && futureCandle.High >= obBodyTop)
+                        else if (isBearishObCandidate && futureCandle.High >= obBottom)
                         {
                             isMitigated = true;
                             break;

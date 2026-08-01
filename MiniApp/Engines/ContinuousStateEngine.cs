@@ -125,22 +125,33 @@ public static class ContinuousStateEngine
             double err = currentPrice * 0.01;
             for(int i = 0; i < prices.Length; i++) 
             { 
-                double p = prices[i];
+                double pPrice = prices[i];
                 double k = err / (err + measurementNoise);
-                est = est + k * (p - est);
+                est = est + k * (pPrice - est);
                 err = (1.0 - k) * err + processNoise;
             }
             state = (est, err); 
+            _kalmanState.TryAdd(stateKey, state);
         }
         else
         {
-            double p = currentPrice;
-            double k = state.errorEstimate / (state.errorEstimate + measurementNoise);
-            state.estimate = state.estimate + k * (p - state.estimate);
-            state.errorEstimate = (1.0 - k) * state.errorEstimate + processNoise;
+            bool updated = false;
+            while (!updated)
+            {
+                if (!_kalmanState.TryGetValue(stateKey, out var currentState)) break;
+                
+                double k = currentState.errorEstimate / (currentState.errorEstimate + measurementNoise);
+                double newEst = currentState.estimate + k * (currentPrice - currentState.estimate);
+                double newErr = (1.0 - k) * currentState.errorEstimate + processNoise;
+                
+                updated = _kalmanState.TryUpdate(stateKey, (newEst, newErr), currentState);
+            }
+            if (_kalmanState.TryGetValue(stateKey, out var latestState))
+            {
+                state = latestState;
+            }
         }
 
-        _kalmanState[stateKey] = state;
         return state.estimate;
     }
 }

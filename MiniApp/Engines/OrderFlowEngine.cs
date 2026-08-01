@@ -128,21 +128,24 @@ public static class OrderFlowEngine
         double scoreContribution = 0;
         string desc;
 
-        // ─── 2. Spoofing Detection (must come FIRST — overlaps with Absorption on deltaRatio > 1.8) ───
+        // ─── 2. Spoofing & Absorption Detection (BPS Based) ───
+        double currentPrice = Math.Max(1e-8, prices[^1]);
+        double priceDeltaBps = (priceDelta / currentPrice) * 10000.0;
+
         // Spoofing: high buy volume but price goes NOWHERE → artificial order book manipulation
-        if (deltaRatio > 1.8 && cumulativeVolumeDelta > 0 && priceDelta < -1e-9)
+        if (deltaRatio > 1.8 && cumulativeVolumeDelta > 0 && priceDeltaBps < -0.1)
         {
             state = "BEARISH_ABSORPTION";
             scoreContribution = -0.30;
             desc = "CVD Divergence (Bearish Absorption): Скрытые продажи при росте дельты.";
         }
-        else if (deltaRatio < 0.55 && cumulativeVolumeDelta < 0 && priceDelta > 1e-9)
+        else if (deltaRatio < 0.55 && cumulativeVolumeDelta < 0 && priceDeltaBps > 0.1)
         {
             state = "BULLISH_ABSORPTION";
             scoreContribution = 0.30;
             desc = "CVD Divergence (Bullish Absorption): Скрытые покупки при падении дельты.";
         }
-        else if (deltaRatio > 1.8 && Math.Abs(priceDelta) < 1e-7)
+        else if (deltaRatio > 1.8 && Math.Abs(priceDeltaBps) < 0.05)
         {
             state = "SPOOFING_TRAP";
             scoreContribution = 0;
@@ -150,14 +153,14 @@ public static class OrderFlowEngine
         }
         // ─── 3. Passive Limit Absorption Detection ───
         // Bearish Absorption: high buy volume but price FALLS → huge sell wall absorbing all buys
-        else if (deltaRatio > 1.8 && priceDelta < -1e-6)
+        else if (deltaRatio > 1.8 && priceDeltaBps <= -0.5)
         {
             state = "BEARISH_ABSORPTION";
             scoreContribution = -0.35;
             desc = "Поглощение покупок пассивным лимитным барьером продавца (Bearish Absorption).";
         }
         // Bullish Absorption: high sell volume but price RISES → huge buy wall absorbing all sells
-        else if (deltaRatio < 0.55 && priceDelta > 1e-6)
+        else if (deltaRatio < 0.55 && priceDeltaBps >= 0.5)
         {
             state = "BULLISH_ABSORPTION";
             scoreContribution = 0.35;

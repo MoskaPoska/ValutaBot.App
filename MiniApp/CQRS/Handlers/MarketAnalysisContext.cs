@@ -185,10 +185,10 @@ internal class MarketAnalysisContext
             try
             {
                 var mlEngine = new EnsembleMlEngine();
-                
                 var hist = new List<TradeFeatureData>();
-                // Generate training data from the recent candles (excluding the last one as target)
-                for (int i = 1; i < _ohlcCandles.Length - 1; i++)
+                
+                // Generate training data from the recent candles (excluding the last two to prevent target leakage)
+                for (int i = 1; i < _ohlcCandles.Length - 2; i++)
                 {
                     bool isUp = _ohlcCandles[i + 1].Close > _ohlcCandles[i].Close;
                     hist.Add(new TradeFeatureData {
@@ -204,7 +204,7 @@ internal class MarketAnalysisContext
                     Open = (float)_ohlcCandles[^1].Open, High = (float)_ohlcCandles[^1].High,
                     Low = (float)_ohlcCandles[^1].Low, Close = (float)_ohlcCandles[^1].Close,
                     Volume = _mainVolumes != null && _mainVolumes.Length > 0 ? (float)_mainVolumes[^1] : 0f,
-                    Rsi = 50f, ClusterDelta = (float)_orderFlowResult.ScoreContribution,
+                    Rsi = 50f, ClusterDelta = 0, // Zeroed out to prevent Out-Of-Distribution (OOD) poison since it was trained on 0
                     IsUp = true
                 };
 
@@ -232,7 +232,7 @@ internal class MarketAnalysisContext
 
         if (Math.Abs(_newsResult.score) > 0.1)
         {
-            double newsWeight = await SignalTracker.GetSignalWeightAsync("�������", 0.8);
+            double newsWeight = await SignalTracker.GetSignalWeightAsync("NEWS", 0.8);
             double newsScoreNormalized = Math.Clamp(_newsResult.score / 2.0, -1, 1);
             _totalScore += newsScoreNormalized * newsWeight;
             _totalConfidence += Math.Clamp(Math.Abs(_newsResult.score) / 2.0 * 100, 50, 98) * newsWeight;
@@ -271,7 +271,7 @@ internal class MarketAnalysisContext
             _totalWeight += 2.0;
         }
 
-        double indicatorWeight = await SignalTracker.GetSignalWeightAsync("����������", 1.0);
+        double indicatorWeight = await SignalTracker.GetSignalWeightAsync("INDICATORS", 1.0);
         _totalScore += (_mainResult.score + _orderFlowResult.ScoreContribution) * indicatorWeight;
         _totalConfidence += _mainResult.confidence * indicatorWeight;
         _totalWeight += indicatorWeight;
@@ -355,14 +355,23 @@ internal class MarketAnalysisContext
         double volRatio = _handler._taEngine.CalculateVolatilityRatio(_mainPrices);
         var adaptiveExpiry = _handler._aeEngine.CalculateOptimalExpiry(_asset, _timeframe, _mainAtr, volRatio, _smcResult, isSubMinute);
         
-        var mcResult = MonteCarloEngine.Simulate(_mainPrices[^1], finalProbability / 100.0, finalDirection, _mainAtr, adaptiveExpiry.ExpirySeconds, 0.85, 1000);
-
-        // --- PRODUCTION KILL SWITCH ---
-        if (mcResult.KellyRiskPct <= 0 || _wfResult.IsCooloffActive)
+        // --- PRODUCTION KILL SWITCH (Pre-Simulation) ---
+        if (_wfResult.IsCooloffActive)
         {
             finalDirection = "NEUTRAL";
             finalProbability = 0;
-            BotLogger.Warn($"[KillSwitch] Blocked trade for {_asset} {_timeframe}. Kelly: {mcResult.KellyRiskPct}%, WFE Cooloff: {_wfResult.IsCooloffActive}");
+            BotLogger.Warn($"[KillSwitch] Blocked trade for {_asset} {_timeframe} due to WFE Cooloff.");
+        }
+
+        var mcResult = finalDirection == "NEUTRAL" 
+            ? new MonteCarloResult(0, 0, 0, 0, "Blocked", "Blocked", "Trade blocked before simulation")
+            : MonteCarloEngine.Simulate(_mainPrices[^1], finalProbability / 100.0, finalDirection, _mainAtr, adaptiveExpiry.ExpirySeconds, 0.85, 1000);
+
+        if (finalDirection != "NEUTRAL" && mcResult.KellyRiskPct <= 0)
+        {
+            finalDirection = "NEUTRAL";
+            finalProbability = 0;
+            BotLogger.Warn($"[KillSwitch] Blocked trade for {_asset} {_timeframe} due to Kelly Risk <= 0.");
         }
 
         string orderFlowDir = _orderFlowResult.ScoreContribution > 0 ? "BUY" : _orderFlowResult.ScoreContribution < 0 ? "PUT" : "NEUTRAL";

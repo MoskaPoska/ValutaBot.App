@@ -35,10 +35,24 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         else if (prices != null && prices.Length > 0)
         {
             DateTime startTime = DateTime.UtcNow - interval * prices.Length;
+            decimal lastValidPrice = (decimal)(double.IsNaN(prices[0]) || double.IsInfinity(prices[0]) ? 0.0 : prices[0]);
+
             for (int i = 0; i < prices.Length; i++)
             {
-                decimal p = (decimal)prices[i];
-                decimal v = (volumes != null && i < volumes.Length) ? (decimal)volumes[i] : 1.0m;
+                double currentP = prices[i];
+                if (double.IsNaN(currentP) || double.IsInfinity(currentP))
+                {
+                    // Fallback to last valid price to prevent decimal cast OverflowException
+                    currentP = (double)lastValidPrice;
+                }
+                
+                decimal p = (decimal)currentP;
+                lastValidPrice = p;
+
+                decimal v = (volumes != null && i < volumes.Length) 
+                    ? (double.IsNaN(volumes[i]) || double.IsInfinity(volumes[i]) ? 1.0m : (decimal)volumes[i]) 
+                    : 1.0m;
+
                 yield return new Quote
                 {
                     Date = startTime + interval * i,
