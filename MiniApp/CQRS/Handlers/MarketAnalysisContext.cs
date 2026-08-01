@@ -227,7 +227,11 @@ internal class MarketAnalysisContext
                 var regime = ContinuousStateEngine.EvaluateContinuousState(_mainPrices, _asset, _timeframe).VelocityRegime;
                 _llmReport = llmService.GenerateMarketSummary(_asset, regime, prediction, prediction.ConsensusPrediction, prediction.ConsensusPrediction, prediction.ConsensusPrediction);
             }
-            catch (Exception ex) { Console.WriteLine($"[Native ML Warning] {ex.Message}"); }
+            catch (Exception ex) 
+            { 
+                Console.WriteLine($"[Native ML Warning] {ex.GetType().Name}: {ex.Message}");
+                _llmReport = $"⚠️ ML-движок недоступен: {ex.GetType().Name} — {ex.Message}";
+            }
         }
 
         if (Math.Abs(_newsResult.score) > 0.1)
