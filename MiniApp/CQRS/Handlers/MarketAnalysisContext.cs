@@ -225,7 +225,7 @@ internal class MarketAnalysisContext
 
                 var llmService = new LlmReportingService();
                 var regime = ContinuousStateEngine.EvaluateContinuousState(_mainPrices, _asset, _timeframe).VelocityRegime;
-                _llmReport = llmService.GenerateMarketSummary(_asset, regime, prediction.AverageProbability, prediction.ConsensusPrediction, prediction.ConsensusPrediction, prediction.ConsensusPrediction);
+                _llmReport = llmService.GenerateMarketSummary(_asset, regime, prediction, prediction.ConsensusPrediction, prediction.ConsensusPrediction, prediction.ConsensusPrediction);
             }
             catch (Exception ex) { Console.WriteLine($"[Native ML Warning] {ex.Message}"); }
         }

@@ -48,24 +48,30 @@ namespace ValutaBot.Tests
         {
             // Arrange
             var llmService = new LlmReportingService();
-            
+            var dummyPrediction = new EnsemblePrediction 
+            {
+                ConsensusPrediction = true,
+                AverageProbability = 0.85f,
+            };
+            dummyPrediction.ModelProbabilities["LightGBM"] = 0.90f;
+            dummyPrediction.ModelProbabilities["FastTree"] = 0.85f;
+            dummyPrediction.ModelProbabilities["FastForest"] = 0.80f;
+
             // Act
             string report = llmService.GenerateMarketSummary(
                 asset: "BTCUSDT", 
-                regime: "Trend (Bullish)", 
-                lightGbmProb: 0.85f, 
+                regime: "Uptrend", 
+                mlPrediction: dummyPrediction, 
                 l1IsBuy: true, 
                 l2IsBuy: true, 
-                l3IsBuy: false
-            );
+                l3IsBuy: true);
 
             // Assert
-            Assert.NotNull(report);
             Assert.Contains("BTCUSDT", report);
-            Assert.Contains("85%", report);
-            Assert.Contains("2/3", report);
-            Assert.Contains("ЛОНГ", report);
-            _output.WriteLine($"[LLM Test] Output:\n{report}");
+            Assert.Contains("90%", report);
+            Assert.Contains("ВВЕРХ", report);
+            Assert.Contains("3/3", report);
+            _output.WriteLine(report);
         }
     }
 }

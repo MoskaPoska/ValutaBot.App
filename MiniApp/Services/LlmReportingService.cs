@@ -4,32 +4,31 @@ namespace ValutaBot.App.MiniApp.Services
 {
     public class LlmReportingService
     {
-        // In a real production scenario, this would inject an HttpClient 
-        // and send a request to OpenAI / Anthropic APIs.
-        // For now, we simulate the LLM generation based on parameters.
-        
-        public string GenerateMarketSummary(string asset, string regime, float lightGbmProb, bool l1IsBuy, bool l2IsBuy, bool l3IsBuy)
+        public string GenerateMarketSummary(string asset, string regime, Engines.ML.EnsemblePrediction mlPrediction, bool l1IsBuy, bool l2IsBuy, bool l3IsBuy)
         {
             var trendStr = regime.Contains("Trend") ? "Наблюдается ярко выраженное трендовое движение." : 
                            regime.Contains("Flat") ? "Рынок находится в стадии накопления (Флэт)." : 
                            "На рынке зафиксирована высокая энтропия (Хаос).";
 
-            var probabilityStr = lightGbmProb > 0.5f ? 
-                $"LightGBM оценивает вероятность роста в {Math.Round(lightGbmProb * 100, 1)}%." : 
-                $"LightGBM оценивает вероятность падения в {Math.Round((1 - lightGbmProb) * 100, 1)}%.";
+            var direction = mlPrediction.ConsensusPrediction ? "ВВЕРХ 🟢" : "ВНИЗ 🔴";
+            float lgbmProb = mlPrediction.ModelProbabilities.GetValueOrDefault("LightGBM", 0.5f);
+            float treeProb = mlPrediction.ModelProbabilities.GetValueOrDefault("FastTree", 0.5f);
+            float forestProb = mlPrediction.ModelProbabilities.GetValueOrDefault("FastForest", 0.5f);
 
-            var direction = lightGbmProb > 0.5f ? "ЛОНГ" : "ШОРТ";
-            
             var confluence = 0;
-            if (l1IsBuy == (lightGbmProb > 0.5f)) confluence++;
-            if (l2IsBuy == (lightGbmProb > 0.5f)) confluence++;
-            if (l3IsBuy == (lightGbmProb > 0.5f)) confluence++;
+            if (l1IsBuy == mlPrediction.ConsensusPrediction) confluence++;
+            if (l2IsBuy == mlPrediction.ConsensusPrediction) confluence++;
+            if (l3IsBuy == mlPrediction.ConsensusPrediction) confluence++;
 
-            string llmOutput = $"🤖 **Квантовый Отчет (LLM Analysis)**\n\n" +
+            string llmOutput = $"🤖 **Нейро-Анализ (Ансамбль ML)**\n\n" +
                                $"Анализ актива **{asset}** завершен. {trendStr}\n\n" +
-                               $"🧠 **ML-Модель:** {probabilityStr}\n" +
-                               $"📡 **Confluence Matrix (Совпадение сигналов):** {confluence}/3 уровней подтверждают прогноз.\n\n" +
-                               $"*Рекомендация:* Рассмотреть позицию в **{direction}**, с обязательным контролем риск-менеджмента, так как ML-модель обнаружила {(lightGbmProb > 0.7 || lightGbmProb < 0.3 ? "сильную нелинейную зависимость в Order Flow" : "умеренный дисбаланс объемов")}.";
+                               $"🧠 **Голосование моделей:**\n" +
+                               $"- LightGBM: {Math.Round(lgbmProb * 100, 1)}% ({(lgbmProb > 0.5f ? "ВВЕРХ" : "ВНИЗ")})\n" +
+                               $"- FastTree: {Math.Round(treeProb * 100, 1)}% ({(treeProb > 0.5f ? "ВВЕРХ" : "ВНИЗ")})\n" +
+                               $"- FastForest: {Math.Round(forestProb * 100, 1)}% ({(forestProb > 0.5f ? "ВВЕРХ" : "ВНИЗ")})\n" +
+                               $"\n✅ **Консенсус:** {direction} (Уверенность: {Math.Round(mlPrediction.AverageProbability * 100, 1)}%)\n\n" +
+                               $"📡 **Тех. Совпадение (Confluence):** {confluence}/3 уровней подтверждают ML-прогноз.\n\n" +
+                               $"*Рекомендация:* Рассмотреть позицию {direction}, с обязательным контролем риск-менеджмента.";
 
             return llmOutput;
         }
