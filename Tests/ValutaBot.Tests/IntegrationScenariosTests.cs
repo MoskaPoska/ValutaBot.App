@@ -222,6 +222,114 @@ namespace ValutaBot.Tests
             Assert.Contains("\"wfIsCooloffActive\":true", resultStr);
         }
 
+        [Fact]
+        public async Task TA_vs_SMC_BullTrap_ShouldOverrideTaWithSmc()
+        {
+            // Arrange
+            _output.WriteLine("[Test] Starting 'Бычья ловушка' (TA vs SMC Conflict) scenario...");
+
+            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+
+            // Mock Binance to return a Bull Trap pattern
+            string binanceResponse = GenerateBullTrapJson(150);
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(binanceResponse)
+                });
+            
+            var httpClient = new HttpClient(mockHandler.Object);
+            var mockFactory = new Mock<IHttpClientFactory>();
+            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+            MiniAppController.HttpFactory = mockFactory.Object;
+
+            var taEngine = new TechnicalAnalysisEngine();
+            var wfEngine = new WalkForwardValidationEngine(taEngine);
+            var cmEngine = new ConfluenceMatrixEngine(MarketDataFetcher.Instance, taEngine);
+            var aeEngine = new AdaptiveExpiryEngine();
+            var fetcher = MarketDataFetcher.Instance;
+
+            var handler = new GetMarketAnalysisQueryHandler(cmEngine, aeEngine, wfEngine, fetcher, taEngine);
+            var context = new MarketAnalysisContext(handler, "EURUSD", "m5");
+
+            // Act
+            var resultObj = await context.ExecuteAnalysisAsync();
+            var resultStr = System.Text.Json.JsonSerializer.Serialize(resultObj);
+            
+            _output.WriteLine($"[Test] Final Result String: {resultStr}");
+
+            // Assert
+            // The RSI will be extremely high (TA = BUY), but SMC detects a Bearish Order Block and Bearish Sweep.
+            // SMC should override TA or at least drag the probability down heavily, resulting in a PUT or NEUTRAL.
+            Assert.DoesNotContain("\"direction\":\"BUY\"", resultStr); // Must not be fooled by the trap!
+            Assert.Contains("Bearish Sweep", resultStr); // LLM Report or SMC Reasoning should mention it
+        }
+
+        private string GenerateBullTrapJson(int count)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("[");
+            double price = 1.1000;
+            for (int i = 0; i < count; i++)
+            {
+                if (i < count - 4)
+                {
+                    // Aggressive uptrend to force RSI > 80 (Strong TA BUY)
+                    double open = price;
+                    price += 0.0010;
+                    double close = price;
+                    double high = close + 0.0002;
+                    double low = open - 0.0002;
+                    sb.Append($"[1600000000000,\"{open}\",\"{high}\",\"{low}\",\"{close}\",\"100\",1600000059999,\"0\",100,\"0\",\"0\",\"0\"]");
+                }
+                else if (i == count - 4) // c1: The peak (Bullish candle)
+                {
+                    double open = price;
+                    double high = price + 0.0050; // Massive peak
+                    double close = price + 0.0040;
+                    double low = open - 0.0001;
+                    price = close;
+                    sb.Append($"[1600000000000,\"{open}\",\"{high}\",\"{low}\",\"{close}\",\"100\",1600000059999,\"0\",100,\"0\",\"0\",\"0\"]");
+                }
+                else if (i == count - 3) // c2: Bearish Sweep & Displacement
+                {
+                    double open = price;
+                    double high = price + 0.0020; // Sweep higher high
+                    double close = price - 0.0100; // Massive drop (Displacement)
+                    double low = close - 0.0010;
+                    price = close;
+                    sb.Append($"[1600000000000,\"{open}\",\"{high}\",\"{low}\",\"{close}\",\"100\",1600000059999,\"0\",100,\"0\",\"0\",\"0\"]");
+                }
+                else if (i == count - 2) // c3: FVG Gap confirmation
+                {
+                    double open = price;
+                    double close = price - 0.0050; // Continues down, leaving a gap between c1 Low and c3 High
+                    double high = open + 0.0005;
+                    double low = close - 0.0005;
+                    price = close;
+                    sb.Append($"[1600000000000,\"{open}\",\"{high}\",\"{low}\",\"{close}\",\"100\",1600000059999,\"0\",100,\"0\",\"0\",\"0\"]");
+                }
+                else // c4: Current candle
+                {
+                    double open = price;
+                    double close = price;
+                    double high = open + 0.0001;
+                    double low = open - 0.0001;
+                    sb.Append($"[1600000000000,\"{open}\",\"{high}\",\"{low}\",\"{close}\",\"100\",1600000059999,\"0\",100,\"0\",\"0\",\"0\"]");
+                }
+
+                if (i < count - 1) sb.Append(",");
+            }
+            sb.Append("]");
+            return sb.ToString();
+        }
+
         private string GenerateMockTwelveDataJson(int count)
         {
             var sb = new System.Text.StringBuilder();
