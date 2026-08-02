@@ -364,10 +364,10 @@ public static partial class MiniAppUI
             safeSetStyle('resultsTabBar', 'display', 'none');
             safeSetStyle('resultsGrid', 'display', 'none');
             safeSetStyle('tabContentAI', 'display', 'none');
-            safeSetStyle('levelsBar', 'display', 'none');
-            safeSetStyle('mlCard', 'display', 'none');
-            safeSetStyle('claudeCard', 'display', 'none');
-            safeSetStyle('lgbmCard', 'display', 'none');
+            safeSetStyle('mlEnsembleCard', 'display', 'none');
+            safeSetStyle('confluenceCard', 'display', 'none');
+            safeSetStyle('mcCard', 'display', 'none');
+            safeSetStyle('reasoningCard', 'display', 'none');
             safeSetStyle('newsCard', 'display', 'none');
             safeSetStyle('welcomeSec', 'display', 'flex');
             safeSetStyle('topCategories', 'display', 'flex');
@@ -627,27 +627,64 @@ public static partial class MiniAppUI
                     }
                     if (data.tfConflict) {
                         const rp = document.getElementById('resProb');
-                        if (rp) rp.innerText += ' \u26A0\uFE0F';
+                        if (rp) rp.innerText += ' ⚠️';
                     }
 
-                    if (data.claudeDirection && data.claudeReasoning) {
-                        const cc = document.getElementById('claudeCard');
-                        if (cc) cc.style.display = 'block';
-                        const badge = document.getElementById('aiModelBadge');
-                        if (badge) badge.innerText = data.aiModel ? '🧠 ' + data.aiModel : '🧠 AI недоступен';
-                        const senEl = document.getElementById('claudeSentiment');
-                        if (senEl) {
-                            senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
-                            senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
+                    // ── ML Ensemble Card ──
+                    if (data.llmReport && data.llmReport !== 'LLM-сводка загружается...') {
+                        const mlCard = document.getElementById('mlEnsembleCard');
+                        if (mlCard) mlCard.style.display = 'block';
+                        const badge = document.getElementById('mlEnsembleBadge');
+                        const isEnabled = data.lgbmModelVersion && data.lgbmModelVersion !== 'disabled';
+                        if (badge) {
+                            badge.innerText = isEnabled ? '🧠 ML Ансамбль' : '⚠️ ML';
+                            badge.style.background = isEnabled ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)' : 'rgba(100,100,100,0.4)';
                         }
-                        let reasoningText = data.claudeReasoning;
-                        if (data.claudeProbability && data.claudeDirection !== 'NEUTRAL') {
-                            reasoningText += ` (вероятность: ${data.claudeProbability}%)`;
+                        const dir = document.getElementById('mlEnsembleDir');
+                        if (dir && data.lgbmDirection) {
+                            dir.innerText = data.lgbmDirection === 'BUY' ? 'ВВЕРХ' : data.lgbmDirection === 'PUT' ? 'ВНИЗ' : '—';
+                            dir.style.color = data.lgbmDirection === 'BUY' ? '#a78bfa' : data.lgbmDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
                         }
-                        const crEl = document.getElementById('claudeReasoning');
-                        if (crEl) crEl.innerText = reasoningText;
+                        const rep = document.getElementById('mlEnsembleReport');
+                        if (rep) rep.innerText = data.llmReport;
                     }
 
+                    // ── Confluence + Win Rate Card ──
+                    const confCard = document.getElementById('confluenceCard');
+                    if (confCard) confCard.style.display = 'block';
+                    const confLabel = document.getElementById('confluenceLabel');
+                    if (confLabel) confLabel.innerText = data.confluenceLabel || 'Анализ';
+                    const goldenBadge = document.getElementById('goldenSetupBadge');
+                    if (goldenBadge) goldenBadge.style.display = data.goldenSetup ? 'inline-block' : 'none';
+                    const wrAssetEl = document.getElementById('winRateAsset');
+                    if (wrAssetEl) {
+                        if (data.winRateAsset != null) {
+                            const pct = Math.round(data.winRateAsset * 100);
+                            wrAssetEl.innerText = pct + '%';
+                            wrAssetEl.style.color = pct >= 55 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#f43f5e';
+                        } else {
+                            wrAssetEl.innerText = 'нет данных';
+                            wrAssetEl.style.color = 'var(--subtext)';
+                        }
+                    }
+                    const wrOverallEl = document.getElementById('winRateOverall');
+                    if (wrOverallEl) {
+                        if (data.winRateOverall != null) {
+                            const pct = Math.round(data.winRateOverall * 100);
+                            wrOverallEl.innerText = pct + '%';
+                            wrOverallEl.style.color = pct >= 55 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#f43f5e';
+                        } else {
+                            wrOverallEl.innerText = 'нет данных';
+                        }
+                    }
+                    const sigCountEl = document.getElementById('signalsCount');
+                    if (sigCountEl) {
+                        const verified = data.signalsVerified || 0;
+                        const pending = data.signalsPending || 0;
+                        sigCountEl.innerText = verified + (pending > 0 ? ' (+' + pending + ')' : '');
+                    }
+
+                    // ── Monte Carlo & Risk Card ──
                     if (data.evLabel || data.kellyLabel) {
                         const mcCard = document.getElementById('mcCard');
                         if (mcCard) mcCard.style.display = 'block';
@@ -663,7 +700,44 @@ public static partial class MiniAppUI
                         const kellyEl = document.getElementById('mcKelly');
                         if (kellyEl) {
                             kellyEl.innerText = data.kellyLabel || '--';
+                            kellyEl.style.color = (data.kellyRiskPct && data.kellyRiskPct > 0) ? '#f59e0b' : '#ff1744';
                         }
+                        const wfEl = document.getElementById('wfStatus');
+                        if (wfEl) {
+                            if (data.wfIsCooloffActive) {
+                                wfEl.innerText = 'Охлаждение';
+                                wfEl.style.color = '#ff1744';
+                            } else {
+                                wfEl.innerText = 'В норме';
+                                wfEl.style.color = '#10b981';
+                            }
+                        }
+                    }
+
+                    // ── Reasoning Card ──
+                    if (data.claudeReasoning) {
+                        const rCard = document.getElementById('reasoningCard');
+                        if (rCard) rCard.style.display = 'block';
+                        const rText = document.getElementById('reasoningText');
+                        if (rText) rText.innerText = data.claudeReasoning;
+                        const rDir = document.getElementById('reasoningDir');
+                        if (rDir) {
+                            rDir.innerText = data.direction === 'BUY' ? 'ВВЕРХ' : data.direction === 'PUT' ? 'ВНИЗ' : 'НЕЙТРАЛЬНО';
+                            rDir.style.color = data.direction === 'BUY' ? '#a78bfa' : data.direction === 'PUT' ? '#f472b6' : 'var(--dim)';
+                        }
+                    }
+
+                    // ── News Card ──
+                    if (data.newsScore && Math.abs(data.newsScore) > 0.1 && data.newsSummary) {
+                        const nCard = document.getElementById('newsCard');
+                        if (nCard) nCard.style.display = 'block';
+                        const nSent = document.getElementById('newsSentimentEl');
+                        if (nSent) {
+                            nSent.innerText = data.newsSentiment || '--';
+                            nSent.style.color = data.newsScore > 0 ? '#00e676' : '#ff1744';
+                        }
+                        const nSum = document.getElementById('newsSummaryEl');
+                        if (nSum) nSum.innerText = data.newsSummary;
                     }
 
                     const probBars = pricesToBars(data.chartData, 16);
@@ -673,33 +747,6 @@ public static partial class MiniAppUI
 
                     const durBars = pricesToBars(data.chartData, 8);
                     if (durBars.length) renderMiniChart('durChart', durBars, '');
-
-                    if(data.levels) {
-                        const L = data.levels;
-                        const renderLevel = (id, lv) => {
-                            const resEl = document.getElementById(id);
-                            if (resEl) {
-                                resEl.className = `result ${lv.direction.toLowerCase()}`;
-                                resEl.innerText = `${lv.direction === 'NEUTRAL' ? '\u2014' : lv.direction}`;
-                            }
-                            const lineEl = document.getElementById(id.replace('res', ''));
-                            if (lineEl) {
-                                lineEl.style.display = 'flex';
-                            }
-                        };
-                        renderLevel('ll1res', L.level1);
-                        renderLevel('ll2res', L.level2);
-                        renderLevel('ll3res', L.level3);
-                        const tvEl = document.getElementById('ltotalVotes');
-                        if (tvEl) tvEl.innerHTML = `<span style='color:var(--green)'>\u2191 ${data.levels.level1.buy + data.levels.level2.buy + data.levels.level3.buy}</span> / <span style='color:var(--red)'>\u2193 ${data.levels.level1.put + data.levels.level2.put + data.levels.level3.put}</span>`;
-                        const td = document.getElementById('ltotalDir');
-                        if (td) {
-                            td.className = `dir ${data.direction.toLowerCase()}`;
-                            td.innerText = data.direction === 'BUY' ? '\u2191 ВВЕРХ' : data.direction === 'PUT' ? '\u2193 ВНИЗ' : '\u2014 НЕЙТРАЛЬНО';
-                        }
-                        const lbEl = document.getElementById('levelsBar');
-                        if (lbEl) lbEl.style.display = 'block';
-                    }
 
                     const tabReg = document.getElementById('resultsTabBar');
                     if (tabReg) tabReg.style.display = 'flex';

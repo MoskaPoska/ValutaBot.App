@@ -133,6 +133,7 @@ public static partial class MiniAppUI
             </div>
         </div>
 
+        <!-- Top 3 result cards (always visible after analysis) -->
         <div class='results-grid' id='resultsGrid' style='display:none'>
             <div class='res-card'>
                 <div class='res-label'>Вероятность</div>
@@ -165,26 +166,48 @@ public static partial class MiniAppUI
             </div>
         </div>
 
-        <!-- Tab 2: AI Details and Technical Levels -->
+        <!-- ═══ TAB: ИИ Аналитика ═══ -->
         <div id='tabContentAI' style='display:none'>
-            <!-- System Breakdown Cards (Claude AI + LightGBM ML) -->
-            <div class='news-card' id='claudeCard' style='display:none;margin-bottom:8px'>
+
+            <!-- 1. ML Ensemble Card -->
+            <div class='news-card' id='mlEnsembleCard' style='display:none;margin-bottom:8px'>
                 <div class='news-header'>
-                    <span class='news-badge' id='aiModelBadge'>🧠 AI</span>
-                    <span class='news-label'>анализ графика</span>
-                    <span class='news-sentiment' id='claudeSentiment'>--</span>
+                    <span class='news-badge' id='mlEnsembleBadge'>🧠 ML</span>
+                    <span class='news-label'>Ансамбль моделей</span>
+                    <span class='news-sentiment' id='mlEnsembleDir'>--</span>
                 </div>
-                <div class='news-summary' id='claudeReasoning' style='max-height:140px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext);white-space:pre-wrap'></div>
+                <div class='news-summary' id='mlEnsembleReport' style='max-height:160px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.5;color:var(--subtext);white-space:pre-wrap'></div>
             </div>
 
+            <!-- 2. Confluence + Win Rate Card -->
+            <div class='ml-card' id='confluenceCard' style='display:none;margin-bottom:8px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.25)'>
+                <div class='ml-header' style='display:flex;justify-content:space-between;align-items:center'>
+                    <div><span class='ml-badge' style='background:linear-gradient(135deg,#8b5cf6,#6d28d9)' id='confluenceBadge'>📡 Конфлюенс</span><span class='ml-label' id='confluenceLabel'>--</span></div>
+                    <span id='goldenSetupBadge' style='display:none;font-size:9px;color:#ffd600;font-weight:700;background:rgba(255,214,0,0.1);border:1px solid rgba(255,214,0,0.3);padding:2px 6px;border-radius:8px'>⭐ GOLDEN</span>
+                </div>
+                <div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;padding:4px 0'>
+                    <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
+                        <div style='font-size:9px;color:var(--subtext)'>Точность (актив)</div>
+                        <div style='font-size:12px;font-weight:700;margin-top:2px' id='winRateAsset'>--</div>
+                    </div>
+                    <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
+                        <div style='font-size:9px;color:var(--subtext)'>Точность (общая)</div>
+                        <div style='font-size:12px;font-weight:700;color:var(--subtext);margin-top:2px' id='winRateOverall'>--</div>
+                    </div>
+                    <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
+                        <div style='font-size:9px;color:var(--subtext)'>Сигналов</div>
+                        <div style='font-size:12px;font-weight:700;color:var(--subtext);margin-top:2px' id='signalsCount'>--</div>
+                    </div>
+                </div>
+            </div>
 
-            <!-- Monte Carlo & Risk Management Card -->
+            <!-- 3. Monte Carlo & Risk Card -->
             <div class='ml-card' id='mcCard' style='display:none;margin-bottom:8px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.25)'>
                 <div class='ml-header' style='display:flex;justify-content:space-between;align-items:center'>
                     <div><span class='ml-badge' style='background:linear-gradient(135deg,#10b981,#059669)'>🎰 Монте-Карло</span><span class='ml-label'>Риск &amp; Матожидание</span></div>
                     <span style='font-size:9px;color:#10b981;font-weight:700' id='mcSimCount'>1,000 прогонов</span>
                 </div>
-                <div style='display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;padding:4px 0'>
+                <div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;padding:4px 0'>
                     <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
                         <div style='font-size:9px;color:var(--subtext)'>Матожидание (EV)</div>
                         <div style='font-size:11.5px;font-weight:700;color:#10b981;margin-top:2px' id='mcEv'>--</div>
@@ -193,11 +216,15 @@ public static partial class MiniAppUI
                         <div style='font-size:9px;color:var(--subtext)'>Риск по Келли</div>
                         <div style='font-size:11.5px;font-weight:700;color:#f59e0b;margin-top:2px' id='mcKelly'>--</div>
                     </div>
+                    <div style='background:rgba(255,255,255,0.03);padding:6px;border-radius:6px;text-align:center'>
+                        <div style='font-size:9px;color:var(--subtext)'>Walk-Forward</div>
+                        <div style='font-size:11.5px;font-weight:700;color:#10b981;margin-top:2px' id='wfStatus'>--</div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Indicators Grid -->
-            <div class='results-grid' style='margin-bottom:12px;margin-top:4px'>
+            <!-- 4. Indicators Grid -->
+            <div class='results-grid' style='margin-bottom:8px;margin-top:4px'>
                 <div class='res-card'>
                     <div class='res-label'>RSI</div>
                     <div class='res-value' id='resRsi' style='color:var(--subtext);font-size:16px'>--</div>
@@ -215,21 +242,26 @@ public static partial class MiniAppUI
                 </div>
             </div>
 
-            <div class='ml-card' id='mlCard' style='display:none'>
-                <div class='ml-header'><span class='ml-badge'>🧠 ML</span><span class='ml-label'>Прогноз нейросети</span></div>
-                <div class='ml-body'>
-                    <span class='ml-dir' id='mlDir'>--</span>
-                    <span class='ml-conf' id='mlConf'>--%</span>
+            <!-- 5. Reasoning Card (consensus analysis text) -->
+            <div class='news-card' id='reasoningCard' style='display:none;margin-bottom:8px'>
+                <div class='news-header'>
+                    <span class='news-badge' style='background:linear-gradient(135deg,#0ea5e9,#2563eb)'>📊 Математический анализ</span>
+                    <span class='news-label'>Анализ графика</span>
+                    <span class='news-sentiment' id='reasoningDir'>--</span>
                 </div>
+                <div class='news-summary' id='reasoningText' style='max-height:120px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext);white-space:pre-wrap'></div>
             </div>
 
-            <div class='levels-bar' id='levelsBar' style='margin-top:10px'>
-                <div class='level-line' id='ll1'><span class='tag l1'>L1</span><span class='info'>Индикаторы</span><span class='result' id='ll1res'></span></div>
-                <div class='level-line' id='ll2'><span class='tag l2'>L2</span><span class='info'>S/R + Объём</span><span class='result' id='ll2res'></span></div>
-                <div class='level-line' id='ll3'><span class='tag l3'>L3</span><span class='info'>Мульти-ТФ</span><span class='result' id='ll3res'></span></div>
-                <div class='levels-divider'></div>
-                <div class='levels-total'><span id='ltotalVotes'>--</span><span class='dir' id='ltotalDir'>--</span></div>
+            <!-- 6. News Card (shown only when news is active) -->
+            <div class='news-card' id='newsCard' style='display:none;margin-bottom:8px'>
+                <div class='news-header'>
+                    <span class='news-badge' style='background:linear-gradient(135deg,#f59e0b,#d97706)'>📰 Новости</span>
+                    <span class='news-label'>Фундаментальный анализ</span>
+                    <span class='news-sentiment' id='newsSentimentEl'>--</span>
+                </div>
+                <div class='news-summary' id='newsSummaryEl' style='max-height:100px;overflow-y:auto;scrollbar-width:thin;padding-right:4px;font-size:10.5px;line-height:1.45;color:var(--subtext)'></div>
             </div>
+
         </div>
     </div>
     ";
