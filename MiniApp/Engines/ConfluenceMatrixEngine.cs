@@ -112,7 +112,7 @@ public class ConfluenceMatrixEngine(MarketDataFetcher fetcher, IMarketAnalyzer m
     {
         return tf.ToLower() switch
         {
-            "s3" or "s5" or "s10" or "s15" or "s30" => ("s5",  "s30", "m1",  "m5"),
+            "s3" or "s5" or "s10" or "s15" or "s30" => ("m1",  "m3", "m5",  "m15"),
             "m1"                                    => ("s30", "m1",  "m5",  "h1"),
             "m2" or "m3"                            => ("m1",  "m3",  "m15", "h1"),
             "m5"                                    => ("m1",  "m5",  "m15", "h1"),

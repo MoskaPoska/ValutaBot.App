@@ -47,9 +47,9 @@ public static class MonteCarloEngine
         double directionalDrift = (driftSign * (prob - 0.5) * 2.0 * totalVol) + itoDrift;
 
         // Merton Jump Diffusion Parameters (Fat Tails)
-        double jumpIntensity = 0.5; // Average 0.5 jumps per time unit (e.g. news spikes)
+        // Set a capped expected jumps so higher timeframes don't get mathematically crushed.
+        double expectedJumps = 0.15; // 15% chance of a black swan jump per simulation, regardless of timeframe
         double jumpVol = totalVol * 3.0; // Jumps are 3x more volatile than normal Brownian motion
-        double expectedJumps = jumpIntensity * (totalTimeStep / 60.0);
 
         int successCount = 0;
         var rand = Random.Shared;

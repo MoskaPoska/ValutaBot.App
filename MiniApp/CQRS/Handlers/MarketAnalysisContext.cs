@@ -371,13 +371,6 @@ internal class MarketAnalysisContext
             ? new MonteCarloResult(0, 0, 0, 0, "Blocked", "Blocked", "Trade blocked before simulation")
             : MonteCarloEngine.Simulate(_mainPrices[^1], finalProbability / 100.0, finalDirection, _mainAtr, adaptiveExpiry.ExpirySeconds, 0.85, 1000);
 
-        if (finalDirection != "NEUTRAL" && mcResult.KellyRiskPct <= 0)
-        {
-            finalDirection = "NEUTRAL";
-            finalProbability = 0;
-            BotLogger.Warn($"[KillSwitch] Blocked trade for {_asset} {_timeframe} due to Kelly Risk <= 0.");
-        }
-
         string orderFlowDir = _orderFlowResult.ScoreContribution > 0 ? "BUY" : _orderFlowResult.ScoreContribution < 0 ? "PUT" : "NEUTRAL";
         int smcScore = 0; // simplified for tracker
         string smcDir = smcScore > 0 ? "BUY" : smcScore < 0 ? "PUT" : "NEUTRAL";

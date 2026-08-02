@@ -38,6 +38,7 @@ public class MarketDataFetcher
     
     // Rate limit protection cache for HTTP fallback
     private static readonly ConcurrentDictionary<string, (DateTime Expiration, MiniAppController.OhlcCandle[] Data)> _klinesCache = new();
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fetchLocks = new();
 
     /* removed pipeline */ 
 
@@ -100,26 +101,41 @@ public class MarketDataFetcher
     private static async Task<MiniAppController.OhlcCandle[]?> FetchBinanceKlinsAsync(string symbol, string interval, int limit)
     {
         string cacheKey = $"{symbol}_{interval}_{limit}";
-        if (_klinesCache.TryGetValue(cacheKey, out var cached))
+        if (_klinesCache.TryGetValue(cacheKey, out var cached) && DateTime.UtcNow < cached.Expiration)
         {
-            if (DateTime.UtcNow < cached.Expiration) return cached.Data;
+            return cached.Data;
         }
 
-        string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
-        
-        var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(MiniAppController.HttpFactory!.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
-        
-        if (arr == null || arr.Length == 0) return Array.Empty<MiniAppController.OhlcCandle>();
-
-        var result = new MiniAppController.OhlcCandle[arr.Length];
-        for (int i = 0; i < arr.Length; i++)
+        var semaphore = _fetchLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync();
+        try
         {
-            var k = arr[i];
-            result[i] = new MiniAppController.OhlcCandle(k[1], k[2], k[3], k[4], k[5], DateTimeOffset.FromUnixTimeMilliseconds((long)k[0]).UtcDateTime);
+            // Double check lock
+            if (_klinesCache.TryGetValue(cacheKey, out cached) && DateTime.UtcNow < cached.Expiration)
+            {
+                return cached.Data;
+            }
+
+            string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
+            
+            var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(MiniAppController.HttpFactory!.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
+            
+            if (arr == null || arr.Length == 0) return Array.Empty<MiniAppController.OhlcCandle>();
+
+            var result = new MiniAppController.OhlcCandle[arr.Length];
+            for (int i = 0; i < arr.Length; i++)
+            {
+                var k = arr[i];
+                result[i] = new MiniAppController.OhlcCandle(k[1], k[2], k[3], k[4], k[5], DateTimeOffset.FromUnixTimeMilliseconds((long)k[0]).UtcDateTime);
+            }
+            
+            _klinesCache[cacheKey] = (DateTime.UtcNow.AddSeconds(2), result);
+            return result;
         }
-        
-        _klinesCache[cacheKey] = (DateTime.UtcNow.AddSeconds(2), result);
-        return result;
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     public async Task<(double[] prices, double[] volumes)> FetchBinanceCandles(string symbol, string interval, int limit = 50)
