@@ -66,7 +66,8 @@ def to_twelvedata_symbol(symbol: str) -> str:
     return sym
 
 def _interpolate_subminute(m1_candles: List[Dict], interval: str) -> List[Dict]:
-    """Interpolate 1-minute candles into sub-minute steps (s5, s10, s15, s30)."""
+    """Interpolate 1-minute candles into sub-minute steps (s5, s10, s15, s30).
+       Uses a deterministic zig-zag interpolation to prevent injecting white noise."""
     sec = int(interval[1:]) if (interval.startswith("s") and len(interval) > 1) else 60
     if sec >= 60:
         return m1_candles
@@ -74,7 +75,7 @@ def _interpolate_subminute(m1_candles: List[Dict], interval: str) -> List[Dict]:
     sub_per_min = 60 // sec
     interpolated = []
     
-    import random
+    import math
     
     for m in m1_candles:
         start_price = m["open"]
@@ -91,9 +92,11 @@ def _interpolate_subminute(m1_candles: List[Dict], interval: str) -> List[Dict]:
             o = start_price + price_range * frac_start
             c = start_price + price_range * frac_end
             
-            rand_offset = (random.random() - 0.5) * vol_step * 0.5
-            h = max(o, c) + abs(rand_offset)
-            l = min(o, c) - abs(rand_offset)
+            # Deterministic micro-wicks (alternating sine wave pattern instead of random noise)
+            micro_wick = vol_step * 0.25 * math.sin(i * math.pi / 2.0)
+            
+            h = max(o, c) + abs(micro_wick)
+            l = min(o, c) - abs(micro_wick)
             
             h = min(h, high_limit)
             l = max(l, low_limit)
@@ -113,7 +116,7 @@ def _fetch_local_sqlite(symbol: str, interval: str, limit: int) -> List[Dict]:
     if not os.path.exists(db_path):
         return []
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         query = '''
             SELECT OpenTime as openTime, Open as open, High as high, Low as low, Close as close, Volume as volume 
             FROM SubminuteCandles 
@@ -135,7 +138,7 @@ def _fetch_rl_feedback(symbol: str, interval: str) -> List[Dict]:
     if not os.path.exists(db_path):
         return []
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         
         # Check if table exists
         cursor = conn.cursor()
@@ -385,7 +388,7 @@ class ForexPredictor:
 
             # Final model on all data
             final_model = lgb.LGBMClassifier(**LGBM_PARAMS)
-            final_model.fit(X, y, sample_weight=sample_weights, callbacks=[lgb.log_evaluation(period=-1)])
+            final_model.fit(X, y, sample_weight=sample_weights)
 
             version = f"lgbm-v1-{self._key}-{int(time.time())}"
             meta = ModelMeta(

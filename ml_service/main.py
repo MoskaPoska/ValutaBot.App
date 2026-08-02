@@ -281,7 +281,7 @@ def feedback(req: TrainFeedback):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         cursor = conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS OnlineFeedback (
@@ -301,7 +301,19 @@ def feedback(req: TrainFeedback):
         ''', (req.asset, req.timeframe, req.direction, req.entry_price, req.exit_price, int(req.was_win), req.timestamp))
         conn.commit()
         conn.close()
-        return {"status": "ok", "message": "Feedback saved to ValutaTicks.db for RL."}
+        
+        # Trigger online learning immediately!
+        predictor = _get_predictor(req.asset, req.timeframe)
+        if not predictor.is_training:
+            log.info(f"[Online RL] Triggering immediate background retraining for {req.asset} ({req.timeframe})")
+            t = threading.Thread(
+                target=_background_train,
+                args=(req.asset, req.timeframe, None),
+                daemon=True,
+            )
+            t.start()
+            
+        return {"status": "ok", "message": "Feedback saved and online retraining triggered."}
     except Exception as e:
         log.error(f"[Online RL] DB Error: {e}")
         return {"status": "error", "message": str(e)}
