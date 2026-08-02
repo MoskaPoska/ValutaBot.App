@@ -126,7 +126,7 @@ internal class MarketAnalysisContext
 
         try
         {
-            _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_timeframe));
+            _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_timeframe), _limit);
         }
         catch (HttpRequestException)
         {

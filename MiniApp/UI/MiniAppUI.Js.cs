@@ -83,7 +83,11 @@ public static partial class MiniAppUI
             const menuEl = document.getElementById(m);
             if (menuEl) menuEl.classList.toggle('show');
         }
-        let lastPriceVal = 0;
+        let lastPriceVal = 0; catch(e) {}
+                priceSocket = null;
+            }
+            lastPriceVal = 0;
+        }
 
         function updateLivePriceUI(price) {
             const valEl = document.getElementById('livePriceValue');
@@ -301,8 +305,12 @@ public static partial class MiniAppUI
             safeSetStyle('resultsTabBar', 'display', 'none');
             safeSetStyle('resultsGrid', 'display', 'none');
             safeSetStyle('tabContentAI', 'display', 'none');
+            safeSetStyle('levelsBar', 'display', 'none');
             safeSetStyle('mlCard', 'display', 'none');
-            safeSetStyle('llmCard', 'display', 'none');
+            safeSetStyle('claudeCard', 'display', 'none');
+            safeSetStyle('lgbmCard', 'display', 'none');
+            safeSetStyle('newsCard', 'display', 'none');
+            safeSetStyle('radarCard', 'display', 'none');
             safeSetStyle('welcomeSec', 'display', 'flex');
             safeSetStyle('topCategories', 'display', 'flex');
             document.querySelectorAll('.res-card').forEach(c => c.classList.remove('flash'));
@@ -636,18 +644,22 @@ public static partial class MiniAppUI
                         if (rp) rp.innerText += ' \u26A0\uFE0F';
                     }
 
-                    if (data.llmReport || data.claudeReasoning) {
-                        const cc = document.getElementById('llmCard');
+                    if (data.claudeDirection && data.claudeReasoning) {
+                        const cc = document.getElementById('claudeCard');
                         if (cc) cc.style.display = 'block';
                         const badge = document.getElementById('aiModelBadge');
-                        if (badge) badge.innerText = '🧠 ' + (data.lgbmModelVersion || 'LLM Agent');
-                        const senEl = document.getElementById('llmSentiment');
+                        if (badge) badge.innerText = data.aiModel ? '🧠 ' + data.aiModel : '🧠 AI недоступен';
+                        const senEl = document.getElementById('claudeSentiment');
                         if (senEl) {
-                            senEl.innerText = data.lgbmDirection === 'BUY' ? 'ВВЕРХ' : data.lgbmDirection === 'PUT' ? 'ВНИЗ' : '—';
-                            senEl.style.color = data.lgbmDirection === 'BUY' ? '#a78bfa' : data.lgbmDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
+                            senEl.innerText = data.claudeDirection === 'BUY' ? 'ВВЕРХ' : data.claudeDirection === 'PUT' ? 'ВНИЗ' : '—';
+                            senEl.style.color = data.claudeDirection === 'BUY' ? '#a78bfa' : data.claudeDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
                         }
-                        const crEl = document.getElementById('llmReasoning');
-                        if (crEl) crEl.innerHTML = data.llmReport || data.claudeReasoning;
+                        let reasoningText = data.claudeReasoning;
+                        if (data.claudeProbability && data.claudeDirection !== 'NEUTRAL') {
+                            reasoningText += ` (вероятность: ${data.claudeProbability}%)`;
+                        }
+                        const crEl = document.getElementById('claudeReasoning');
+                        if (crEl) crEl.innerText = reasoningText;
                     }
 
                     if (data.evLabel || data.kellyLabel) {
@@ -691,7 +703,35 @@ public static partial class MiniAppUI
                     const durBars = pricesToBars(data.chartData, 8);
                     if (durBars.length) renderMiniChart('durChart', durBars, '');
 
-                    // Drawing Radar and Levels were removed in the backend update
+                    if(data.levels) {
+                        const L = data.levels;
+                        const renderLevel = (id, lv) => {
+                            const resEl = document.getElementById(id);
+                            if (resEl) {
+                                resEl.className = `result ${lv.direction.toLowerCase()}`;
+                                resEl.innerText = `${lv.direction === 'NEUTRAL' ? '\u2014' : lv.direction}`;
+                            }
+                            const lineEl = document.getElementById(id.replace('res', ''));
+                            if (lineEl) {
+                                lineEl.style.display = 'flex';
+                            }
+                        };
+                        renderLevel('ll1res', L.level1);
+                        renderLevel('ll2res', L.level2);
+                        renderLevel('ll3res', L.level3);
+                        const tvEl = document.getElementById('ltotalVotes');
+                        if (tvEl) tvEl.innerHTML = `<span style='color:var(--green)'>\u2191 ${data.levels.level1.buy + data.levels.level2.buy + data.levels.level3.buy}</span> / <span style='color:var(--red)'>\u2193 ${data.levels.level1.put + data.levels.level2.put + data.levels.level3.put}</span>`;
+                        const td = document.getElementById('ltotalDir');
+                        if (td) {
+                            td.className = `dir ${data.direction.toLowerCase()}`;
+                            td.innerText = data.direction === 'BUY' ? '\u2191 ВВЕРХ' : data.direction === 'PUT' ? '\u2193 ВНИЗ' : '\u2014 НЕЙТРАЛЬНО';
+                        }
+                        const lbEl = document.getElementById('levelsBar');
+                        if (lbEl) lbEl.style.display = 'block';
+
+                        // Draw Radar
+                        drawRadar(data.levels, data.aiModel || 'Trend');
+                    }
 
                     const tabReg = document.getElementById('resultsTabBar');
                     if (tabReg) tabReg.style.display = 'flex';
