@@ -33,8 +33,9 @@ log = logging.getLogger("ml-service")
 
 from contextlib import asynccontextmanager
 
-_DEFAULT_SYMBOLS = os.getenv("PRETRAIN_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",")
-_DEFAULT_INTERVALS = os.getenv("PRETRAIN_INTERVALS", "s5,s10,s15,s30,1m,3m,5m,15m,30m,1h,4h").split(",")
+_DEFAULT_SYMBOLS = os.getenv("PRETRAIN_SYMBOLS", "EURUSD,GBPUSD,USDJPY").split(",")
+_DEFAULT_INTERVALS = os.getenv("PRETRAIN_INTERVALS", "s5,s15,s30,1m,5m,15m").split(",")
+
 
 async def _train_all():
     await asyncio.sleep(5)   # give FastAPI time to finish startup
@@ -166,6 +167,39 @@ def _normalize_interval(interval: str) -> str:
     return TF_MAP.get(iv, "1m")
 
 
+def _fetch_local_sqlite_main(symbol: str, interval: str, limit: int) -> list:
+    """Read recent candles from SQLite for SGD partial_fit in /feedback."""
+    import sqlite3 as _sqlite3
+    db_path = os.path.join(os.path.dirname(__file__), "data", "ValutaTicks.db")
+    if not os.path.exists(db_path):
+        return []
+    try:
+        conn = _sqlite3.connect(db_path, timeout=10.0)
+        # Try HistoricalCandles first (larger dataset)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='HistoricalCandles'")
+        if cursor.fetchone():
+            norm = _normalize_interval(interval)
+            df = __import__("pandas").read_sql_query(
+                "SELECT Open as open, High as high, Low as low, Close as close, Volume as volume "
+                "FROM HistoricalCandles WHERE Asset=? AND Interval=? ORDER BY OpenTime DESC LIMIT ?",
+                conn, params=(symbol, norm, limit)
+            )
+        else:
+            df = __import__("pandas").read_sql_query(
+                "SELECT Open as open, High as high, Low as low, Close as close, Volume as volume "
+                "FROM SubminuteCandles WHERE Asset=? AND Interval=? ORDER BY OpenTime DESC LIMIT ?",
+                conn, params=(symbol, interval, limit)
+            )
+        conn.close()
+        return df.iloc[::-1].to_dict(orient="records")
+    except Exception as e:
+        log.warning(f"[SQLite] fetch for SGD failed: {e}")
+        return []
+
+
+
+
 def _candles_to_dicts(items: List[CandleItem]) -> List[dict]:
     return [{"open": c.open, "high": c.high, "low": c.low,
              "close": c.close, "volume": c.volume} for c in items]
@@ -200,8 +234,18 @@ def predict(req: PredictRequest):
             detail=f"Need at least 60 candles for reliable prediction, got {len(req.candles)}",
         )
 
+    # Forex-only policy: block crypto symbols
+    if not is_forex_symbol(req.symbol):
+        log.warning(f"[Predict] Blocked crypto symbol: {req.symbol}. Only forex is supported.")
+        return PredictResponse(
+            direction="NEUTRAL",
+            confidence=0.5,
+            model_version="forex-only",
+        )
+
     interval = _normalize_interval(req.interval)
     predictor = _get_predictor(req.symbol, interval)
+
 
     # Auto-train in background if model is stale or missing
     if predictor.needs_retrain():
@@ -302,18 +346,16 @@ def feedback(req: TrainFeedback):
         conn.commit()
         conn.close()
         
-        # Trigger online learning immediately!
-        predictor = _get_predictor(req.asset, req.timeframe)
-        if not predictor.is_training:
-            log.info(f"[Online RL] Triggering immediate background retraining for {req.asset} ({req.timeframe})")
-            t = threading.Thread(
-                target=_background_train,
-                args=(req.asset, req.timeframe, None),
-                daemon=True,
-            )
-            t.start()
+        # Tier 2 (Local Tactician): instant SGD update — no heavy retrain
+        predictor = _get_predictor(req.asset, _normalize_interval(req.timeframe))
+        recent_candles = _fetch_local_sqlite_main(req.asset, req.timeframe, 200)
+        if len(recent_candles) >= 60:
+            ok = predictor.partial_fit_online(recent_candles, req.was_win, req.direction)
+            if ok:
+                log.info(f"[SGD] Online update done for {req.asset} ({req.timeframe}) | win={req.was_win}")
             
-        return {"status": "ok", "message": "Feedback saved and online retraining triggered."}
+        return {"status": "ok", "message": "Feedback saved. Local Tactician (SGD) updated instantly."}
+
     except Exception as e:
         log.error(f"[Online RL] DB Error: {e}")
         return {"status": "error", "message": str(e)}

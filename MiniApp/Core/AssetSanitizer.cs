@@ -61,13 +61,12 @@ public static class AssetSanitizer
 
         return cleanAsset switch
         {
-            "BTCUSDT" or "BTC" or "BTCUSD" => "BTCUSDT",
-            "ETHUSDT" or "ETH" or "ETHUSD" => "ETHUSDT",
-            "SOLUSDT" or "SOL" or "SOLUSD" => "SOLUSDT",
             "EURUSD" or "EURUSDT" => "EURUSDT",
             "GBPUSD" or "GBPUSDT" => "GBPUSDT",
             "AUDUSD" or "AUDUSDT" => "AUDUSDT",
+            "USDJPY" or "USDjpyt" => null, // no Binance equivalent — skip
             _ => null
         };
+
     }
 }

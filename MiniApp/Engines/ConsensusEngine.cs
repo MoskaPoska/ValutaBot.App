@@ -42,7 +42,7 @@ public static class ConsensusEngine
         double scoreMath = Math.Clamp(totalScore, -2.5, 2.5) / 2.5; 
 
         double activeWeightLgbm = (lgbmDirection == "BUY" || lgbmDirection == "PUT") ? weightLgbm * wfWeightMultiplier : 0;
-        double activeWeightMath = weightMath;
+        double activeWeightMath = weightMath * wfWeightMultiplier;
         
         double totalWeightSum = activeWeightLgbm + activeWeightMath;
         if (totalWeightSum < 1e-9) totalWeightSum = 1.0;

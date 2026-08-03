@@ -164,9 +164,9 @@ internal class MarketAnalysisContext
 
     private async Task AnalyzeCoreMechanicsAsync()
     {
-        _smcResult = SmcEngine.AnalyzeSmcStructure(_ohlcCandles ?? Array.Empty<MiniAppController.OhlcCandle>(), _mainPrices[^1]);
-        BotLogger.Info($"[SMC Engine] Asset {_asset} ({_timeframe}): {_smcResult.SummaryReasoning}");
-        _orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(_mainPrices, _mainVolumes ?? Array.Empty<double>(), _ohlcCandles);
+        _smcResult = SmcEngine.AnalyzeSmcStructure(_asset, _mainInterval, _ohlcCandles ?? Array.Empty<MiniAppController.OhlcCandle>(), _mainPrices[^1]);
+        BotLogger.Info($"[SMC Engine] Asset {_asset} ({_timeframe}): SMC Zones updated.");
+        _orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(_asset, _mainInterval, _ohlcCandles ?? Array.Empty<MiniAppController.OhlcCandle>(), _mainPrices[^1]);
         BotLogger.Info($"[Order Flow] Asset {_asset} ({_timeframe}): {_orderFlowResult.Description}");
     }
 
@@ -256,12 +256,12 @@ internal class MarketAnalysisContext
             var higherOhlcKey = _higherTf != null ? (_symbol != null ? $"{_symbol}_{_handler._fetcher.IntervalMap(_higherTf)}" : $"{_asset}_{_handler._fetcher.IntervalMap(_higherTf)}") : null;
             var higherOhlc = _higherTf != null ? await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_higherTf)) : null;
             
-            if (higherOhlc != null && higherOhlc.Length >= 10)
+            if (_higherResultData.HasValue && higherOhlc != null)
             {
-                var htfSmcResult = SmcEngine.AnalyzeSmcStructure(higherOhlc, _higherResultData.Value.prices[^1]);
+                var htfSmcResult = SmcEngine.AnalyzeSmcStructure(_asset, _higherTf ?? "", higherOhlc, _higherResultData.Value.prices[^1]);
                 var mtfValidation = SmcEngine.ValidateMtfSmcAlignment(_smcResult, htfSmcResult);
                 _conflictPenalty *= mtfValidation.ConfluenceMultiplier;
-                BotLogger.Info($"[MTF SMC Validation] Alignment: {mtfValidation.AlignmentStatus} | Multiplier={mtfValidation.ConfluenceMultiplier:F2}x | {mtfValidation.Description}");
+                BotLogger.Info($"[MTF SMC Validation] Alignment: {mtfValidation.AlignmentStatus} | Multiplier={mtfValidation.ConfluenceMultiplier:F2}x");
             }
 
             var (hAdx, hPdi, hMdi) = higherOhlc != null ? _handler._mathEngine.ComputeTrueAdx(_asset, _higherTf ?? "", higherOhlc) : (20.0, 0.0, 0.0);
@@ -345,7 +345,7 @@ internal class MarketAnalysisContext
             _lgbmDirection, _lgbmConfidence, _lgbmAccuracy,
             _mainResult.rsiVal, _mainResult.emaVal,
             isSubMinute, _asset, _timeframe, _mainAdx, _mainResult.volStrengthVal,
-            _smcResult.SummaryReasoning, _orderFlowResult.Description, _wfResult.WeightMultiplier
+            "SMC Analysed", _orderFlowResult.Description, _wfResult.WeightMultiplier
         );
 
         string finalDirection = consensus.FinalDirection;
@@ -357,7 +357,7 @@ internal class MarketAnalysisContext
 
         int timeframeSec = _handler._fetcher.TimeframeSeconds(_timeframe);
         double volRatio = _handler._marketAnalyzer.CalculateVolatilityRatio(_mainPrices);
-        var adaptiveExpiry = _handler._aeEngine.CalculateOptimalExpiry(_asset, _timeframe, _mainAtr, volRatio, _smcResult, isSubMinute);
+        var timeoutResult = _handler._timeoutEngine.CalculateTimeout(_asset, _timeframe, _mainAtr, volRatio, _smcResult);
         
         // --- PRODUCTION KILL SWITCH (Pre-Simulation) ---
         if (_wfResult.IsCooloffActive)
@@ -369,7 +369,7 @@ internal class MarketAnalysisContext
 
         var mcResult = finalDirection == "NEUTRAL" 
             ? new MonteCarloResult(0, 0, 0, 0, "Blocked", "Blocked", "Trade blocked before simulation")
-            : MonteCarloEngine.Simulate(_mainPrices[^1], finalProbability / 100.0, finalDirection, _mainAtr, adaptiveExpiry.ExpirySeconds, 0.85, 1000);
+            : MonteCarloEngine.Simulate(_mainPrices[^1], finalProbability / 100.0, finalDirection, _mainAtr, timeoutResult.TimeoutCandles * timeframeSec, 0.85, 1000);
 
         string orderFlowDir = _orderFlowResult.ScoreContribution > 0 ? "BUY" : _orderFlowResult.ScoreContribution < 0 ? "PUT" : "NEUTRAL";
         int smcScore = 0; // simplified for tracker
@@ -377,7 +377,7 @@ internal class MarketAnalysisContext
 
         await SignalTracker.RecordPredictionAsync(
             finalDirection, _asset, _timeframe, _mainPrices[^1],
-            expiryCandles: Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
+            expiryCandles: timeoutResult.TimeoutCandles,
             timeframeSecs: timeframeSec, isForex: _isForex, binanceSymbol: _symbol,
             sourceDirections: new Dictionary<string, string> {
                 ["LIGHTGBM"] = _lgbmDirection, ["SKENDER_MATH"] = scoreSign > 0 ? "BUY" : scoreSign < 0 ? "PUT" : "NEUTRAL",
@@ -393,12 +393,12 @@ internal class MarketAnalysisContext
         {
             direction = finalDirection,
             probability = finalProbability,
-            duration = adaptiveExpiry.ExpiryText,
-            adaptiveReasoning = $"{adaptiveExpiry.Reasoning} | {matrixResult.SummaryReasoning}",
+            duration = timeoutResult.TimeoutText,
+            adaptiveReasoning = $"{timeoutResult.Reasoning} | {matrixResult.SummaryReasoning}",
             goldenSetup = matrixResult.IsGoldenSetup,
             confluenceLabel = matrixResult.ConfluenceLabel,
             confluenceRatio = matrixResult.ConfluenceRatio,
-            expiryCandles = Math.Max(1, adaptiveExpiry.ExpirySeconds / Math.Max(1, timeframeSec)),
+            expiryCandles = timeoutResult.TimeoutCandles,
             chartData = _mainPrices,
             rsi = Math.Round(_mainResult.rsiVal, 1),
             ema = Math.Round(_mainResult.emaVal, 2),

@@ -19,7 +19,6 @@ public record ContinuousStateResult(
 /// </summary>
 public static class ContinuousStateEngine
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (double estimate, double errorEstimate)> _kalmanState = new();
 
     /// <summary>
     /// Computes continuous physical velocity, acceleration, and Kalman state vector.
@@ -71,8 +70,7 @@ public static class ContinuousStateEngine
         }
 
         // 3. 4th-Order Continuous Kalman State Filtering
-        string stateKey = $"{asset}_{timeframe}";
-        double kalmanState = FilterKalmanContinuous(prices, stateKey);
+        double kalmanState = FilterKalmanContinuous(prices);
 
         string regime;
         double momentumContribution = 0;
@@ -113,45 +111,23 @@ public static class ContinuousStateEngine
         );
     }
 
-    private static double FilterKalmanContinuous(ReadOnlySpan<double> prices, string stateKey)
+    private static double FilterKalmanContinuous(ReadOnlySpan<double> prices)
     {
         double currentPrice = prices[^1];
         double processNoise = currentPrice * 0.0001; // 0.01% of price
         double measurementNoise = currentPrice * 0.001; // 0.1% of price
 
-        if (!_kalmanState.TryGetValue(stateKey, out var state))
-        {
-            double est = prices[0];
-            double err = currentPrice * 0.01;
-            for(int i = 0; i < prices.Length; i++) 
-            { 
-                double pPrice = prices[i];
-                double k = err / (err + measurementNoise);
-                est = est + k * (pPrice - est);
-                err = (1.0 - k) * err + processNoise;
-            }
-            state = (est, err); 
-            _kalmanState.TryAdd(stateKey, state);
-        }
-        else
-        {
-            bool updated = false;
-            while (!updated)
-            {
-                if (!_kalmanState.TryGetValue(stateKey, out var currentState)) break;
-                
-                double k = currentState.errorEstimate / (currentState.errorEstimate + measurementNoise);
-                double newEst = currentState.estimate + k * (currentPrice - currentState.estimate);
-                double newErr = (1.0 - k) * currentState.errorEstimate + processNoise;
-                
-                updated = _kalmanState.TryUpdate(stateKey, (newEst, newErr), currentState);
-            }
-            if (_kalmanState.TryGetValue(stateKey, out var latestState))
-            {
-                state = latestState;
-            }
+        double est = prices[0];
+        double err = currentPrice * 0.01;
+        
+        for (int i = 0; i < prices.Length; i++) 
+        { 
+            double pPrice = prices[i];
+            double k = err / (err + measurementNoise);
+            est = est + k * (pPrice - est);
+            err = (1.0 - k) * err + processNoise;
         }
 
-        return state.estimate;
+        return est;
     }
 }

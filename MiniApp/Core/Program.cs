@@ -43,7 +43,7 @@ internal static class Program
         var ta = new TechnicalAnalysisEngine();
         var wfEngine = new WalkForwardValidationEngine();
         var cmEngine = new ConfluenceMatrixEngine(new MarketDataFetcher(), ta);
-        var aeEngine = new AdaptiveExpiryEngine();
+        var aeEngine = new TradeTimeoutEngine();
         Console.WriteLine("==================================================");
         
         Console.WriteLine("        RUNNING COMPREHENSIVE MATH ENGINE TESTS   ");
@@ -182,7 +182,14 @@ internal static class Program
             spoofPrices[8] = 99.999;
             spoofPrices[9] = 100.0; // Small up-tick to force volume into Buy side
             spoofVolumes[9] = 5000.0; // Massive volume, but priceDelta from 5 periods ago is 0
-            var orderFlowRes = OrderFlowEngine.AnalyzeOrderFlow(spoofPrices, spoofVolumes, null);
+            var spoofCandles = new MiniAppController.OhlcCandle[10];
+            for (int i = 0; i < 10; i++)
+            {
+                double p = spoofPrices[i];
+                double prev = i > 0 ? spoofPrices[i - 1] : p;
+                spoofCandles[i] = new MiniAppController.OhlcCandle(prev, Math.Max(p, prev), Math.Min(p, prev), p, spoofVolumes[i], DateTime.UtcNow.AddMinutes(i - 10));
+            }
+            var orderFlowRes = OrderFlowEngine.AnalyzeOrderFlow("TEST", "1m", spoofCandles, spoofPrices[9]);
             Assert("OrderFlow detects spoofing trap", orderFlowRes.OrderFlowState == "SPOOFING_TRAP", $"Expected SPOOFING_TRAP, got {orderFlowRes.OrderFlowState} (Delta: {orderFlowRes.DeltaRatio})");
 
             // 8.4 AutoCalibration Thread-Safety Stress Test
@@ -219,7 +226,14 @@ internal static class Program
             // If priceDiff > 0, it counts as BUY. Let's make price fluctuate up by 0.001 with massive volume, then drop by 0.5 with tiny volume.
             double[] bearishAbsPrices = { 100, 100, 100, 100, 100, 100.001, 100.002, 100.003, 100.004, 99.5 };
             double[] bearishAbsVols = { 100, 100, 100, 100, 100, 2000, 2000, 2000, 2000, 50 };
-            var absRes = OrderFlowEngine.AnalyzeOrderFlow(bearishAbsPrices, bearishAbsVols, null);
+            var bearishAbsCandles = new MiniAppController.OhlcCandle[10];
+            for (int i = 0; i < 10; i++)
+            {
+                double p = bearishAbsPrices[i];
+                double prev = i > 0 ? bearishAbsPrices[i - 1] : p;
+                bearishAbsCandles[i] = new MiniAppController.OhlcCandle(prev, Math.Max(p, prev), Math.Min(p, prev), p, bearishAbsVols[i], DateTime.UtcNow.AddMinutes(i - 10));
+            }
+            var absRes = OrderFlowEngine.AnalyzeOrderFlow("TEST2", "1m", bearishAbsCandles, bearishAbsPrices[9]);
             Assert("Bearish Absorption detected", absRes.OrderFlowState == "BEARISH_ABSORPTION", $"Expected BEARISH_ABSORPTION, got {absRes.OrderFlowState}");
 
             // 9.3 AutoCalibration Forgetting Factor

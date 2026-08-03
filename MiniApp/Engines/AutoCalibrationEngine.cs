@@ -18,16 +18,18 @@ public static class AutoCalibrationEngine
         HighVolatilityChaos
     }
 
-    private class SourceStats
+    public readonly record struct SignalKey(string Source, string Asset, string Timeframe)
     {
-        public int Wins { get; set; }
-        public int Losses { get; set; }
-        public int TotalTrades { get; set; }
-        public int Total => Wins + Losses;
-        public double WinRate => Total > 0 ? (double)Wins / Total : 0.50;
+        public override string ToString() => $"{Source}_{Asset}_{Timeframe}";
     }
 
-    private static readonly ConcurrentDictionary<string, SourceStats> _statsMap = new();
+    private class SourceStats
+    {
+        public int TotalTrades { get; set; }
+        public double EmaWinRate { get; set; } = 0.50; // Neutral start
+    }
+
+    private static readonly ConcurrentDictionary<SignalKey, SourceStats> _statsMap = new();
 
     public static MarketRegime DetectMarketRegime(double adx, double volRatio, double rsi, ReadOnlySpan<double> prices = default)
     {
@@ -135,10 +137,10 @@ public static class AutoCalibrationEngine
         double baseWeight = defaultBaseWeight * regimeMultiplier;
 
         // 2. Rolling Empirical Win-Rate Calibration
-        string statsKey = $"{sourceName}_{asset}_{timeframe}";
-        if (_statsMap.TryGetValue(statsKey, out var stats) && stats.Total >= 10)
+        var statsKey = new SignalKey(sourceName, asset, timeframe);
+        if (_statsMap.TryGetValue(statsKey, out var stats) && stats.TotalTrades >= 10)
         {
-            double wr = stats.WinRate;
+            double wr = stats.EmaWinRate;
             
             // Sigmoid-style non-linear reward/punishment
             double calibrationFactor = 1.0;
@@ -153,31 +155,28 @@ public static class AutoCalibrationEngine
 
     public static void RecordSourceOutcome(string sourceName, string asset, string timeframe, bool isWin)
     {
-        string statsKey = $"{sourceName}_{asset}_{timeframe}";
+        var statsKey = new SignalKey(sourceName, asset, timeframe);
         var stats = _statsMap.GetOrAdd(statsKey, _ => new SourceStats());
 
         lock (stats)
         {
-            if (isWin) stats.Wins++;
-            else stats.Losses++;
             stats.TotalTrades++;
-
-            // Window sliding to keep recent relevance (decay)
-            if (stats.Total > 200)
-            {
-                stats.Wins = (int)(stats.Wins * 0.9);
-                stats.Losses = (int)(stats.Losses * 0.9);
-            }
+            
+            double outcome = isWin ? 1.0 : 0.0;
+            // EMA calculation (Alpha = 2 / (50 + 1) = 0.0392 for a 50-trade smoothing window)
+            // Faster alpha until 50 trades are reached
+            double alpha = stats.TotalTrades < 50 ? (2.0 / (stats.TotalTrades + 1.0)) : 0.0392;
+            stats.EmaWinRate = (outcome - stats.EmaWinRate) * alpha + stats.EmaWinRate;
         }
     }
 
     public static string GetStatsReport(string sourceName, string asset, string timeframe)
     {
-        string statsKey = $"{sourceName}_{asset}_{timeframe}";
+        var statsKey = new SignalKey(sourceName, asset, timeframe);
         if (_statsMap.TryGetValue(statsKey, out var stats))
         {
-            return $"[Auto-Calib] {sourceName}: W={stats.Wins} L={stats.Losses} (WR: {stats.WinRate:P1})";
+            return $"[Auto-Calib] {sourceName}: Trades={stats.TotalTrades} (EMA WR: {stats.EmaWinRate:P1})";
         }
-        return $"[Auto-Calib] {sourceName}: ��� ������";
+        return $"[Auto-Calib] {sourceName}: Нет данных";
     }
 }

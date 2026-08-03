@@ -1,6 +1,8 @@
 """
-ForexPredictor: LightGBM binary classifier (BUY=1 / PUT=0).
-Trains on historical Binance candles, predicts next-bar direction.
+Two-Tier Forex Predictor.
+  Tier 1 (Global Strategist):  LightGBM — retrained every 24h on up to 100k candles.
+  Tier 2 (Local Tactician):    SGDClassifier — updated via partial_fit after every trade (<1ms).
+Final signal = 0.70 * LightGBM_prob + 0.30 * SGD_prob.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from typing import Optional, Tuple, List, Dict
 
 try:
     import lightgbm as lgb
+    from sklearn.linear_model import SGDClassifier
     from sklearn.model_selection import TimeSeriesSplit
     from sklearn.metrics import accuracy_score, roc_auc_score
     HAS_LGBM = True
@@ -31,7 +34,9 @@ from features import build_features
 log = logging.getLogger("predictor")
 
 MODEL_DIR = Path(os.getenv("MODEL_DIR", str(Path(__file__).parent / "data" / "models")))
+SGD_MODEL_DIR = MODEL_DIR / "sgd"
 RETRAIN_INTERVAL_H = int(os.getenv("RETRAIN_INTERVAL_H", "24"))
+MAX_HISTORICAL_CANDLES = int(os.getenv("MAX_HISTORICAL_CANDLES", "100000"))  # Global Strategist window
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.60"))  # below → NEUTRAL
 BINANCE_BASE = "https://api.binance.com"
 
@@ -133,6 +138,54 @@ def _fetch_local_sqlite(symbol: str, interval: str, limit: int) -> List[Dict]:
         log.error(f"SQLite Fetch Error: {e}")
         return []
 
+
+def _fetch_historical_candles(symbol: str, interval: str, limit: int) -> List[Dict]:
+    """
+    Fetch large historical dataset from HistoricalCandles table (populated by data_crawler.py).
+    Used by LightGBM Global Strategist to train on up to 100k candles.
+    Falls back to empty list if table doesn't exist yet.
+    """
+    db_path = os.path.join(os.path.dirname(__file__), "data", "ValutaTicks.db")
+    if not os.path.exists(db_path):
+        return []
+    try:
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        # Check table exists
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='HistoricalCandles'")
+        if not cursor.fetchone():
+            conn.close()
+            return []
+
+        td_interval = interval.lower()
+        # Normalize interval alias (m1 → 1m, etc.)
+        interval_aliases = {
+            "m1": "1m", "m5": "5m", "m15": "15m", "m30": "30m",
+            "h1": "1h", "h4": "4h",
+        }
+        td_interval = interval_aliases.get(td_interval, td_interval)
+
+        query = '''
+            SELECT Open as open, High as high, Low as low, Close as close, Volume as volume
+            FROM HistoricalCandles
+            WHERE Asset = ? AND Interval = ?
+            ORDER BY OpenTime DESC
+            LIMIT ?
+        '''
+        df = pd.read_sql_query(query, conn, params=(symbol, td_interval, limit))
+        conn.close()
+
+        if df.empty:
+            return []
+
+        # Reverse to ascending time order (oldest first)
+        return df.iloc[::-1].to_dict(orient='records')
+    except Exception as e:
+        log.error(f"[HistoricalCandles] Fetch error: {e}")
+        return []
+
+
+
 def _fetch_rl_feedback(symbol: str, interval: str) -> List[Dict]:
     db_path = os.path.join(os.path.dirname(__file__), "data", "ValutaTicks.db")
     if not os.path.exists(db_path):
@@ -202,11 +255,18 @@ class ForexPredictor:
         self.symbol = symbol.upper()
         self.interval = interval.lower()
         self._key = f"{self.symbol}_{self.interval}"
+        # Tier 1: Global Strategist
         self._model: Optional[lgb.LGBMClassifier] = None
         self._meta: Optional[ModelMeta] = None
         self._lock = threading.Lock()
         self.is_training = False
+        # Tier 2: Local Tactician
+        self._online_model: Optional[SGDClassifier] = None
+        self._online_lock = threading.Lock()
+        self._online_classes = np.array([0, 1])
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        SGD_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -241,7 +301,23 @@ class ForexPredictor:
 
             # Use last row as the current candle state
             X_last = feats.iloc[[-1]]
-            prob = float(model.predict_proba(X_last)[0, 1])
+            X_arr = X_last.values.astype(np.float32)
+
+            # Tier 1: LightGBM (Global Strategist)
+            prob_lgbm = float(model.predict_proba(X_arr)[0, 1])
+
+            # Tier 2: SGD (Local Tactician) — blend if available
+            with self._online_lock:
+                online_model = self._online_model
+            if online_model is not None:
+                try:
+                    prob_sgd = float(online_model.predict_proba(X_arr)[0, 1])
+                    prob = 0.70 * prob_lgbm + 0.30 * prob_sgd
+                    log.debug(f"[Predict] {self._key} lgbm={prob_lgbm:.3f} sgd={prob_sgd:.3f} blended={prob:.3f}")
+                except Exception:
+                    prob = prob_lgbm
+            else:
+                prob = prob_lgbm
 
             version = meta.version if meta else self._key
 
@@ -250,12 +326,61 @@ class ForexPredictor:
             elif prob <= (1.0 - MIN_CONFIDENCE):
                 return "PUT", 1.0 - prob, version
             else:
-                confidence = abs(prob - 0.5) * 2   # 0 at boundary, 1 at extremes
+                confidence = abs(prob - 0.5) * 2
                 return "NEUTRAL", 0.5 + confidence * 0.15, version
 
         except Exception as e:
             log.error(f"[Predict] {self._key}: {e}")
             return "NEUTRAL", 0.5, "error"
+
+    def partial_fit_online(self, candles: List[Dict], was_win: bool, direction: str) -> bool:
+        """
+        Tier 2 (Local Tactician): Update SGDClassifier with a single real trade outcome.
+        Called immediately after a trade closes. Executes in <1ms.
+        Returns True if update succeeded.
+        """
+        if not HAS_LGBM:
+            return False
+        try:
+            feats = build_features(candles)
+            if feats.empty or len(feats) < 5:
+                return False
+
+            X_last = feats.iloc[[-1]].values.astype(np.float32)
+
+            # Derive label from real outcome
+            # WIN + BUY  → price went up   → label 1
+            # WIN + PUT  → price went down  → label 0
+            # LOSS + BUY → price went down  → label 0
+            # LOSS + PUT → price went up    → label 1
+            if direction.upper() == "BUY":
+                y = np.array([1 if was_win else 0])
+            else:
+                y = np.array([0 if was_win else 1])
+
+            with self._online_lock:
+                if self._online_model is None:
+                    self._online_model = SGDClassifier(
+                        loss="log_loss",
+                        learning_rate="optimal",
+                        alpha=0.01,
+                        random_state=42,
+                        warm_start=True,
+                    )
+                self._online_model.partial_fit(X_last, y, classes=self._online_classes)
+                online_model = self._online_model
+
+            # Persist SGD to disk
+            sgd_path = SGD_MODEL_DIR / f"{self._key}_sgd.pkl"
+            joblib.dump(online_model, sgd_path)
+            log.info(f"[SGD] partial_fit done for {self._key} | dir={direction} win={was_win} | label={y[0]}")
+            return True
+
+        except Exception as e:
+            log.error(f"[SGD] partial_fit error for {self._key}: {e}")
+            return False
+
+
 
     def train(self, candles: Optional[List[Dict]] = None) -> Dict:
         """
@@ -274,28 +399,28 @@ class ForexPredictor:
         log.info(f"[Train] Starting training for {self._key}")
         try:
             if candles is None:
-                if self.interval.startswith("s"):
-                    # Try local SQLite tick database first
-                    candles = _fetch_local_sqlite(self.symbol, self.interval, 1500)
-                    if len(candles) < 150:
-                        log.warning(f"[Train] Not enough SQLite ticks for {self._key} (found {len(candles)}). Falling back to interpolation.")
-                        limit = 750
-                        if is_forex_symbol(self.symbol):
-                            candles = self._fetch_twelvedata(limit)
-                        else:
-                            candles = self._fetch_binance(limit)
-                            
-                        if len(candles) > 0:
-                            candles = _interpolate_subminute(candles, self.interval)
-                            if len(candles) > 1500:
-                                candles = candles[-1500:]
+                # Priority 1: Large historical dataset from data_crawler (Global Strategist)
+                candles = _fetch_historical_candles(self.symbol, self.interval, MAX_HISTORICAL_CANDLES)
+                if len(candles) >= 1500:
+                    log.info(f"[Train] Loaded {len(candles)} candles from HistoricalCandles (Global Strategist mode)")
                 else:
-                    # Regular API fetch
-                    limit = 1500
-                    if is_forex_symbol(self.symbol):
-                        candles = self._fetch_twelvedata(limit)
+                    # Priority 2: Subminute SQLite ticks
+                    if self.interval.startswith("s"):
+                        candles = _fetch_local_sqlite(self.symbol, self.interval, 1500)
+                        if len(candles) < 150:
+                            log.warning(f"[Train] Not enough SQLite ticks for {self._key} (found {len(candles)}). Falling back to interpolation.")
+                            limit = 750
+                            candles = self._fetch_twelvedata(limit)
+                            if len(candles) > 0:
+                                candles = _interpolate_subminute(candles, self.interval)
+                                if len(candles) > 1500:
+                                    candles = candles[-1500:]
                     else:
-                        candles = self._fetch_binance(limit)
+                        # Priority 3: TwelveData API (forex only)
+                        limit = 5000
+                        candles = self._fetch_twelvedata(limit)
+                        log.info(f"[Train] API fallback: fetched {len(candles)} candles for {self._key}")
+
 
             if len(candles) < 150:
                 return {"error": f"Not enough candles: {len(candles)} < 150"}
@@ -456,6 +581,7 @@ class ForexPredictor:
         joblib.dump({"model": model, "meta": meta}, self._model_path())
 
     def _try_load(self):
+        # Load LightGBM (Tier 1)
         p = self._model_path()
         if p.exists():
             try:
@@ -463,9 +589,21 @@ class ForexPredictor:
                 with self._lock:
                     self._model = data["model"]
                     self._meta = data["meta"]
-                log.info(f"[Load] Loaded model from {p}")
+                log.info(f"[Load] Loaded LightGBM from {p}")
             except Exception as e:
-                log.warning(f"[Load] Failed to load {p}: {e}")
+                log.warning(f"[Load] Failed to load LightGBM {p}: {e}")
+
+        # Load SGD (Tier 2)
+        sgd_path = SGD_MODEL_DIR / f"{self._key}_sgd.pkl"
+        if sgd_path.exists():
+            try:
+                sgd = joblib.load(sgd_path)
+                with self._online_lock:
+                    self._online_model = sgd
+                log.info(f"[Load] Loaded SGD (Local Tactician) from {sgd_path}")
+            except Exception as e:
+                log.warning(f"[Load] Failed to load SGD {sgd_path}: {e}")
+
 
     def _fetch_binance(self, limit: int = 1500) -> List[Dict]:
         """Fetch historical klines from Binance REST API."""

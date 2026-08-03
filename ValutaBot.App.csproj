@@ -14,6 +14,13 @@
   <ItemGroup>
     <Compile Remove="Tests\**" />
     <Compile Remove="Benchmarks\**" />
+    <Compile Remove="RefactorTool\**" />
+    <Content Remove="Tests\**" />
+    <Content Remove="Benchmarks\**" />
+    <Content Remove="RefactorTool\**" />
+    <None Remove="Tests\**" />
+    <None Remove="Benchmarks\**" />
+    <None Remove="RefactorTool\**" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.79" />

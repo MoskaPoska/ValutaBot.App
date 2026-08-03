@@ -160,6 +160,22 @@ public class MarketDataFetcher
         string interval = IntervalMap(rawInterval);
         string cacheSym = originalAsset ?? symbol ?? "UNKNOWN";
 
+        // Forex-only policy: if the symbol is a crypto asset, skip Binance entirely
+        // and go directly to TwelveData. Crypto is not supported.
+        string cleanForCheck = AssetSanitizer.Sanitize(originalAsset ?? symbol ?? "");
+        bool isCrypto = !AssetSanitizer.IsForexAsset(cleanForCheck);
+        if (isCrypto)
+        {
+            BotLogger.Warn($"[MarketDataFetcher] Crypto symbol detected ({cleanForCheck}). Skipping to TwelveData (forex-only policy).");
+            if (originalAsset != null)
+            {
+                var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit);
+                if (tdResult != null)
+                    return (tdResult.Value.prices, tdResult.Value.volumes);
+            }
+            throw new ExchangeUnavailableException($"Crypto not supported: {cleanForCheck}", "Бот работает только с форекс-парами.");
+        }
+
         if (symbol != null)
         {
             if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count) && count >= 15)
@@ -221,6 +237,7 @@ public class MarketDataFetcher
             throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", "Биржа недоступна.");
         }
     }
+
     
     public async Task<double?> FetchHistoricalPriceAsync(string symbol, long endTimeMs)
     {

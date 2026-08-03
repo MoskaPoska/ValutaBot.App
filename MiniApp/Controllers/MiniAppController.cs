@@ -148,9 +148,7 @@ public static partial class MiniAppController
             try
             {
                 var taEngine = new TechnicalAnalysisEngine();
-                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(
-                    taEngine, taEngine, taEngine, MarketDataFetcher.Instance, new WalkForwardValidationEngine(),
-                    new ConfluenceMatrixEngine(MarketDataFetcher.Instance, taEngine), new AdaptiveExpiryEngine());
+                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new MarketDataFetcher(), new WalkForwardValidationEngine(), new ConfluenceMatrixEngine(new MarketDataFetcher(), new TechnicalAnalysisEngine()), new TradeTimeoutEngine());
                 var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization
                 var options = new JsonSerializerOptions

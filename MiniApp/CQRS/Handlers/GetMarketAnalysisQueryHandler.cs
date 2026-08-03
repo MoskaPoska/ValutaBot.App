@@ -12,7 +12,7 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
     internal readonly IRiskGatekeeper _riskGatekeeper;
     internal readonly IWalkForwardValidationEngine _wfEngine;
     internal readonly IConfluenceMatrixEngine _cmEngine;
-    internal readonly IAdaptiveExpiryEngine _aeEngine;
+    internal readonly ITradeTimeoutEngine _timeoutEngine;
     internal readonly MarketDataFetcher _fetcher;
 
     public GetMarketAnalysisQueryHandler(
@@ -22,14 +22,14 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
         MarketDataFetcher fetcher, 
         IWalkForwardValidationEngine wfEngine, 
         IConfluenceMatrixEngine cmEngine, 
-        IAdaptiveExpiryEngine aeEngine)
+        ITradeTimeoutEngine timeoutEngine)
     {
         _mathEngine = mathEngine;
         _marketAnalyzer = marketAnalyzer;
         _riskGatekeeper = riskGatekeeper;
         _wfEngine = wfEngine;
         _cmEngine = cmEngine;
-        _aeEngine = aeEngine;
+        _timeoutEngine = timeoutEngine;
         _fetcher = fetcher;
     }
 

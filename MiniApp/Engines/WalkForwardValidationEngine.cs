@@ -1,13 +1,12 @@
 using System;
 using System.Collections.Concurrent;
-using System.Linq;
 
 namespace ValutaBot.MiniApp;
 
 /// <summary>
-/// Walk-Forward Optimization & Anti-Overfitting Regime Protection Engine.
-/// Prevents ML over-fitting drawdowns during sudden market regime shifts & news events
-/// by running in-memory Out-of-Sample (OOS) backtesting and tracking drawdown cooloff phases.
+/// Drawdown Protection & Anti-Overfitting Regime Protection Engine.
+/// Prevents consecutive losses during sudden market regime shifts & news events
+/// by tracking drawdown cooloff phases.
 /// </summary>
 public class WalkForwardValidationEngine : IWalkForwardValidationEngine
 {
@@ -17,29 +16,26 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
         public DateTime CooloffUntil { get; set; } = DateTime.MinValue;
     }
 
-    private readonly ConcurrentDictionary<string, CooloffState> _cooloffMap = new();
+    private readonly ConcurrentDictionary<SignalKey, CooloffState> _cooloffMap = new();
 
     /// <summary>
-    /// Evaluates Walk-Forward Out-Of-Sample performance on historical candles
-    /// to detect overfitting and prevent drawdown losses during regime shifts.
+    /// Validates current performance to prevent drawdown losses during regime shifts.
     /// </summary>
-    public WalkForwardValidationEngine.WalkForwardResult ValidateWalkForward(
+    public WalkForwardResult ValidateWalkForward(
         string asset,
         string timeframe,
         double[] prices,
         bool isNewsActive = false)
     {
-        string key = $"{asset.ToUpper()}_{timeframe.ToLower()}";
+        var key = new SignalKey(asset, timeframe);
         var cooloff = _cooloffMap.GetOrAdd(key, _ => new CooloffState());
 
         // 1. Check if Cooloff Phase is active (triggered after 3 consecutive losses)
         bool isCooloffActive = DateTime.UtcNow < cooloff.CooloffUntil;
         if (isCooloffActive)
         {
-            BotLogger.Warn($"[Walk-Forward] Cooloff active for {key} until {cooloff.CooloffUntil:HH:mm:ss}. ML weight suppressed to 0.1x.");
-            return new WalkForwardValidationEngine.WalkForwardResult(
-                InSampleWinRate: 0.65,
-                OutOfSampleWinRate: 0.40,
+            BotLogger.Warn($"[Drawdown Protection] Cooloff active for {key} until {cooloff.CooloffUntil:HH:mm:ss}. ML weight suppressed to 0.1x.");
+            return new WalkForwardResult(
                 IsOverfitted: true,
                 IsCooloffActive: true,
                 WeightMultiplier: 0.10,
@@ -50,10 +46,8 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
         // 2. If High-Impact News is active, suppress ML and rely on SMC / Quant Math
         if (isNewsActive)
         {
-            BotLogger.Warn($"[Walk-Forward] High-Impact News Blackout active for {key}. Clamping ML weight.");
-            return new WalkForwardValidationEngine.WalkForwardResult(
-                InSampleWinRate: 0.70,
-                OutOfSampleWinRate: 0.45,
+            BotLogger.Warn($"[News Blackout] High-Impact News active for {key}. Clamping ML weight.");
+            return new WalkForwardResult(
                 IsOverfitted: true,
                 IsCooloffActive: false,
                 WeightMultiplier: 0.20,
@@ -63,16 +57,14 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
 
         if (prices == null || prices.Length < 30)
         {
-            return new WalkForwardValidationEngine.WalkForwardResult(0.65, 0.60, false, false, 1.0, "Недостаточно свечей.");
+            return new WalkForwardResult(false, false, 1.0, "Недостаточно свечей.");
         }
 
-        return new WalkForwardValidationEngine.WalkForwardResult(
-            InSampleWinRate: 0.0,
-            OutOfSampleWinRate: 0.0,
+        return new WalkForwardResult(
             IsOverfitted: false,
             IsCooloffActive: false,
             WeightMultiplier: 1.0,
-            StatusReasoning: "Авто-калибровка весов передана в AutoCalibrationEngine (на основе реальных исходов)."
+            StatusReasoning: "Авто-калибровка весов (AutoCalibrationEngine активен)."
         );
     }
 
@@ -82,7 +74,7 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
     /// </summary>
     public void RecordTradeOutcome(string asset, string timeframe, bool isWin)
     {
-        string key = $"{asset.ToUpper()}_{timeframe.ToLower()}";
+        var key = new SignalKey(asset, timeframe);
         var state = _cooloffMap.GetOrAdd(key, _ => new CooloffState());
 
         lock (state)
@@ -104,9 +96,12 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
         }
     }
 
-    public record WalkForwardResult(
-        double InSampleWinRate,
-        double OutOfSampleWinRate,
+    public readonly record struct SignalKey(string Asset, string Timeframe)
+    {
+        public override string ToString() => $"{Asset}_{Timeframe}";
+    }
+
+    public readonly record struct WalkForwardResult(
         bool IsOverfitted,
         bool IsCooloffActive,
         double WeightMultiplier,
