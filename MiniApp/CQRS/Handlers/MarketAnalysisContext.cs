@@ -126,10 +126,11 @@ internal class MarketAnalysisContext
 
         try
         {
-            _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_timeframe), _limit);
+            _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_clean + "USDT"), _handler._fetcher.IntervalMap(_timeframe), _limit);
         }
-        catch (HttpRequestException)
+        catch (Exception ex)
         {
+            BotLogger.Warn($"[Analysis] Failed to fetch OHLC candles: {ex.Message}");
             _ohlcCandles = Array.Empty<MiniAppController.OhlcCandle>();
         }
 
@@ -253,8 +254,20 @@ internal class MarketAnalysisContext
 
         if (_higherResultData != null)
         {
-            var higherOhlcKey = _higherTf != null ? (_symbol != null ? $"{_symbol}_{_handler._fetcher.IntervalMap(_higherTf)}" : $"{_asset}_{_handler._fetcher.IntervalMap(_higherTf)}") : null;
-            var higherOhlc = _higherTf != null ? await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_asset + "USDT"), _handler._fetcher.IntervalMap(_higherTf)) : null;
+            var higherOhlcKey = _higherTf != null ? (_symbol != null ? $"{_symbol}_{_handler._fetcher.IntervalMap(_higherTf)}" : $"{_clean}_{_handler._fetcher.IntervalMap(_higherTf)}") : null;
+            
+            MiniAppController.OhlcCandle[]? higherOhlc = null;
+            if (_higherTf != null)
+            {
+                try
+                {
+                    higherOhlc = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_clean + "USDT"), _handler._fetcher.IntervalMap(_higherTf));
+                }
+                catch (Exception ex)
+                {
+                    BotLogger.Warn($"[Analysis] Failed to fetch higher TF OHLC candles: {ex.Message}");
+                }
+            }
             
             if (_higherResultData.HasValue && higherOhlc != null)
             {
