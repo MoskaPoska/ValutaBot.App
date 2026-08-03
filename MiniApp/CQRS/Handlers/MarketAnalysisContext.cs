@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using ValutaBot.MiniApp.CQRS.Handlers;
-using ValutaBot.App.MiniApp.Engines.ML;
 using ValutaBot.App.MiniApp.Services;
 
 namespace ValutaBot.MiniApp.CQRS.Handlers;
@@ -185,52 +184,39 @@ internal class MarketAnalysisContext
         {
             try
             {
-                var mlEngine = new EnsembleMlEngine();
-                var hist = new List<TradeFeatureData>();
-                
-                // Generate training data from the recent candles (excluding the last two to prevent target leakage)
-                for (int i = 1; i < _ohlcCandles.Length - 2; i++)
+                var prediction = await MLPythonService.PredictAsync(_asset, _timeframe, _ohlcCandles, _isForex);
+                if (prediction != null && prediction.Direction != "NEUTRAL")
                 {
-                    bool isUp = _ohlcCandles[i + 1].Close > _ohlcCandles[i].Close;
-                    hist.Add(new TradeFeatureData {
-                        Open = (float)_ohlcCandles[i].Open, High = (float)_ohlcCandles[i].High,
-                        Low = (float)_ohlcCandles[i].Low, Close = (float)_ohlcCandles[i].Close,
-                        Volume = (float)_ohlcCandles[i].Volume,
-                        Rsi = 50f, ClusterDelta = 0,
-                        IsUp = isUp
-                    });
-                }
-                
-                var currentData = new TradeFeatureData {
-                    Open = (float)_ohlcCandles[^1].Open, High = (float)_ohlcCandles[^1].High,
-                    Low = (float)_ohlcCandles[^1].Low, Close = (float)_ohlcCandles[^1].Close,
-                    Volume = _mainVolumes != null && _mainVolumes.Length > 0 ? (float)_mainVolumes[^1] : 0f,
-                    Rsi = 50f, ClusterDelta = 0, // Zeroed out to prevent Out-Of-Distribution (OOD) poison since it was trained on 0
-                    IsUp = true
-                };
+                    _lgbmDirection = prediction.Direction;
+                    _lgbmConfidence = (float)prediction.Confidence;
+                    _lgbmModelVersion = prediction.ModelVersion;
+                    _lgbmAccuracy = prediction.Accuracy;
 
-                mlEngine.TrainModels(hist);
-                var prediction = mlEngine.PredictEnsemble(currentData);
-
-                if (prediction.AverageProbability > 0.05f) 
-                {
-                    _lgbmDirection = prediction.ConsensusPrediction ? "BUY" : "PUT";
-                    _lgbmConfidence = prediction.AverageProbability;
-                    _lgbmModelVersion = $"Ensemble_v2 (L:{prediction.ModelProbabilities.GetValueOrDefault("LightGBM",0):F2} T:{prediction.ModelProbabilities.GetValueOrDefault("FastTree",0):F2} F:{prediction.ModelProbabilities.GetValueOrDefault("FastForest",0):F2})";
-                    _lgbmAccuracy = 0.915; // Represents higher confidence from ensemble
+                    // Compute score multiplier.
+                    // If prediction is strong, high multiplier.
+                    float FinalScoreMultiplier = 0f;
+                    if (prediction.Direction == "BUY" && prediction.Confidence > 0.60)
+                        FinalScoreMultiplier = 0.35f;
+                    else if (prediction.Direction == "PUT" && prediction.Confidence > 0.60)
+                        FinalScoreMultiplier = -0.35f;
+                    else if (prediction.Direction == "BUY" && prediction.Confidence > 0.55)
+                        FinalScoreMultiplier = 0.15f;
+                    else if (prediction.Direction == "PUT" && prediction.Confidence > 0.55)
+                        FinalScoreMultiplier = -0.15f;
 
                     // Apply ensemble score multiplier
-                    _totalScore += prediction.FinalScoreMultiplier;
-                    _totalConfidence += Math.Abs(prediction.FinalScoreMultiplier) * 20;
+                    _totalScore += FinalScoreMultiplier;
+                    _totalConfidence += Math.Abs(FinalScoreMultiplier) * 20;
                 }
 
                 var llmService = new LlmReportingService();
                 var regime = ContinuousStateEngine.EvaluateContinuousState(_mainPrices, _asset, _timeframe).VelocityRegime;
-                _llmReport = llmService.GenerateMarketSummary(_asset, regime, prediction, prediction.ConsensusPrediction, prediction.ConsensusPrediction, prediction.ConsensusPrediction);
+                bool isUp = _lgbmDirection == "BUY";
+                _llmReport = llmService.GenerateMarketSummary(_asset, regime, prediction, isUp, isUp, isUp);
             }
             catch (Exception ex) 
             { 
-                Console.WriteLine($"[Native ML Warning] {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[Python ML Warning] {ex.GetType().Name}: {ex.Message}");
                 _llmReport = $"⚠️ ML-движок недоступен: {ex.GetType().Name} — {ex.Message}";
             }
         }
