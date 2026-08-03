@@ -98,6 +98,32 @@ public class MarketDataFetcher
         return await FetchBinanceKlinsAsync(symbol, interval, limit) ?? Array.Empty<MiniAppController.OhlcCandle>();
     }
 
+    public async Task<MiniAppController.OhlcCandle[]> FetchOhlcWithFallbackAsync(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50)
+    {
+        string interval = IntervalMap(rawInterval);
+        
+        // Forex weekday policy: if symbol is null, try TwelveData first
+        if (symbol == null && originalAsset != null)
+        {
+            var tdResult = await TwelveDataService.FetchCandlesAsync(originalAsset, interval, limit);
+            if (tdResult != null)
+                return tdResult.Value.candles;
+        }
+
+        string cleanAsset = AssetSanitizer.Sanitize(originalAsset ?? symbol ?? "EURUSDT");
+        string binanceSymbol = symbol ?? (cleanAsset.EndsWith("USDT") ? cleanAsset : cleanAsset + "USDT");
+        
+        try
+        {
+            return await FetchBinanceOhlcCandlesAsync(binanceSymbol, interval, limit);
+        }
+        catch (Exception ex)
+        {
+            BotLogger.Warn($"[MarketDataFetcher] Fallback OHLC fetch failed for {binanceSymbol}: {ex.Message}");
+            return Array.Empty<MiniAppController.OhlcCandle>();
+        }
+    }
+
     private static async Task<MiniAppController.OhlcCandle[]?> FetchBinanceKlinsAsync(string symbol, string interval, int limit)
     {
         string cacheKey = $"{symbol}_{interval}_{limit}";

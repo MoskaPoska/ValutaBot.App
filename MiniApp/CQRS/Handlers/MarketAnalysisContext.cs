@@ -126,7 +126,7 @@ internal class MarketAnalysisContext
 
         try
         {
-            _ohlcCandles = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_clean + "USDT"), _handler._fetcher.IntervalMap(_timeframe), _limit);
+            _ohlcCandles = await _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, _timeframe, _asset, _limit);
         }
         catch (Exception ex)
         {
@@ -261,7 +261,7 @@ internal class MarketAnalysisContext
             {
                 try
                 {
-                    higherOhlc = await _handler._fetcher.FetchBinanceOhlcCandlesAsync(_symbol ?? (_clean + "USDT"), _handler._fetcher.IntervalMap(_higherTf));
+                    higherOhlc = await _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, _higherTf, _asset);
                 }
                 catch (Exception ex)
                 {
