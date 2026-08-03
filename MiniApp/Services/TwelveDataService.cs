@@ -155,6 +155,13 @@ public static partial class TwelveDataService
 
         string cleanTicker = original;
         string[] knownStocks = { "AAPL", "TSLA", "AMZN", "GOOGL", "MSFT", "NVDA", "META" };
+
+        if (cleanTicker.EndsWith("USDT") && cleanTicker.Length == 7 && !knownStocks.Contains(cleanTicker))
+        {
+            // Convert EURUSDT to EURUSD for TwelveData
+            cleanTicker = cleanTicker[..^1];
+        }
+
         if (knownStocks.Contains(cleanTicker))
         {
             return cleanTicker;
