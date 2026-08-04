@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Polly;
@@ -98,7 +98,7 @@ public class MarketDataFetcher
         return await FetchBinanceKlinsAsync(symbol, interval, limit) ?? Array.Empty<MiniAppController.OhlcCandle>();
     }
 
-    public async Task<MiniAppController.OhlcCandle[]> FetchOhlcWithFallbackAsync(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50)
+    public virtual async Task<MiniAppController.OhlcCandle[]> FetchOhlcWithFallbackAsync(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50)
     {
         string interval = IntervalMap(rawInterval);
         
@@ -181,7 +181,7 @@ public class MarketDataFetcher
         return (prices, volumes);
     }
 
-    public async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50)
+    public virtual async Task<(double[] prices, double[] volumes)> FetchBinanceWithFallback(string? symbol, string rawInterval, string? originalAsset = null, int limit = 50)
     {
         string interval = IntervalMap(rawInterval);
         string cacheSym = originalAsset ?? symbol ?? "UNKNOWN";
@@ -199,7 +199,7 @@ public class MarketDataFetcher
                 if (tdResult != null)
                     return (tdResult.Value.prices, tdResult.Value.volumes);
             }
-            throw new ExchangeUnavailableException($"Crypto not supported: {cleanForCheck}", "Бот работает только с форекс-парами.");
+            throw new ExchangeUnavailableException($"Crypto not supported: {cleanForCheck}", "Р‘РѕС‚ СЂР°Р±РѕС‚Р°РµС‚ С‚РѕР»СЊРєРѕ СЃ С„РѕСЂРµРєСЃ-РїР°СЂР°РјРё.");
         }
 
         if (symbol != null)
@@ -260,7 +260,7 @@ public class MarketDataFetcher
                 }
             }
 
-            throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", "Биржа недоступна.");
+            throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", "Р‘РёСЂР¶Р° РЅРµРґРѕСЃС‚СѓРїРЅР°.");
         }
     }
 
@@ -276,3 +276,6 @@ public class MarketDataFetcher
         return null;
     }
 }
+
+
+

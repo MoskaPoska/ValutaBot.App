@@ -1,4 +1,4 @@
-using ValutaBot.App.MiniApp.Data.Repositories;
+﻿using ValutaBot.App.MiniApp.Data.Repositories;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +8,7 @@ namespace ValutaBot.MiniApp;
 public static class TradeOutcomeTracker
 {
     public static IWalkForwardValidationEngine WfEngine { get; set; }
+    public static IAutoCalibrationEngine CalibrationEngine { get; set; }
     private static volatile bool _initialized = false;
     private static readonly SemaphoreSlim _initSemaphore = new(1, 1);
 
@@ -25,7 +26,7 @@ public static class TradeOutcomeTracker
 
             foreach (var outcome in outcomes)
             {
-                AutoCalibrationEngine.RecordSourceOutcome("GLOBAL", outcome.Asset, outcome.Timeframe, outcome.WasWin);
+                CalibrationEngine?.RecordSourceOutcome("GLOBAL", outcome.Asset, outcome.Timeframe, outcome.WasWin);
             }
 
             _initialized = true;
@@ -83,14 +84,14 @@ public static class TradeOutcomeTracker
                     if (kv.Value != "NEUTRAL")
                     {
                         bool wasSourceCorrect = (kv.Value == winDirection);
-                        AutoCalibrationEngine.RecordSourceOutcome(kv.Key, record.Asset, record.Timeframe, wasSourceCorrect);
+                        CalibrationEngine?.RecordSourceOutcome(kv.Key, record.Asset, record.Timeframe, wasSourceCorrect);
                     }
                 }
             }
             else
             {
                 // Old trade with no source directions tracked. Only record global outcome.
-                AutoCalibrationEngine.RecordSourceOutcome("GLOBAL", record.Asset, record.Timeframe, wasCorrect);
+                CalibrationEngine?.RecordSourceOutcome("GLOBAL", record.Asset, record.Timeframe, wasCorrect);
             }
 
             _ = Task.Run(async () =>

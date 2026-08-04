@@ -1,6 +1,5 @@
 using System;
 
-
 namespace ValutaBot.MiniApp;
 
 public record MonteCarloResult(
@@ -13,13 +12,29 @@ public record MonteCarloResult(
     string SummaryReasoning
 );
 
-public static class MonteCarloEngine
+public interface IMonteCarloEngine
 {
+    MonteCarloResult Simulate(
+        double currentPrice,
+        double winProbability,
+        string direction,
+        double atr,
+        int timeInSeconds = 60,
+        double payoutRatio = 0.85,
+        int iterations = 1000);
+}
+
+public class MonteCarloEngine : IMonteCarloEngine
+{
+    private readonly double _defaultPayoutRatio = 0.85;
+    private readonly double _expectedJumps = 0.15; // 15% chance of a black swan jump per simulation
+    private readonly double _jumpVolMultiplier = 3.0; // Jumps are 3x more volatile
+
     /// <summary>
-    /// Runs 1,000 algorithmic Monte Carlo stochastic price path simulations with ATR volatility and calculates
+    /// Runs algorithmic Monte Carlo stochastic price path simulations with ATR volatility and calculates
     /// Expected Value (EV) and Fractional Kelly Criterion risk management.
     /// </summary>
-    public static MonteCarloResult Simulate(
+    public MonteCarloResult Simulate(
         double currentPrice,
         double winProbability,
         string direction,
@@ -46,15 +61,12 @@ public static class MonteCarloEngine
         double driftSign = isBuy ? 1.0 : -1.0;
         double directionalDrift = (driftSign * (prob - 0.5) * 2.0 * totalVol) + itoDrift;
 
-        // Merton Jump Diffusion Parameters (Fat Tails)
-        // Set a capped expected jumps so higher timeframes don't get mathematically crushed.
-        double expectedJumps = 0.15; // 15% chance of a black swan jump per simulation, regardless of timeframe
-        double jumpVol = totalVol * 3.0; // Jumps are 3x more volatile than normal Brownian motion
+        double jumpVol = totalVol * _jumpVolMultiplier;
 
         int successCount = 0;
         var rand = Random.Shared;
 
-        // 1,000 Stochastic Monte Carlo iterations
+        // Stochastic Monte Carlo iterations
         for (int i = 0; i < iterations; i++)
         {
             // Box-Muller transform for standard normal Gaussian random numbers
@@ -64,7 +76,7 @@ public static class MonteCarloEngine
 
             // Simulate Poisson Jumps (Black Swan / Manipulation)
             double jumpReturn = 0;
-            if (rand.NextDouble() < expectedJumps) // simplified Poisson trigger for small intervals
+            if (rand.NextDouble() < _expectedJumps) 
             {
                 double j1 = 1.0 - rand.NextDouble();
                 double j2 = 1.0 - rand.NextDouble();
@@ -98,7 +110,7 @@ public static class MonteCarloEngine
         // Calculate Kelly Criterion Risk Percentage: K% = (p * b - q) / b
         double p = simulatedWinRate;
         double q = 1.0 - p;
-        double b = payoutRatio > 0 ? payoutRatio : 0.85;
+        double b = payoutRatio > 0 ? payoutRatio : _defaultPayoutRatio;
 
         double fullKelly = (p * b - q) / b;
         // Fractional Kelly (Half-Kelly to Fractional 25% for conservative capital preservation)
@@ -106,14 +118,14 @@ public static class MonteCarloEngine
         double kellyRiskPct = Math.Round(fractionalKelly * 100.0, 1);
 
         string evLabel = evPct > 0 
-            ? $"+{evPct:F1}% EV (Высокая выгода)" 
-            : $"{evPct:F1}% EV (Низкое матожидание)";
+            ? $"+{evPct:F1}% EV (Positive Expectancy)" 
+            : $" {evPct:F1}% EV (Negative Expectancy)";
 
         string kellyLabel = kellyRiskPct > 0 
-            ? $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% от депозита"
-            : "0% (Не рекомендуется открывать сделку)";
+            ? $"{kellyRiskPct:F1}% - {Math.Min(kellyRiskPct + 0.5, 5.0):F1}% of Capital"
+            : "0% (Do not trade, low edge)";
 
-        string summary = $"🎰 Монте-Карло ({iterations} прогонов ATR): {successCount}/{iterations} успехов | EV: {(evPct > 0 ? "+" : "")}{evPct:F1}% | Риск Келли: {kellyRiskPct:F1}%";
+        string summary = $"Monte-Carlo Model ({iterations} paths ATR): {successCount}/{iterations} won | EV: {(evPct > 0 ? "+" : " ")}{evPct:F1}% | Kelly Risk: {kellyRiskPct:F1}%";
 
         return new MonteCarloResult(
             iterations,

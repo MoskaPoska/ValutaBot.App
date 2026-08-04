@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http;
 using System.Text;
@@ -24,12 +24,12 @@ public static partial class MiniAppController
 
     public record OhlcCandle(double Open, double High, double Low, double Close, double Volume, DateTime Timestamp = default);
 
-    public static System.Net.Http.IHttpClientFactory? HttpFactory { get; private set; }
+    public static System.Net.Http.IHttpClientFactory? HttpFactory { get; set; }
 
     public static void Start(string[] args, int port = 5000)
     {
         Console.WriteLine("=====================================================");
-        Console.WriteLine("[Live Core] TradeBE_bot — MiniApp Server");
+        Console.WriteLine("[Live Core] TradeBE_bot вЂ” MiniApp Server");
         Console.WriteLine($"[+] Port: {port}");
         Console.WriteLine("=====================================================");
 
@@ -57,7 +57,7 @@ public static partial class MiniAppController
             options.OnRejected = async (context, token) =>
             {
                 context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
-                await context.HttpContext.Response.WriteAsync("{\"error\":\"Слишком много запросов. Подождите несколько секунд.\"}");
+                await context.HttpContext.Response.WriteAsync("{\"error\":\"РЎР»РёС€РєРѕРј РјРЅРѕРіРѕ Р·Р°РїСЂРѕСЃРѕРІ. РџРѕРґРѕР¶РґРёС‚Рµ РЅРµСЃРєРѕР»СЊРєРѕ СЃРµРєСѓРЅРґ.\"}");
             };
 
             options.AddPolicy("Global", context =>
@@ -122,7 +122,7 @@ public static partial class MiniAppController
                         xhr.setRequestHeader('ngrok-skip-browser-warning', 'true');
                         xhr.onreadystatechange = function () { if (xhr.readyState === 4) { var url = new URL(window.location.href); url.searchParams.set('ngrok_passed', '1'); window.location.href = url.toString(); } };
                         xhr.send();
-                    </script></head><body style='background:#0d0e1e; display:flex; justify-content:center; align-items:center; height:100vh; color:#8a4bfb; font-family:sans-serif;'>Загрузка терминала...</body></html>";
+                    </script></head><body style='background:#0d0e1e; display:flex; justify-content:center; align-items:center; height:100vh; color:#8a4bfb; font-family:sans-serif;'>Р—Р°РіСЂСѓР·РєР° С‚РµСЂРјРёРЅР°Р»Р°...</body></html>";
                 await context.Response.WriteAsync(bypassScript);
                 return;
             }
@@ -131,7 +131,7 @@ public static partial class MiniAppController
 
 
 
-        app.MapGet("/api/analyze", async (HttpContext context, string? asset, string? timeframe) =>
+        app.MapGet("/api/analyze", async Task<IResult> (HttpContext context, string? asset, string? timeframe) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             var (isAuthorized, authError) = await AuthService.IsRequestAuthorized(context);
@@ -148,7 +148,7 @@ public static partial class MiniAppController
             try
             {
                 var taEngine = new TechnicalAnalysisEngine();
-                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new MarketDataFetcher(), new WalkForwardValidationEngine(), new ConfluenceMatrixEngine(new MarketDataFetcher(), new TechnicalAnalysisEngine()), new TradeTimeoutEngine());
+                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new MarketDataFetcher(), new WalkForwardValidationEngine(), new ConfluenceMatrixEngine(new MarketDataFetcher(), new TechnicalAnalysisEngine(), new AutoCalibrationEngine()), new TradeTimeoutEngine(), new MonteCarloEngine());
                 var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization
                 var options = new JsonSerializerOptions
@@ -169,10 +169,10 @@ public static partial class MiniAppController
             }
         }).RequireRateLimiting("Global");
 
-        app.MapGet("/api/stats", HandleGetStats).RequireRateLimiting("Global");
-        app.MapGet("/api/signal-stats", HandleGetSignalStats).RequireRateLimiting("Global");
+        app.MapGet("/api/stats", (Delegate)HandleGetStats).RequireRateLimiting("Global");
+        app.MapGet("/api/signal-stats", (Delegate)HandleGetSignalStats).RequireRateLimiting("Global");
 
-        app.MapGet("/api/fear-greed", async (HttpContext context) =>
+        app.MapGet("/api/fear-greed", async Task<IResult> (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             var (isAuthorized, authError) = await AuthService.IsRequestAuthorized(context);
@@ -183,8 +183,8 @@ public static partial class MiniAppController
             return Results.Json(fng);
         });
 
-        /* ─── Postback Endpoint ─── */
-        app.MapGet("/api/postback", async (HttpContext context) =>
+        /* в”Ђв”Ђв”Ђ Postback Endpoint в”Ђв”Ђв”Ђ */
+        app.MapGet("/api/postback", async Task<IResult> (HttpContext context) =>
         {
             var query = context.Request.Query;
             
@@ -218,7 +218,7 @@ public static partial class MiniAppController
                 return Results.BadRequest(new { success = false, error = "pocketId is required" });
             }
 
-            BotLogger.Info($"[Postback 🔒] Verified Postback: pocketId={pocketId}, chatId={chatId}, status={status}, deposit={deposit}");
+            BotLogger.Info($"[Postback рџ”’] Verified Postback: pocketId={pocketId}, chatId={chatId}, status={status}, deposit={deposit}");
 
             await TelegramBotService.ProcessPostback(chatId, pocketId, status, deposit);
 
@@ -249,8 +249,8 @@ public static partial class MiniAppController
 
 
 
-    /* ─── Indicators ─── */
-    /* ─── Fear & Greed Index ─── */
+    /* в”Ђв”Ђв”Ђ Indicators в”Ђв”Ђв”Ђ */
+    /* в”Ђв”Ђв”Ђ Fear & Greed Index в”Ђв”Ђв”Ђ */
 
     
 
@@ -279,3 +279,6 @@ public static partial class MiniAppController
         }
     }
 }
+
+
+

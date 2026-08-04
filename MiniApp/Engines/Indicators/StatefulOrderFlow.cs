@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace ValutaBot.MiniApp.Indicators;
@@ -39,50 +39,55 @@ public class StatefulOrderFlow
     public double PriceDelta { get; private set; }
     public double CurrentPrice { get; private set; }
 
-    public void Update(ReadOnlySpan<MiniAppController.OhlcCandle> candles)
+    private readonly object _lockObj = new();
+
+        public void Update(ReadOnlySpan<MiniAppController.OhlcCandle> candles)
     {
         if (candles.Length == 0) return;
 
-        // Permanent processing of closed candles
-        for (int i = 0; i < candles.Length - 1; i++)
+        lock (_lockObj)
         {
-            var c = candles[i];
-            if (c.Timestamp <= _lastProcessedTime && _lastProcessedTime != default)
-                continue;
-
-            // Session reset logic (e.g. gap > 4 hours)
-            if (_lastProcessedTime != default && (c.Timestamp - _lastProcessedTime).TotalHours > 4)
+            // Permanent processing of closed candles
+            for (int i = 0; i < candles.Length - 1; i++)
             {
-                _cumulativeVolumeDelta = 0;
-                _shortTermWindow.Clear();
-                _shortTermBuyVolume = 0;
-                _shortTermSellVolume = 0;
+                var c = candles[i];
+                if (c.Timestamp <= _lastProcessedTime && _lastProcessedTime != default)
+                    continue;
+
+                // Session reset logic (e.g. gap > 4 hours)
+                if (_lastProcessedTime != default && (c.Timestamp - _lastProcessedTime).TotalHours > 4)
+                {
+                    _cumulativeVolumeDelta = 0;
+                    _shortTermWindow.Clear();
+                    _shortTermBuyVolume = 0;
+                    _shortTermSellVolume = 0;
+                }
+
+                ProcessCandle(c, isPermanent: true);
+                _lastProcessedTime = c.Timestamp;
             }
 
-            ProcessCandle(c, isPermanent: true);
-            _lastProcessedTime = c.Timestamp;
-        }
-
-        // For the current open candle, we calculate the state without permanently committing
-        if (candles.Length > 0)
-        {
-            HasInstitutionalBlockTrade = false;
-            
-            // Back up the short term values before applying the open candle
-            double backupBuy = _shortTermBuyVolume;
-            double backupSell = _shortTermSellVolume;
-
-            ProcessCandle(candles[^1], isPermanent: false);
-
-            if (candles.Length >= 5)
+            // For the current open candle, we calculate the state without permanently committing
+            if (candles.Length > 0)
             {
-                PriceDelta = candles[^1].Close - candles[^5].Close;
+                HasInstitutionalBlockTrade = false;
+                
+                // Back up the short term values before applying the open candle
+                double backupBuy = _shortTermBuyVolume;
+                double backupSell = _shortTermSellVolume;
+
+                ProcessCandle(candles[^1], isPermanent: false);
+
+                if (candles.Length >= 5)
+                {
+                    PriceDelta = candles[^1].Close - candles[^5].Close;
+                }
+                CurrentPrice = candles[^1].Close;
+                
+                // Restore short term values to not permanently commit the open candle to the rolling sum
+                _shortTermBuyVolume = backupBuy;
+                _shortTermSellVolume = backupSell;
             }
-            CurrentPrice = candles[^1].Close;
-            
-            // Restore short term values to not permanently commit the open candle to the rolling sum
-            _shortTermBuyVolume = backupBuy;
-            _shortTermSellVolume = backupSell;
         }
     }
 
@@ -151,3 +156,4 @@ public class StatefulOrderFlow
         }
     }
 }
+

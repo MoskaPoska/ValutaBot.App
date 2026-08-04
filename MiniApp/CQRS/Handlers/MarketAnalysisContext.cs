@@ -6,7 +6,7 @@ using ValutaBot.App.MiniApp.Services;
 
 namespace ValutaBot.MiniApp.CQRS.Handlers;
 
-internal class MarketAnalysisContext
+public class MarketAnalysisContext
 {
     private readonly GetMarketAnalysisQueryHandler _handler;
     private readonly string _asset;
@@ -30,21 +30,17 @@ internal class MarketAnalysisContext
     private (double[] prices, double[] volumes)? _higherResultData;
     private (double[] prices, double[] volumes)? _lowerResultData;
     
-    private double _totalScore = 0;
-    private double _totalConfidence = 0;
-    private double _totalWeight = 0;
     private double _conflictPenalty = 1.0;
 
     private SmcEngine.SmcAnalysisResult _smcResult;
     private OrderFlowEngine.OrderFlowResult _orderFlowResult;
-    private (double score, string sentiment, string summary, string[] headlines) _newsResult;
     private WalkForwardValidationEngine.WalkForwardResult _wfResult;
 
     private string _lgbmDirection = "NEUTRAL";
     private double _lgbmConfidence = 0.5;
     private string _lgbmModelVersion = "disabled";
     private double? _lgbmAccuracy = null;
-    private string _llmReport = "LLM-сводка загружается...";
+    private string _llmReport = "LLM-СЃРІРѕРґРєР° Р·Р°РіСЂСѓР¶Р°РµС‚СЃСЏ...";
     
     private double _mainAdx, _mainPdi, _mainMdi, _mainAtr;
     private (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal) _mainResult;
@@ -64,7 +60,7 @@ internal class MarketAnalysisContext
 
             if (_mainPrices == null || _mainPrices.Length == 0)
             {
-                throw new Exception("Недостаточно данных для анализа. Биржа или провайдер вернули пустой результат.");
+                throw new Exception("РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РґР°РЅРЅС‹С… РґР»СЏ Р°РЅР°Р»РёР·Р°. Р‘РёСЂР¶Р° РёР»Рё РїСЂРѕРІР°Р№РґРµСЂ РІРµСЂРЅСѓР»Рё РїСѓСЃС‚РѕР№ СЂРµР·СѓР»СЊС‚Р°С‚.");
             }
 
             var gatekeeper = _handler._riskGatekeeper.ValidateMarketGatekeeper(_asset, _timeframe, _mainPrices, _ohlcCandles);
@@ -77,9 +73,6 @@ internal class MarketAnalysisContext
             await AnalyzeCoreMechanicsAsync();
             await GatherMachineLearningAsync();
             await EvaluateTechnicalIndicatorsAsync();
-            await EvaluateContinuousAndIntermarketAsync();
-            
-            await ApplySmcFinalScoreAsync();
 
             return await BuildFinalConsensusAsync();
         }
@@ -191,22 +184,6 @@ internal class MarketAnalysisContext
                     _lgbmConfidence = (float)prediction.Confidence;
                     _lgbmModelVersion = prediction.ModelVersion;
                     _lgbmAccuracy = prediction.Accuracy;
-
-                    // Compute score multiplier.
-                    // If prediction is strong, high multiplier.
-                    float FinalScoreMultiplier = 0f;
-                    if (prediction.Direction == "BUY" && prediction.Confidence > 0.60)
-                        FinalScoreMultiplier = 0.35f;
-                    else if (prediction.Direction == "PUT" && prediction.Confidence > 0.60)
-                        FinalScoreMultiplier = -0.35f;
-                    else if (prediction.Direction == "BUY" && prediction.Confidence > 0.55)
-                        FinalScoreMultiplier = 0.15f;
-                    else if (prediction.Direction == "PUT" && prediction.Confidence > 0.55)
-                        FinalScoreMultiplier = -0.15f;
-
-                    // Apply ensemble score multiplier
-                    _totalScore += FinalScoreMultiplier;
-                    _totalConfidence += Math.Abs(FinalScoreMultiplier) * 20;
                 }
 
                 var llmService = new LlmReportingService();
@@ -217,17 +194,8 @@ internal class MarketAnalysisContext
             catch (Exception ex) 
             { 
                 Console.WriteLine($"[Python ML Warning] {ex.GetType().Name}: {ex.Message}");
-                _llmReport = $"⚠️ ML-движок недоступен: {ex.GetType().Name} — {ex.Message}";
+                _llmReport = $"вљ пёЏ ML-РґРІРёР¶РѕРє РЅРµРґРѕСЃС‚СѓРїРµРЅ: {ex.GetType().Name} вЂ” {ex.Message}";
             }
-        }
-
-        if (Math.Abs(_newsResult.score) > 0.1)
-        {
-            double newsWeight = await SignalTracker.GetSignalWeightAsync("NEWS", 0.8);
-            double newsScoreNormalized = Math.Clamp(_newsResult.score / 2.0, -1, 1);
-            _totalScore += newsScoreNormalized * newsWeight;
-            _totalConfidence += Math.Clamp(Math.Abs(_newsResult.score) / 2.0 * 100, 50, 98) * newsWeight;
-            _totalWeight += newsWeight;
         }
     }
 
@@ -268,92 +236,32 @@ internal class MarketAnalysisContext
             var higherResult = _handler._marketAnalyzer.ScoreTimeframe(_asset, _higherTf ?? "", _higherResultData.Value.prices, _higherResultData.Value.volumes ?? Array.Empty<double>(), candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: _isForex);
             
             _conflictPenalty *= GetMarketAnalysisQueryHandler.MfConflictPenalty(_mainResult, higherResult);
-
-            _totalScore += higherResult.score * _conflictPenalty;
-            _totalConfidence += higherResult.confidence * 2.0 * _conflictPenalty;
-            _totalWeight += 2.0;
-        }
-
-        double indicatorWeight = await SignalTracker.GetSignalWeightAsync("INDICATORS", 1.0);
-        _totalScore += (_mainResult.score + _orderFlowResult.ScoreContribution) * indicatorWeight;
-        _totalConfidence += _mainResult.confidence * indicatorWeight;
-        _totalWeight += indicatorWeight;
-    }
-
-    private async Task EvaluateContinuousAndIntermarketAsync()
-    {
-        var continuousState = ContinuousStateEngine.EvaluateContinuousState(_mainPrices, _asset, _timeframe);
-        double stateWeight = await SignalTracker.GetSignalWeightAsync("VelocityState", 1.5);
-        _totalScore += continuousState.MomentumContribution * stateWeight;
-        _totalConfidence += 60.0 * stateWeight;
-        _totalWeight += stateWeight;
-        BotLogger.Info($"[Continuous State] Asset {_asset}: State={continuousState.VelocityRegime} | Velocity={continuousState.VelocityBpsPerSec} bps/s");
-
-    }
-
-    private (string direction, double probability, string reasoning, string modelName) GetClaudeFallback()
-    {
-        string fallbackDir = _totalScore > 0.05 ? "BUY" : _totalScore < -0.05 ? "PUT" : "NEUTRAL";
-        string fallbackReasoning = "����� ��������� �� ����� ��� ���������� ������������ ���� �����. ������������� ������������ �� ������.";
-        
-        if (_totalScore > 0.6) fallbackReasoning = "������� ����� �����. �������� ���������� (RSI, MACD, ������) ������������ ����. ��������� ������� ��� �����.";
-        else if (_totalScore > 0.2) fallbackReasoning = "��������� ����� �����. �������� ��������� �� ��������� ����, ���������� ��������� ������ �������������.";
-        else if (_totalScore < -0.6) fallbackReasoning = "������� �������� �����. ��������� �������. ������� �������� ���������, ������������� ���� �� ���������.";
-        else if (_totalScore < -0.2) fallbackReasoning = "��������� �������� �����. ���������� ��������� �� ��������, ������� �� �������� ���������.";
-
-        return (fallbackDir, 50.0, fallbackReasoning, "�������������� ������");
-    }
-
-
-
-    private async Task ApplySmcFinalScoreAsync()
-    {
-        int smcScore = 0;
-        if (_smcResult.SweepDirection == "BULLISH_SWEEP") smcScore += 2;
-        else if (_smcResult.SweepDirection == "BEARISH_SWEEP") smcScore -= 2;
-        if (_smcResult.BosDirection == "BULLISH_BOS") smcScore += 2;
-        else if (_smcResult.BosDirection == "BEARISH_BOS") smcScore -= 2;
-        if (_smcResult.OrderBlockType == "BULLISH_OB") smcScore += 1;
-        else if (_smcResult.OrderBlockType == "BEARISH_OB") smcScore -= 1;
-        if (_smcResult.FvgType == "BULLISH_FVG") smcScore += 1;
-        else if (_smcResult.FvgType == "BEARISH_FVG") smcScore -= 1;
-        
-        if (smcScore != 0)
-        {
-            double smcWeight = await SignalTracker.GetSignalWeightAsync("SMC", 1.0);
-            _totalScore += ((double)smcScore / 6.0) * smcWeight;
-            _totalConfidence += 60.0 * smcWeight;
-            _totalWeight += smcWeight;
-        }
-
-        if (_totalWeight > 0)
-        {
-            _totalScore /= _totalWeight;
-            _totalConfidence /= _totalWeight;
         }
     }
 
     private async Task<object> BuildFinalConsensusAsync()
     {
-        int scoreSign = _totalScore > 0.02 ? 1 : _totalScore < -0.02 ? -1 : 0;
         bool isSubMinute = _timeframe.ToLower().StartsWith("s");
-        var matrixResult = await _handler._cmEngine.Evaluate4DMatrixAsync(_asset, _timeframe, _isForex, _symbol);
+        
+        // Construct Signals for the Confluence Matrix
+        var taSignal = new TaSignal(_mainResult.score, _mainResult.confidence, _mainResult.rsiVal, _mainResult.emaVal, _mainResult.volStrengthVal, _mainAtr);
+        var smcSignal = new SmcSignal(_smcResult.BosDirection, _smcResult.SweepDirection, _smcResult.OrderBlockType, _smcResult.FvgType, "SMC Analyzed");
+        var ofSignal = new OrderflowSignal(_orderFlowResult.ScoreContribution, _orderFlowResult.Description);
+        var mlSignal = new MlSignal(_lgbmDirection, _lgbmConfidence, _lgbmAccuracy, _lgbmModelVersion);
+        
+        var continuousState = ContinuousStateEngine.EvaluateContinuousState(_mainPrices, _asset, _timeframe);
+        var stateSignal = new StateSignal(continuousState.VelocityRegime.ToString(), continuousState.VelocityBpsPerSec, continuousState.MomentumContribution);
 
-        var consensus = ConsensusEngine.EvaluateConsensus(
-            _totalScore, scoreSign,
-            _lgbmDirection, _lgbmConfidence, _lgbmAccuracy,
-            _mainResult.rsiVal, _mainResult.emaVal,
-            isSubMinute, _asset, _timeframe, _mainAdx, _mainResult.volStrengthVal,
-            "SMC Analysed", _orderFlowResult.Description, _wfResult.WeightMultiplier
+        var mtfResult = await _handler._cmEngine.Evaluate4DMatrixAsync(_asset, _timeframe, _isForex, _symbol);
+
+        var consensus = await _handler._cmEngine.EvaluateMatrixAsync(
+            _asset, _timeframe, isSubMinute, _conflictPenalty, 
+            taSignal, smcSignal, ofSignal, mlSignal, stateSignal, mtfResult
         );
 
         string finalDirection = consensus.FinalDirection;
-        int blendedConfidence = _totalWeight > 0 ? (int)_totalConfidence : 50;
-        int finalProbability = Math.Max(consensus.Probability, blendedConfidence);
+        int finalProbability = consensus.Probability;
         
-        if (finalDirection == "NEUTRAL") finalProbability = 50;
-        else if (matrixResult.ProbabilityBoost > 0) finalProbability = Math.Clamp(finalProbability + matrixResult.ProbabilityBoost, 55, 95);
-
         int timeframeSec = _handler._fetcher.TimeframeSeconds(_timeframe);
         double volRatio = _handler._marketAnalyzer.CalculateVolatilityRatio(_mainPrices);
         var timeoutResult = _handler._timeoutEngine.CalculateTimeout(_asset, _timeframe, _mainAtr, volRatio, _smcResult);
@@ -368,19 +276,17 @@ internal class MarketAnalysisContext
 
         var mcResult = finalDirection == "NEUTRAL" 
             ? new MonteCarloResult(0, 0, 0, 0, "Blocked", "Blocked", "Trade blocked before simulation")
-            : MonteCarloEngine.Simulate(_mainPrices[^1], finalProbability / 100.0, finalDirection, _mainAtr, timeoutResult.TimeoutCandles * timeframeSec, 0.85, 1000);
+            : _handler._mcEngine.Simulate(_mainPrices[^1], finalProbability / 100.0, finalDirection, _mainAtr, timeoutResult.TimeoutCandles * timeframeSec, 0.85, 1000);
 
         string orderFlowDir = _orderFlowResult.ScoreContribution > 0 ? "BUY" : _orderFlowResult.ScoreContribution < 0 ? "PUT" : "NEUTRAL";
-        int smcScore = 0; // simplified for tracker
-        string smcDir = smcScore > 0 ? "BUY" : smcScore < 0 ? "PUT" : "NEUTRAL";
-
+        
         await SignalTracker.RecordPredictionAsync(
             finalDirection, _asset, _timeframe, _mainPrices[^1],
             expiryCandles: timeoutResult.TimeoutCandles,
             timeframeSecs: timeframeSec, isForex: _isForex, binanceSymbol: _symbol,
             sourceDirections: new Dictionary<string, string> {
-                ["LIGHTGBM"] = _lgbmDirection, ["SKENDER_MATH"] = scoreSign > 0 ? "BUY" : scoreSign < 0 ? "PUT" : "NEUTRAL",
-                ["SMC"] = smcDir, ["ORDERFLOW"] = orderFlowDir,
+                ["LIGHTGBM"] = _lgbmDirection, ["SKENDER_MATH"] = consensus.FinalTotalScore > 0.02 ? "BUY" : consensus.FinalTotalScore < -0.02 ? "PUT" : "NEUTRAL",
+                ["SMC"] = smcSignal.SweepDirection.Contains("BULLISH") ? "BUY" : "PUT", ["ORDERFLOW"] = orderFlowDir,
                 ["NATIVE_ML"] = "NEUTRAL"
             }
         );
@@ -393,10 +299,10 @@ internal class MarketAnalysisContext
             direction = finalDirection,
             probability = finalProbability,
             duration = timeoutResult.TimeoutText,
-            adaptiveReasoning = $"{timeoutResult.Reasoning} | {matrixResult.SummaryReasoning}",
-            goldenSetup = matrixResult.IsGoldenSetup,
-            confluenceLabel = matrixResult.ConfluenceLabel,
-            confluenceRatio = matrixResult.ConfluenceRatio,
+            adaptiveReasoning = $"{timeoutResult.Reasoning} | {mtfResult.SummaryReasoning}",
+            goldenSetup = mtfResult.IsGoldenSetup,
+            confluenceLabel = mtfResult.ConfluenceLabel,
+            confluenceRatio = mtfResult.ConfluenceRatio,
             expiryCandles = timeoutResult.TimeoutCandles,
             chartData = _mainPrices,
             rsi = Math.Round(_mainResult.rsiVal, 1),
@@ -407,10 +313,10 @@ internal class MarketAnalysisContext
             lgbmConfidence = Math.Round(_lgbmConfidence * 100, 0),
             lgbmAccuracy = _lgbmAccuracy.HasValue ? Math.Round(_lgbmAccuracy.Value * 100, 1) : (double?)null,
             lgbmModelVersion = _lgbmModelVersion,
-            newsSentiment = _newsResult.sentiment,
-            newsScore = Math.Round(_newsResult.score, 1),
-            newsSummary = _newsResult.summary,
-            newsHeadlines = _newsResult.headlines,
+            newsSentiment = "Neutral", // Removed old logic
+            newsScore = 0.0,
+            newsSummary = "",
+            newsHeadlines = Array.Empty<string>(),
             claudeReasoning = consensus.CombinedReasoningText,
             winRateOverall = overallStats.HasData ? overallStats.WinRate : (double?)null,
             winRateAsset = assetStats.HasData ? assetStats.WinRate : (double?)null,
@@ -428,14 +334,3 @@ internal class MarketAnalysisContext
         };
     }
 }
-
-
-
-
-
-
-
-
-
-
-

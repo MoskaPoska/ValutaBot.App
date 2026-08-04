@@ -213,56 +213,48 @@ public static partial class MiniAppUI
 
             const btnGet = target.closest('#btnGet');
             if (btnGet) {
-                if (e.type === 'touchend') e.preventDefault();
                 executeAnalysis();
                 return;
             }
 
             const catBtn = target.closest('.top-cat-btn');
             if (catBtn) {
-                if (e.type === 'touchend') e.preventDefault();
                 changeTopCategory(catBtn);
                 return;
             }
 
             const assetTrigger = target.closest('#assetBtn');
             if (assetTrigger) {
-                if (e.type === 'touchend') e.preventDefault();
                 toggleMenu('assetMenu', 'assetBtn');
                 return;
             }
 
             const tfTrigger = target.closest('#tfBtn');
             if (tfTrigger) {
-                if (e.type === 'touchend') e.preventDefault();
                 toggleMenu('tfMenu', 'tfBtn');
                 return;
             }
 
             const assetItem = target.closest('.asset-item');
             if (assetItem) {
-                if (e.type === 'touchend') e.preventDefault();
                 setAsset(assetItem);
                 return;
             }
 
             const tfItem = target.closest('.tf-btn');
             if (tfItem) {
-                if (e.type === 'touchend') e.preventDefault();
                 setTf(tfItem);
                 return;
             }
 
             const tabBtnChart = target.closest('#tabBtnChart');
             if (tabBtnChart) {
-                if (e.type === 'touchend') e.preventDefault();
                 switchResultTab('chart');
                 return;
             }
 
             const tabBtnAI = target.closest('#tabBtnAI');
             if (tabBtnAI) {
-                if (e.type === 'touchend') e.preventDefault();
                 switchResultTab('ai');
                 return;
             }
@@ -273,7 +265,6 @@ public static partial class MiniAppUI
         }
 
         document.addEventListener('click', handleGlobalInteraction);
-        document.addEventListener('touchend', handleGlobalInteraction, { passive: false });
 
         (function() {
             var p = new URLSearchParams(window.location.search);
@@ -750,8 +741,6 @@ public static partial class MiniAppUI
 
                     const tabReg = document.getElementById('resultsTabBar');
                     if (tabReg) tabReg.style.display = 'flex';
-                    switchResultTab('chart');
-                    flashResults();
                     switchResultTab('chart');
                     flashResults();
 

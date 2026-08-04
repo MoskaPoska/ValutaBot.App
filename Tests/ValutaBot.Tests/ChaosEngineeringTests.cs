@@ -1,14 +1,12 @@
-#if false
-using System;
-using System.Net.Http;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Moq;
-using Moq.Protected;
 using Xunit;
 using Xunit.Abstractions;
 using ValutaBot.MiniApp;
+using ValutaBot.MiniApp.CQRS.Handlers;
+using ValutaBot.MiniApp.CQRS.Queries;
+using Moq;
 
 namespace ValutaBot.Tests
 {
@@ -21,67 +19,97 @@ namespace ValutaBot.Tests
             _output = output;
         }
 
-        [Fact]
-        public async Task MarketDataFetcher_NetworkDrop_ShouldFallbackAndNotCrash()
+        private GetMarketAnalysisQueryHandler GetHandler()
         {
-            // Arrange (Chaos Setup)
-            _output.WriteLine("[Chaos] Simulating 'Plug Pulled' during Binance request.");
+            var mockFetcher = new Mock<MarketDataFetcher>();
+            var mockCandles = new MiniAppController.OhlcCandle[100];
+            var mockPrices = new double[100];
+            var mockVolumes = new double[100];
 
-            var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            for(int i=0; i<100; i++) 
+            {
+                mockCandles[i] = new MiniAppController.OhlcCandle(1.0, 1.0, 1.0, 1.0, 100.0, DateTime.UtcNow);
+                mockPrices[i] = i % 2 == 0 ? 1.0 : 1.1;
+                mockVolumes[i] = 100.0;
+            }
+            
+            mockFetcher.Setup(f => f.FetchOhlcWithFallbackAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()))
+                       .ReturnsAsync(mockCandles);
+                       
+            mockFetcher.Setup(f => f.FetchBinanceWithFallback(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()))
+                       .ReturnsAsync((mockPrices, mockVolumes));
 
-            // Setup Binance to fail with a network exception (simulating lost internet)
-            mockHandler.Protected()
-                .Setup<Task<HttpResponseMessage>>(
-                    "SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.binance.com")),
-                    ItExpr.IsAny<CancellationToken>()
-                )
-                .ThrowsAsync(new HttpRequestException("Simulated Network Drop - The internet is gone!"));
+            var taEngine = new TechnicalAnalysisEngine();
+            var wfEngine = new WalkForwardValidationEngine();
+            var cmEngine = new ConfluenceMatrixEngine(mockFetcher.Object, taEngine, new AutoCalibrationEngine());
+            var timeoutEngine = new TradeTimeoutEngine();
 
-            // Setup TwelveData to also fail or return empty just to ensure we don't crash, 
-            // or let it return a dummy response.
-            mockHandler.Protected()
-                .Setup<Task<HttpResponseMessage>>(
-                    "SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri.Host.Contains("api.twelvedata.com")),
-                    ItExpr.IsAny<CancellationToken>()
-                )
-                .ReturnsAsync(new HttpResponseMessage
+            return new GetMarketAnalysisQueryHandler(taEngine, taEngine, taEngine, mockFetcher.Object, wfEngine, cmEngine, timeoutEngine, new MonteCarloEngine());
+        }
+
+        [Fact]
+        public async Task PoisonData_DoesNotCrashApp()
+        {
+            _output.WriteLine("[Chaos] Injecting poison data (null, empty arrays, NaNs)...");
+
+            var taEngine = new TechnicalAnalysisEngine();
+
+            // 1. Technical Analysis Engine Chaos
+            double[] emptyArray = Array.Empty<double>();
+            double[] poisonArray = { double.NaN, double.PositiveInfinity, double.NegativeInfinity, 0 };
+
+            var emptyTaRes = taEngine.ScoreTimeframe("EURUSD", "m5", emptyArray, emptyArray);
+            Assert.Equal(0, emptyTaRes.score);
+            Assert.Equal(50, emptyTaRes.confidence);
+
+            var poisonTaRes = taEngine.ScoreTimeframe("EURUSD", "m5", poisonArray, poisonArray);
+            Assert.Equal(0, poisonTaRes.score);
+            Assert.Equal(50, poisonTaRes.confidence);
+            
+            // 2. OrderFlow Chaos (OrderFlowEngine is static)
+            var emptyOfRes = OrderFlowEngine.AnalyzeOrderFlow("EURUSD", "m5", Array.Empty<MiniAppController.OhlcCandle>(), 100);
+            Assert.Equal("BALANCED", emptyOfRes.OrderFlowState);
+            Assert.Equal(0, emptyOfRes.ScoreContribution);
+
+            // 3. ContinuousStateEngine Chaos (ContinuousStateEngine is static)
+            var csRes = ContinuousStateEngine.EvaluateContinuousState(emptyArray, "EURUSD", "m5");
+            Assert.Equal("UNKNOWN", csRes.VelocityRegime);
+            
+            _output.WriteLine("[Chaos] Poison data survived. Engines degraded gracefully.");
+        }
+
+        [Fact]
+        public async Task ConcurrencyBombardment_SurvivesLoad()
+        {
+            _output.WriteLine("[Chaos] Bombarding GetMarketAnalysisQueryHandler with 100 concurrent requests...");
+
+            var handler = GetHandler();
+            var tasks = new Task<object>[100];
+            
+            var startSignal = new CountdownEvent(1);
+            
+            for (int i = 0; i < 100; i++)
+            {
+                tasks[i] = Task.Run(async () =>
                 {
-                    StatusCode = System.Net.HttpStatusCode.OK,
-                    Content = new StringContent("{\"status\":\"ok\",\"values\":[{\"open\":\"1\",\"high\":\"1.5\",\"low\":\"0.5\",\"close\":\"1.2\",\"volume\":\"100\",\"datetime\":\"2024-01-01\"}]}")
+                    startSignal.Wait();
+                    return await handler.Handle(new GetMarketAnalysisQuery("EURUSDT", "m5"), CancellationToken.None);
                 });
-
-            var httpClient = new HttpClient(mockHandler.Object);
-            
-            var mockFactory = new Mock<IHttpClientFactory>();
-            mockFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
-
-            // Inject the chaotic factory globally (since the codebase uses static property)
-            MiniAppController.HttpFactory = mockFactory.Object;
-
-            var fetcher = MarketDataFetcher.Instance;
-
-            // Act
-            Exception capturedEx = null;
-            double[] prices = null;
-            try
-            {
-                var result = await fetcher.FetchBinanceWithFallback("BTCUSDT", "m1", "BTC/USD");
-                prices = result.prices;
-            }
-            catch (Exception ex)
-            {
-                capturedEx = ex;
             }
 
-            // Assert (The Judgement)
-            Assert.Null(capturedEx); // Should not crash!
-            Assert.NotNull(prices);
-            
-            _output.WriteLine("[Chaos] System survived! Fallback logic executed successfully without fatal crash.");
+            // RELEASE THE HOUNDS
+            startSignal.Signal();
+
+            var results = await Task.WhenAll(tasks);
+
+            Assert.Equal(100, results.Length);
+            foreach (var res in results)
+            {
+                Assert.NotNull(res);
+            }
+
+            _output.WriteLine("[Chaos] Survived 100 concurrent requests perfectly.");
         }
     }
 }
 
-#endif

@@ -15,6 +15,8 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
     internal readonly ITradeTimeoutEngine _timeoutEngine;
     internal readonly MarketDataFetcher _fetcher;
 
+    internal readonly IMonteCarloEngine _mcEngine;
+
     public GetMarketAnalysisQueryHandler(
         IMathEngine mathEngine,
         IMarketAnalyzer marketAnalyzer,
@@ -22,7 +24,8 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
         MarketDataFetcher fetcher, 
         IWalkForwardValidationEngine wfEngine, 
         IConfluenceMatrixEngine cmEngine, 
-        ITradeTimeoutEngine timeoutEngine)
+        ITradeTimeoutEngine timeoutEngine,
+        IMonteCarloEngine mcEngine)
     {
         _mathEngine = mathEngine;
         _marketAnalyzer = marketAnalyzer;
@@ -31,6 +34,7 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
         _cmEngine = cmEngine;
         _timeoutEngine = timeoutEngine;
         _fetcher = fetcher;
+        _mcEngine = mcEngine;
     }
 
     internal static double MfConflictPenalty((double score, double conf, double rsi, double ema, double vol, double atr) main,
