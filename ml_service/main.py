@@ -107,6 +107,7 @@ def _get_predictor(symbol: str, interval: str) -> ForexPredictor:
 # ── Request / Response schemas ─────────────────────────────────────────────
 
 class CandleItem(BaseModel):
+    openTime: Optional[int] = None
     open: float
     high: float
     low: float

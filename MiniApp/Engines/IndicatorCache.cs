@@ -42,20 +42,38 @@ internal sealed class IndicatorCache
 
     private static readonly ConcurrentDictionary<string, Indicators.StatefulOrderFlow> _orderFlowCache = new();
 
+    // Evict oldest 25% of entries instead of clearing all — prevents losing active asset state
+    private static void PruneOrderFlowCache()
+    {
+        var keys = _orderFlowCache.Keys.ToArray();
+        int toRemove = Math.Max(1, keys.Length / 4);
+        foreach (var k in keys.Take(toRemove))
+            _orderFlowCache.TryRemove(k, out _);
+    }
+
     public static Indicators.StatefulOrderFlow GetOrderFlow(string asset, string timeframe)
     {
-        if (_orderFlowCache.Count > 1000) _orderFlowCache.Clear();
+        if (_orderFlowCache.Count > 1000) PruneOrderFlowCache();
         string key = $"{asset}_{timeframe}";
         return _orderFlowCache.GetOrAdd(key, _ => new Indicators.StatefulOrderFlow());
     }
 
     // ── RSI ──────────────────────────────────────────────────────────────────
 
+    // Evict oldest 25% of entries instead of clearing all — prevents losing active asset state
+    private void PruneStates()
+    {
+        var keys = _states.Keys.ToArray();
+        int toRemove = Math.Max(1, keys.Length / 4);
+        foreach (var k in keys.Take(toRemove))
+            _states.TryRemove(k, out _);
+    }
+
     public double GetRsi(string asset, string tf,
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
     {
         if (candles.Length <= period) return 50.0;
-        if (_states.Count > 1000) _states.Clear();
+        if (_states.Count > 1000) PruneStates();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -84,7 +102,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles)
     {
         if (candles.Length < 20) return GetRsi(asset, tf, candles, 14);
-        if (_states.Count > 1000) _states.Clear();
+        if (_states.Count > 1000) PruneStates();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -113,7 +131,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 9)
     {
         if (candles.Length < period) return candles.Length > 0 ? candles[^1].Close : 0.0;
-        if (_states.Count > 1000) _states.Clear();
+        if (_states.Count > 1000) PruneStates();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -142,7 +160,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 9)
     {
         if (candles.Length == 0) return 0.0;
-        if (_states.Count > 1000) _states.Clear();
+        if (_states.Count > 1000) PruneStates();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -171,7 +189,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
     {
         if (candles.Length <= period) return (20.0, 0.0, 0.0);
-        if (_states.Count > 1000) _states.Clear();
+        if (_states.Count > 1000) PruneStates();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -199,7 +217,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
     {
         if (candles.Length <= period) return 0.0;
-        if (_states.Count > 1000) _states.Clear();
+        if (_states.Count > 1000) PruneStates();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -225,7 +243,7 @@ internal sealed class IndicatorCache
 
     public StatefulSmc GetSmcState(string asset, string tf, ReadOnlySpan<MiniAppController.OhlcCandle> candles, double currentPrice)
     {
-        if (_states.Count > 1000) _states.Clear();
+        if (_states.Count > 1000) PruneStates();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {

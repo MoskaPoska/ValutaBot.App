@@ -64,6 +64,7 @@ public class StatefulSmc
                 DetectFvgAt(candles, i);
                 DetectOrderBlockAt(candles, i - 1, i);
                 DetectStructureBreak(c);
+                DetectLiquiditySweep(c);  // FIX: sweep detection moved outside fractal block
                 MitigateZones(c);
 
                 _lastProcessedTime = c.Timestamp;
@@ -100,24 +101,39 @@ public class StatefulSmc
         bool isSwingHigh = c.High > cM2.High && c.High > cM1.High && c.High > cP1.High && c.High > cP2.High;
         bool isSwingLow  = c.Low  < cM2.Low  && c.Low  < cM1.Low  && c.Low  < cP1.Low  && c.Low  < cP2.Low;
 
+        // Record swing fractals only — sweep detection moved to DetectLiquiditySweep()
         if (isSwingHigh)
-        {
             _lastSwingHigh = new Fractal(c.High, true, c.Timestamp);
-            if (cP2.High > c.High && cP2.Close < c.High)
-            {
-                _hasLiquiditySweep = true;
-                _sweepDirection    = "BEARISH_SWEEP";
-            }
-        }
 
         if (isSwingLow)
-        {
             _lastSwingLow = new Fractal(c.Low, false, c.Timestamp);
-            if (cP2.Low < c.Low && cP2.Close > c.Low)
-            {
-                _hasLiquiditySweep = true;
-                _sweepDirection    = "BULLISH_SWEEP";
-            }
+    }
+
+    /// <summary>
+    /// Detects liquidity sweeps: current candle's wick exceeded a prior swing,
+    /// but price rejected and closed back inside — classic stop-hunt pattern.
+    /// FIX: Previously this logic was inside DetectFractalAt() inside the isSwingHigh
+    /// block, checking cP2.High > c.High — which is mathematically impossible
+    /// (isSwingHigh requires c.High > cP2.High). Sweep was NEVER detected.
+    /// </summary>
+    private void DetectLiquiditySweep(MiniAppController.OhlcCandle c)
+    {
+        // Bearish sweep: wick above prior swing high, but close back below it
+        if (_lastSwingHigh.Time != default
+            && c.High  > _lastSwingHigh.Price
+            && c.Close < _lastSwingHigh.Price)
+        {
+            _hasLiquiditySweep = true;
+            _sweepDirection    = "BEARISH_SWEEP";
+        }
+
+        // Bullish sweep: wick below prior swing low, but close back above it
+        if (_lastSwingLow.Time != default
+            && c.Low   < _lastSwingLow.Price
+            && c.Close > _lastSwingLow.Price)
+        {
+            _hasLiquiditySweep = true;
+            _sweepDirection    = "BULLISH_SWEEP";
         }
     }
 

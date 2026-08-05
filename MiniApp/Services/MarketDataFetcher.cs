@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Polly;
@@ -82,17 +82,27 @@ public class MarketDataFetcher
     public async Task<MiniAppController.OhlcCandle[]> FetchBinanceOhlcCandlesAsync(string symbol, string interval, int limit = 50)
     {
         // Try Websocket fast path first
-        if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count) && count >= limit)
+        if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count))
         {
-            var resultFast = new MiniAppController.OhlcCandle[limit];
-            int startIdx = count - limit;
-            for (int i = 0; i < limit; i++)
+            try
             {
-                resultFast[i] = new MiniAppController.OhlcCandle(wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsVolumes[startIdx + i], DateTime.UtcNow.AddSeconds(i - limit));
+                if (count >= limit)
+                {
+                    var resultFast = new MiniAppController.OhlcCandle[limit];
+                    int startIdx = count - limit;
+                    for (int i = 0; i < limit; i++)
+                    {
+                        resultFast[i] = new MiniAppController.OhlcCandle(wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsVolumes[startIdx + i], DateTime.UtcNow.AddSeconds(i - limit));
+                    }
+                    return resultFast;
+                }
             }
-            System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
-            System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
-            return resultFast;
+            finally
+            {
+                // FIX: always return rented arrays — even if count < limit (previously leaked)
+                System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
+                System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
+            }
         }
 
         return await FetchBinanceKlinsAsync(symbol, interval, limit) ?? Array.Empty<MiniAppController.OhlcCandle>();
@@ -144,7 +154,9 @@ public class MarketDataFetcher
 
             string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
             
-            var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(MiniAppController.HttpFactory!.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
+            var httpFactory = MiniAppController.HttpFactory
+                ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory не инициализирован. Сервер ещё запускается, повторите запрос.");
+            var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(httpFactory.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
             
             if (arr == null || arr.Length == 0) return Array.Empty<MiniAppController.OhlcCandle>();
 
@@ -204,18 +216,21 @@ public class MarketDataFetcher
 
         if (symbol != null)
         {
-            if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count) && count >= 15)
+            if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count))
             {
                 try
                 {
-                    double[] exactPrices = new double[count];
-                    double[] exactVolumes = new double[count];
-                    Array.Copy(wsPrices, exactPrices, count);
-                    Array.Copy(wsVolumes, exactVolumes, count);
-                    
-                    BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
+                    if (count >= 15)
+                    {
+                        double[] exactPrices = new double[count];
+                        double[] exactVolumes = new double[count];
+                        Array.Copy(wsPrices, exactPrices, count);
+                        Array.Copy(wsVolumes, exactVolumes, count);
+                        
+                        BotLogger.Info($"[MarketDataFetcher] Served live WebSocket candles for {symbol} ({interval}) in 0ms.");
 
-                    return (exactPrices, exactVolumes);
+                        return (exactPrices, exactVolumes);
+                    }
                 }
                 finally
                 {
@@ -268,7 +283,9 @@ public class MarketDataFetcher
     public async Task<double?> FetchHistoricalPriceAsync(string symbol, long endTimeMs)
     {
         string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&endTime={endTimeMs}&limit=1";
-        var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync(MiniAppController.HttpFactory!.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
+        var httpFactory = MiniAppController.HttpFactory
+            ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory не инициализирован.");
+        var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync(httpFactory.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
         if (arr != null && arr.Length > 0 && arr[0].Length >= 5)
         {
             return arr[0][4];

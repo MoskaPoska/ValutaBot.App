@@ -118,6 +118,7 @@ if (!string.IsNullOrWhiteSpace(_baseUrl))
             // Build request payload
             var candleList = candles.Select(c => new
             {
+                openTime = c.Timestamp == default ? 0 : new DateTimeOffset(c.Timestamp.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(c.Timestamp, DateTimeKind.Utc) : c.Timestamp).ToUnixTimeSeconds(),
                 open = c.Open,
                 high = c.High,
                 low = c.Low,

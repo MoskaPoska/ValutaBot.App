@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http;
 using System.Text;
@@ -19,6 +19,19 @@ namespace ValutaBot.MiniApp;
 public static partial class MiniAppController
 {
     private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
+
+    // C1 FIX: Shared singleton instances — state persists across requests
+    // (AutoCalibration EMA weights, WFE drawdown cooloff, IndicatorCache incremental updates)
+    private static readonly TechnicalAnalysisEngine _sharedTaEngine = new();
+    private static readonly MarketDataFetcher _sharedFetcher = new();
+    private static readonly WalkForwardValidationEngine _sharedWfEngine = new();
+    private static readonly AutoCalibrationEngine _sharedAutoCalib = new();
+    private static readonly TradeTimeoutEngine _sharedTimeoutEngine = new();
+    private static readonly MonteCarloEngine _sharedMcEngine = new();
+
+    // Expose for TradeOutcomeTracker to restore calibration state on startup
+    public static AutoCalibrationEngine SharedAutoCalib => _sharedAutoCalib;
+    public static WalkForwardValidationEngine SharedWfEngine => _sharedWfEngine;
 
     public static string? LastExceptionMessage { get; set; }
 
@@ -79,15 +92,24 @@ public static partial class MiniAppController
             });
         });
 
-        // Launch Real-Time WebSocket stream for major CME proxy forex streams (0ms latency)
-        string[] topStreamSymbols = { "EURUSDT", "GBPUSDT", "AUDUSDT", "USDJPY" };
-        BinanceWebSocketStream.StartStream(topStreamSymbols, "1m");
+        bool isWeekend = DateTime.UtcNow.DayOfWeek == DayOfWeek.Saturday || DateTime.UtcNow.DayOfWeek == DayOfWeek.Sunday;
+        if (isWeekend)
+        {
+            // Launch Real-Time WebSocket stream for major CME proxy forex streams (0ms latency)
+            string[] topStreamSymbols = { "EURUSDT", "GBPUSDT", "AUDUSDT" };
+            BinanceWebSocketStream.StartStream(topStreamSymbols, "1m");
+        }
 
         // Init Telegram notifier from config or env (set in Railway dashboard)
         TelegramNotifier.Init(builder.Configuration["TelegramBotToken"] ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
 
         // Init LightGBM Python ML microservice URL
         MLPythonService.Init(builder.Configuration["MLService:BaseUrl"] ?? Environment.GetEnvironmentVariable("ML_SERVICE_URL") ?? "http://localhost:8765");
+
+        // C1 FIX: Inject shared singleton engines into TradeOutcomeTracker for production
+        // (previously only set in RunLocalTests, causing all online RL to be NOP in production)
+        TradeOutcomeTracker.CalibrationEngine = _sharedAutoCalib;
+        TradeOutcomeTracker.WfEngine = _sharedWfEngine;
 
         var app = builder.Build();
         HttpFactory = app.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>();
@@ -147,8 +169,12 @@ public static partial class MiniAppController
 
             try
             {
-                var taEngine = new TechnicalAnalysisEngine();
-                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new TechnicalAnalysisEngine(), new MarketDataFetcher(), new WalkForwardValidationEngine(), new ConfluenceMatrixEngine(new MarketDataFetcher(), new TechnicalAnalysisEngine(), new AutoCalibrationEngine()), new TradeTimeoutEngine(), new MonteCarloEngine());
+                // C1 FIX: Reuse shared singleton engines — state persists between requests
+                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(
+                    _sharedTaEngine, _sharedTaEngine, _sharedTaEngine,
+                    _sharedFetcher, _sharedWfEngine,
+                    new ConfluenceMatrixEngine(_sharedFetcher, _sharedTaEngine, _sharedAutoCalib),
+                    _sharedTimeoutEngine, _sharedMcEngine);
                 var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization
                 var options = new JsonSerializerOptions
@@ -163,8 +189,7 @@ public static partial class MiniAppController
                 Console.WriteLine($"[API ERR] /api/analyze failed: {ex}");
                 return Results.Json(new
                 {
-                    error = ex.Message,
-                    message = ex.ToString()
+                    error = ex.Message
                 });
             }
         }).RequireRateLimiting("Global");
@@ -189,7 +214,7 @@ public static partial class MiniAppController
             var query = context.Request.Query;
             
             // SECURITY: Verify Postback Secret
-            string expectedSecret = Environment.GetEnvironmentVariable("POSTBACK_SECRET") ?? "test_secret_123";
+            string expectedSecret = Environment.GetEnvironmentVariable("POSTBACK_SECRET") ?? "";
             string providedSecret = query.TryGetValue("secret", out var secVal) ? secVal.ToString().Trim() : "";
             
             if (string.IsNullOrEmpty(providedSecret) || providedSecret != expectedSecret)
@@ -225,13 +250,7 @@ public static partial class MiniAppController
             return Results.Ok(new { success = true, message = "Postback processed successfully" });
         });
 
-        string? mlServiceUrl = builder.Configuration["MLService:BaseUrl"];
-        if (string.IsNullOrWhiteSpace(mlServiceUrl))
-            mlServiceUrl = Environment.GetEnvironmentVariable("ML_SERVICE_URL");
-        if (string.IsNullOrWhiteSpace(mlServiceUrl))
-            mlServiceUrl = string.Empty;
-        
-        MLPythonService.Init(mlServiceUrl);
+
 
 
         // Start background TwelveData WebSocket connection immediately to start accumulating ticks

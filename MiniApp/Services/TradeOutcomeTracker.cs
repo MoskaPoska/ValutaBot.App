@@ -41,12 +41,7 @@ public static class TradeOutcomeTracker
             BotLogger.Info($"[TradeOutcomeTracker] Restored {calibStates.Count} EMA calibration states from PostgreSQL.");
 
             var outcomes = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.LoadTradeOutcomesAsync(1000);
-            BotLogger.Info($"[TradeOutcomeTracker] Loaded {outcomes.Count} historical outcomes from PostgreSQL DB.");
-
-            foreach (var outcome in outcomes)
-            {
-                CalibrationEngine?.RecordSourceOutcome("GLOBAL", outcome.Asset, outcome.Timeframe, outcome.WasWin);
-            }
+            BotLogger.Info($"[TradeOutcomeTracker] Loaded {outcomes.Count} historical outcomes from PostgreSQL DB (for reporting only).");
 
             _initialized = true;
             BotLogger.Info("[TradeOutcomeTracker] Online Reinforcement Learning engine initialized successfully.");

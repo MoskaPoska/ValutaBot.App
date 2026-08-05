@@ -46,7 +46,8 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
                 IsOverfitted: true,
                 IsCooloffActive: true,
                 WeightMultiplier: 0.10,
-                StatusReasoning: "Фаза охлаждения после серии убытков (Drawdown Protection Active)."
+                StatusReasoning: "Фаза охлаждения после серии убытков (Drawdown Protection Active).",
+                CooloffUntil: cooloffUntil
             );
         }
 
@@ -112,6 +113,7 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
         bool IsOverfitted,
         bool IsCooloffActive,
         double WeightMultiplier,
-        string StatusReasoning
+        string StatusReasoning,
+        DateTime CooloffUntil = default
     );
 }

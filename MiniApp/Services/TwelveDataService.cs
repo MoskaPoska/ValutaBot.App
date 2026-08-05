@@ -46,7 +46,7 @@ public static partial class TwelveDataService
         string apiKey = GetApiKey();
         if (string.IsNullOrEmpty(apiKey)) return null;
 
-        var lease = _rateLimiter.AttemptAcquire();
+        using var lease = _rateLimiter.AttemptAcquire();
         if (!lease.IsAcquired)
         {
             if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) lastData))
@@ -68,7 +68,7 @@ public static partial class TwelveDataService
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.UserAgent.ParseAdd("ValutaBot/1.0");
 
-            using var response = await MiniAppController.HttpFactory!.CreateClient("TwelveDataService").SendAsync(request);
+            using var response = await MiniAppController.HttpFactory!.CreateClient("TwelveData").SendAsync(request);
             
             var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync(response.Content, ValutaBotJsonContext.Default.TwelveDataResponse);
 
@@ -88,7 +88,7 @@ public static partial class TwelveDataService
                 return null;
             }
 
-            var arr = doc.Values;
+            var arr = doc.Values.Where(x => x != null).ToList();
             int count = arr.Count;
             if (count < 10)
             {
@@ -156,9 +156,9 @@ public static partial class TwelveDataService
         string cleanTicker = original;
         string[] knownStocks = { "AAPL", "TSLA", "AMZN", "GOOGL", "MSFT", "NVDA", "META" };
 
-        if (cleanTicker.EndsWith("USDT") && cleanTicker.Length == 7 && !knownStocks.Contains(cleanTicker))
+        if (cleanTicker.EndsWith("USDT") && !knownStocks.Contains(cleanTicker))
         {
-            // Convert EURUSDT to EURUSD for TwelveData
+            // Convert XXXUSDT → XXXUSD for TwelveData (remove trailing 'T')
             cleanTicker = cleanTicker[..^1];
         }
 
@@ -235,7 +235,7 @@ public static partial class TwelveDataService
 
         string url = $"https://api.twelvedata.com/price?symbol={Uri.EscapeDataString(symbol)}&apikey={apiKey}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        using var response = await MiniAppController.HttpFactory!.CreateClient("TwelveDataService").SendAsync(request);
+        using var response = await MiniAppController.HttpFactory!.CreateClient("TwelveData").SendAsync(request);
         
         var doc = await System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync(response.Content, ValutaBotJsonContext.Default.TwelveDataPriceResponse);
         

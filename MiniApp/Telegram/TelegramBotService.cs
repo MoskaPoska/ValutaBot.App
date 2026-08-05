@@ -133,10 +133,15 @@ public partial class TelegramBotService : BackgroundService
                         }
                         else if (update.TryGetProperty("callback_query", out var callbackQuery))
                         {
-                            string queryId = callbackQuery.GetProperty("id").GetString()!;
-                            long chatId = callbackQuery.GetProperty("message").GetProperty("chat").GetProperty("id").GetInt64();
-                            string data = callbackQuery.GetProperty("data").GetString()!;
-                            int messageId = callbackQuery.GetProperty("message").GetProperty("message_id").GetInt32();
+                            // FIX: callback_query may be an inline callback without a "message" field
+                            if (!callbackQuery.TryGetProperty("message", out var cbMessage)) continue;
+
+                            string queryId = callbackQuery.TryGetProperty("id", out var qId) ? (qId.GetString() ?? "") : "";
+                            long chatId = cbMessage.GetProperty("chat").GetProperty("id").GetInt64();
+                            string data = callbackQuery.TryGetProperty("data", out var dProp) ? (dProp.GetString() ?? "") : "";
+                            int messageId = cbMessage.GetProperty("message_id").GetInt32();
+
+                            if (string.IsNullOrEmpty(data)) continue; // no data to process
 
                             string username = "";
                             if (callbackQuery.TryGetProperty("from", out var fromUser))

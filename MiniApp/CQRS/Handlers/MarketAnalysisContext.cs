@@ -73,8 +73,8 @@ public class MarketAnalysisContext
             }
 
             await AnalyzeCoreMechanicsAsync();
-            await GatherMachineLearningAsync();
             await EvaluateTechnicalIndicatorsAsync();
+            await GatherMachineLearningAsync();
 
             return await BuildFinalConsensusAsync();
         }
@@ -183,7 +183,8 @@ public class MarketAnalysisContext
                 if (prediction != null && prediction.Direction != "NEUTRAL")
                 {
                     _lgbmDirection = prediction.Direction;
-                    _lgbmConfidence = (float)prediction.Confidence;
+                    _lgbmConfidence = (float)(prediction.Confidence * _wfResult.WeightMultiplier); // FIX: apply WF suppression multiplier
+                    _lgbmConfidence = Math.Clamp(_lgbmConfidence, 0f, 1f);
                     _lgbmModelVersion = prediction.ModelVersion;
                     _lgbmAccuracy = prediction.Accuracy;
 
@@ -234,7 +235,9 @@ public class MarketAnalysisContext
                 var llmService = new LlmReportingService();
                 var regime = ContinuousStateEngine.EvaluateContinuousState(_mainPrices, _asset, _timeframe).VelocityRegime;
                 bool isUp = _lgbmDirection == "BUY";
-                _llmReport = llmService.GenerateMarketSummary(_asset, regime, prediction, isUp, isUp, isUp);
+                bool isTaUp = _mainResult.score > 0;
+                bool isOfUp = _orderFlowResult.ScoreContribution > 0;
+                _llmReport = llmService.GenerateMarketSummary(_asset, regime, prediction, isUp, isTaUp, isOfUp);
             }
             catch (Exception ex) 
             { 
@@ -270,7 +273,7 @@ public class MarketAnalysisContext
             
             if (_higherResultData.HasValue && higherOhlc != null)
             {
-                var htfSmcResult = SmcEngine.AnalyzeSmcStructure(_asset, _higherTf ?? "", higherOhlc, _higherResultData.Value.prices[^1]);
+                var htfSmcResult = SmcEngine.AnalyzeSmcStructure(_asset, _higherTf ?? "", higherOhlc, _higherResultData.Value.prices.Length > 0 ? _higherResultData.Value.prices[^1] : 0.0);
                 var mtfValidation = SmcEngine.ValidateMtfSmcAlignment(_smcResult, htfSmcResult);
                 _conflictPenalty *= mtfValidation.ConfluenceMultiplier;
                 BotLogger.Info($"[MTF SMC Validation] Alignment: {mtfValidation.AlignmentStatus} | Multiplier={mtfValidation.ConfluenceMultiplier:F2}x");
@@ -314,9 +317,13 @@ public class MarketAnalysisContext
         // --- PRODUCTION KILL SWITCH (Pre-Simulation) ---
         if (_wfResult.IsCooloffActive)
         {
-            finalDirection = "NEUTRAL";
-            finalProbability = 0;
-            BotLogger.Warn($"[KillSwitch] Blocked trade for {_asset} {_timeframe} due to WFE Cooloff.");
+            var remaining = _wfResult.CooloffUntil - DateTime.UtcNow;
+            int mins = Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
+            BotLogger.Warn($"[KillSwitch] Blocked trade for {_asset} {_timeframe} due to WFE Cooloff. Resumes in {mins} min.");
+            throw new Exception(
+                $"\u26a0\ufe0f \u0410\u043d\u0430\u043b\u0438\u0437\u0430\u0442\u043e\u0440 \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d: 3 \u043f\u043e\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0445 \u0443\u0431\u044b\u0442\u043a\u0430 (\u0414\u0440\u043e\u0443\u0434\u0430\u0443\u043d \u043f\u0440\u043e\u0442\u0435\u043a\u0446\u0438\u044f). " +
+                $"\u23f3 \u0420\u0430\u0437\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043a\u0430 \u0447\u0435\u0440\u0435\u0437: {mins} \u043c\u0438\u043d. (\u0432 {_wfResult.CooloffUntil:HH:mm} UTC). " +
+                "\u041f\u043e\u0434\u043e\u0436\u0434\u0438\u0442\u0435 \u0438\u043b\u0438 \u0441\u043c\u0435\u043d\u0438\u0442\u0435 \u0430\u043a\u0442\u0438\u0432, \u0447\u0442\u043e\u0431\u044b \u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u044c \u0430\u043d\u0430\u043b\u0438\u0437.");
         }
 
         var mcResult = finalDirection == "NEUTRAL" 
@@ -331,7 +338,7 @@ public class MarketAnalysisContext
             timeframeSecs: timeframeSec, isForex: _isForex, binanceSymbol: _symbol,
             sourceDirections: new Dictionary<string, string> {
                 ["LIGHTGBM"] = _lgbmDirection, ["SKENDER_MATH"] = consensus.FinalTotalScore > 0.02 ? "BUY" : consensus.FinalTotalScore < -0.02 ? "PUT" : "NEUTRAL",
-                ["SMC"] = smcSignal.SweepDirection.Contains("BULLISH") ? "BUY" : "PUT", ["ORDERFLOW"] = orderFlowDir,
+                ["SMC"] = (smcSignal.SweepDirection ?? "").Contains("BULLISH") ? "BUY" : (smcSignal.SweepDirection ?? "").Contains("BEARISH") ? "PUT" : "NEUTRAL", ["ORDERFLOW"] = orderFlowDir,
                 ["NATIVE_ML"] = "NEUTRAL"
             }
         );

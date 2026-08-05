@@ -61,7 +61,7 @@ public static class AssetSanitizer
 
         if (IsForexAsset(cleanAsset))
         {
-            throw new InvalidOperationException($"Рынок Forex закрыт в выходные дни. Торговля {cleanAsset} недоступна.");
+            throw new MarketClosedException($"Forex market closed on weekends for {cleanAsset}", $"Рынок Forex закрыт в выходные дни. Торговля {cleanAsset} недоступна.");
         }
 
         return null;

@@ -19,6 +19,7 @@ import sqlite3
 
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
+from datetime import datetime, timezone
 
 try:
     import lightgbm as lgb
@@ -37,6 +38,8 @@ MODEL_DIR = Path(os.getenv("MODEL_DIR", str(Path(__file__).parent / "data" / "mo
 SGD_MODEL_DIR = MODEL_DIR / "sgd"
 RETRAIN_INTERVAL_H = int(os.getenv("RETRAIN_INTERVAL_H", "24"))
 MAX_HISTORICAL_CANDLES = int(os.getenv("MAX_HISTORICAL_CANDLES", "100000"))  # Global Strategist window
+# Bug2 fix: configurable target horizon (default=5 candles, aligned with typical TradeTimeout 15*0.6≈9 → 5–10)
+TARGET_HORIZON_CANDLES = int(os.getenv("TARGET_HORIZON_CANDLES", "5"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.60"))  # below → NEUTRAL
 BINANCE_BASE = "https://api.binance.com"
 
@@ -166,7 +169,7 @@ def _fetch_historical_candles(symbol: str, interval: str, limit: int) -> List[Di
         td_interval = interval_aliases.get(td_interval, td_interval)
 
         query = '''
-            SELECT Open as open, High as high, Low as low, Close as close, Volume as volume
+            SELECT OpenTime as openTime, Open as open, High as high, Low as low, Close as close, Volume as volume
             FROM HistoricalCandles
             WHERE Asset = ? AND Interval = ?
             ORDER BY OpenTime DESC
@@ -200,7 +203,8 @@ def _fetch_rl_feedback(symbol: str, interval: str) -> List[Dict]:
             conn.close()
             return []
             
-        query = "SELECT EntryPrice as entry, Direction as dir, WasWin as win FROM OnlineFeedback WHERE Asset=? AND Interval=?"
+        # Bug1 fix: fetch Timestamp for time-based matching instead of EntryPrice
+        query = "SELECT Timestamp as ts, Direction as dir, WasWin as win FROM OnlineFeedback WHERE Asset=? AND Interval=?"
         df = pd.read_sql_query(query, conn, params=(symbol, interval))
         conn.close()
         
@@ -264,6 +268,7 @@ class ForexPredictor:
         self._online_model: Optional[SGDClassifier] = None
         self._online_lock = threading.Lock()
         self._online_classes = np.array([0, 1])
+        self._sgd_update_count: int = 0  # Bug3 fix: track updates for dynamic weight
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         SGD_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -307,13 +312,17 @@ class ForexPredictor:
             prob_lgbm = float(model.predict_proba(X_arr)[0, 1])
 
             # Tier 2: SGD (Local Tactician) — blend if available
+            # Bug3 fix: dynamic weight 0%→30% based on real trade count (prevents noise at low sample count)
             with self._online_lock:
                 online_model = self._online_model
+                sgd_count = self._sgd_update_count
             if online_model is not None:
                 try:
                     prob_sgd = float(online_model.predict_proba(X_arr)[0, 1])
-                    prob = 0.70 * prob_lgbm + 0.30 * prob_sgd
-                    log.debug(f"[Predict] {self._key} lgbm={prob_lgbm:.3f} sgd={prob_sgd:.3f} blended={prob:.3f}")
+                    sgd_weight = min(0.30, sgd_count / 100.0)  # 0% at 0 trades → 30% at 100+
+                    lgbm_weight = 1.0 - sgd_weight
+                    prob = lgbm_weight * prob_lgbm + sgd_weight * prob_sgd
+                    log.debug(f"[Predict] {self._key} lgbm={prob_lgbm:.3f} sgd={prob_sgd:.3f} sgd_w={sgd_weight:.2f} blended={prob:.3f}")
                 except Exception:
                     prob = prob_lgbm
             else:
@@ -368,12 +377,14 @@ class ForexPredictor:
                         warm_start=True,
                     )
                 self._online_model.partial_fit(X_last, y, classes=self._online_classes)
+                self._sgd_update_count += 1  # Bug3 fix: track update count
                 online_model = self._online_model
+                sgd_count = self._sgd_update_count
 
-            # Persist SGD to disk
+            # Persist SGD + update count to disk (Bug3 fix: save dict instead of raw model)
             sgd_path = SGD_MODEL_DIR / f"{self._key}_sgd.pkl"
-            joblib.dump(online_model, sgd_path)
-            log.info(f"[SGD] partial_fit done for {self._key} | dir={direction} win={was_win} | label={y[0]}")
+            joblib.dump({"model": online_model, "count": sgd_count}, sgd_path)
+            log.info(f"[SGD] partial_fit done for {self._key} | dir={direction} win={was_win} | label={y[0]} | total_updates={sgd_count}")
             return True
 
         except Exception as e:
@@ -429,60 +440,79 @@ class ForexPredictor:
             if feats.empty or len(feats) < 100:
                 return {"error": "Feature engineering yielded too few rows"}
 
-            # Build target: 3-candle horizon. Next 3 candles close > current close  → 1
+            # Bug2 fix: configurable target horizon aligned with TradeTimeout (was 3, now TARGET_HORIZON_CANDLES=5)
+            H = TARGET_HORIZON_CANDLES
             closes = np.array([cl["close"] for cl in candles])
-            # To predict 3 candles ahead, we shift by 3.
-            # target_raw[i] = 1 if closes[i+3] > closes[i] else 0
-            # To keep arrays aligned, we pad the end with 0s (they will be ignored if we slice feats)
             target_raw = np.zeros(len(closes), dtype=int)
-            target_raw[:-3] = (closes[3:] > closes[:-3]).astype(int)
-            
-            # Align features (features is shorter by ~25 due to rolling NaN drop)
+            target_raw[:-H] = (closes[H:] > closes[:-H]).astype(int)
+
+            # Align features (feature matrix is shorter due to rolling-window NaN drop)
             feat_indices = feats.index.values
-            
-            # Since the last 3 rows do not have a valid future target (we padded with 0s),
-            # we must drop the last 3 rows from training data!
-            valid_mask = feat_indices < (len(closes) - 3)
+            valid_mask = feat_indices < (len(closes) - H)  # drop last H rows — no valid future target
             feat_indices_valid = feat_indices[valid_mask]
-            
-            # Slice features and targets to valid rows only
             feats = feats.loc[feat_indices_valid]
             target_aligned = target_raw[feat_indices_valid]
 
             X = feats.values.astype(np.float32)
-            y = target_aligned
-            
-            # --- Online Reinforcement Learning Integration ---
+            y = target_aligned.copy()  # copy so RL can modify labels safely
+
+            # --- Bug1 fix: Online RL Integration — match by timestamp (not price) ---
             sample_weights = np.ones(len(y), dtype=np.float32)
             rl_feedbacks = _fetch_rl_feedback(self.symbol, self.interval)
-            
+
             if rl_feedbacks:
-                # Group by rounded entry price (6 decimals)
-                feedback_entries = {round(f["entry"], 6): f for f in rl_feedbacks}
-                match_count = 0
-                
-                for i, orig_idx in enumerate(feat_indices_valid):
-                    c_close = round(candles[orig_idx]["close"], 6)
-                    if c_close in feedback_entries:
-                        match_count += 1
-                        fb = feedback_entries[c_close]
-                        # Heavily weight real trades
-                        sample_weights[i] = 10.0
-                        
-                        # Force label correction based on real outcome
-                        if fb["win"] == 0:
-                            # If we lost a BUY, price went down -> label 0
-                            if fb["dir"] == "BUY": y[i] = 0
-                            # If we lost a PUT, price went up -> label 1
-                            elif fb["dir"] == "PUT": y[i] = 1
-                        else:
-                            # If we won, reinforce the correct label
-                            if fb["dir"] == "BUY": y[i] = 1
-                            elif fb["dir"] == "PUT": y[i] = 0
-                
-                if match_count > 0:
-                    log.info(f"[Online RL] Applied {match_count} real feedback samples to {self._key} with x10 weight.")
-            # -------------------------------------------------
+                parsed_feedbacks = []
+                for f in rl_feedbacks:
+                    try:
+                        ts_str = str(f.get("ts", "")).strip().replace("Z", "+00:00")
+                        if not ts_str:
+                            continue
+                        ts = datetime.fromisoformat(ts_str)
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                        parsed_feedbacks.append({"ts": ts, "dir": f["dir"], "win": int(f["win"])})
+                    except Exception:
+                        pass
+
+                if parsed_feedbacks:
+                    match_count = 0
+                    for i, orig_idx in enumerate(feat_indices_valid):
+                        raw_time = candles[orig_idx].get("openTime")
+                        if raw_time is None:
+                            continue
+                        try:
+                            # openTime can be Unix timestamp (int/float) or ISO string
+                            if isinstance(raw_time, (int, float)):
+                                candle_dt = datetime.fromtimestamp(raw_time, tz=timezone.utc)
+                            else:
+                                ts_str = str(raw_time).replace(" ", "T").replace("Z", "+00:00")
+                                candle_dt = datetime.fromisoformat(ts_str)
+                                if candle_dt.tzinfo is None:
+                                    candle_dt = candle_dt.replace(tzinfo=timezone.utc)
+                        except Exception:
+                            continue
+
+                        best_fb, best_diff = None, float("inf")
+                        for fb in parsed_feedbacks:
+                            diff = abs((fb["ts"] - candle_dt).total_seconds())
+                            if diff < best_diff:
+                                best_diff, best_fb = diff, fb
+
+                        # Match within ±5 minute window
+                        if best_fb and best_diff < 300:
+                            match_count += 1
+                            sample_weights[i] = 5.0  # x5 weight (reduced from x10 to avoid over-correction)
+                            win, dir_ = best_fb["win"], best_fb["dir"]
+                            if win == 0:
+                                y[i] = 0 if dir_ == "BUY" else 1
+                            else:
+                                y[i] = 1 if dir_ == "BUY" else 0
+
+                    if match_count > 0:
+                        log.info(f"[Online RL] {self._key}: matched {match_count} feedback samples by timestamp (±5 min window) with x5 weight.")
+                    else:
+                        log.debug(f"[Online RL] {self._key}: {len(parsed_feedbacks)} feedbacks parsed but 0 matched to candles (time mismatch >5 min).")
+            # -----------------------------------------------------------------------
 
             # Train/val split
             tscv = TimeSeriesSplit(n_splits=3)
@@ -593,14 +623,21 @@ class ForexPredictor:
             except Exception as e:
                 log.warning(f"[Load] Failed to load LightGBM {p}: {e}")
 
-        # Load SGD (Tier 2)
+        # Load SGD (Tier 2) — Bug3 fix: restore update count from dict format
         sgd_path = SGD_MODEL_DIR / f"{self._key}_sgd.pkl"
         if sgd_path.exists():
             try:
-                sgd = joblib.load(sgd_path)
+                sgd_data = joblib.load(sgd_path)
                 with self._online_lock:
-                    self._online_model = sgd
-                log.info(f"[Load] Loaded SGD (Local Tactician) from {sgd_path}")
+                    if isinstance(sgd_data, dict):
+                        # New format: {model, count}
+                        self._online_model = sgd_data["model"]
+                        self._sgd_update_count = int(sgd_data.get("count", 0))
+                    else:
+                        # Legacy format: raw SGDClassifier object (backward compat)
+                        self._online_model = sgd_data
+                        self._sgd_update_count = 0
+                log.info(f"[Load] Loaded SGD from {sgd_path} | total_updates={self._sgd_update_count}")
             except Exception as e:
                 log.warning(f"[Load] Failed to load SGD {sgd_path}: {e}")
 

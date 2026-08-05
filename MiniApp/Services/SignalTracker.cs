@@ -141,7 +141,7 @@ public static class SignalTracker
         }).OrderByDescending(s => s.Item2).ToArray();
     }
 
-    public static double CalculateSignalWeight(System.Collections.Generic.IEnumerable<(string signalName, int correct, int verified)> votes, string signalName, double baseWeight = 1.0)
+    public static double CalculateSignalWeight(System.Collections.Generic.IEnumerable<(string signalName, int verified, int correct)> votes, string signalName, double baseWeight = 1.0)
     {
         var v = System.Linq.Enumerable.FirstOrDefault(votes, x => x.signalName == signalName);
         if (v.verified < 5) return baseWeight;

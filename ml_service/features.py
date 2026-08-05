@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict
 import ta
+from datetime import datetime, timezone
 
 def _rolling_std(close: np.ndarray, period: int = 10) -> np.ndarray:
     return pd.Series(close).rolling(period).std().values
@@ -174,9 +175,20 @@ def build_features(candles: List[Dict]) -> pd.DataFrame:
     feats['channel_pos'] = (c - low20) / range20
 
     # ── Time / Session (sinusoidal encoding so hour=23 is close to hour=0) ──
-    # Placeholder: real timestamp not available here, use 0 (client can enrich)
-    feats['hour_sin'] = np.zeros(len(c))
-    feats['hour_cos'] = np.zeros(len(c))
+    if 'openTime' in df.columns:
+        def get_hour(ts):
+            if pd.isna(ts) or ts == 0: return 0.0
+            # convert from milliseconds if necessary
+            if ts > 1e11: ts = ts / 1000.0
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            return dt.hour + dt.minute / 60.0
+        
+        hours = df['openTime'].apply(get_hour)
+        feats['hour_sin'] = np.sin(2 * np.pi * hours / 24.0)
+        feats['hour_cos'] = np.cos(2 * np.pi * hours / 24.0)
+    else:
+        feats['hour_sin'] = np.zeros(len(c))
+        feats['hour_cos'] = np.zeros(len(c))
 
     result = pd.DataFrame(feats, index=df.index)
 
