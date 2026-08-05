@@ -49,7 +49,9 @@ public sealed class StatefulRsi
             _avgLoss = (_avgLoss * (_period - 1) + loss) / _period;
             _count++;
         }
-        if (_avgLoss < 1e-10) return 100.0;
+        // If both gain and loss are near zero — true flat market. Return neutral 50.0.
+        // If only avgLoss is near zero but avgGain > 0 — genuine uptrend, return 100.0.
+        if (_avgLoss < 1e-10) return _avgGain < 1e-10 ? 50.0 : 100.0;
         return 100.0 - (100.0 / (1.0 + (_avgGain / _avgLoss)));
     }
 

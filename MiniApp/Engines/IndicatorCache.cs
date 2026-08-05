@@ -39,11 +39,12 @@ internal sealed class IndicatorCache
     }
 
     private readonly ConcurrentDictionary<(string, string), CacheState> _states = new();
-    private static readonly ConcurrentDictionary<string, Indicators.StatefulSmc> _smcCache = new();
+
     private static readonly ConcurrentDictionary<string, Indicators.StatefulOrderFlow> _orderFlowCache = new();
 
     public static Indicators.StatefulOrderFlow GetOrderFlow(string asset, string timeframe)
     {
+        if (_orderFlowCache.Count > 1000) _orderFlowCache.Clear();
         string key = $"{asset}_{timeframe}";
         return _orderFlowCache.GetOrAdd(key, _ => new Indicators.StatefulOrderFlow());
     }
@@ -54,6 +55,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
     {
         if (candles.Length <= period) return 50.0;
+        if (_states.Count > 1000) _states.Clear();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -82,6 +84,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles)
     {
         if (candles.Length < 20) return GetRsi(asset, tf, candles, 14);
+        if (_states.Count > 1000) _states.Clear();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -110,6 +113,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 9)
     {
         if (candles.Length < period) return candles.Length > 0 ? candles[^1].Close : 0.0;
+        if (_states.Count > 1000) _states.Clear();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -138,6 +142,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 9)
     {
         if (candles.Length == 0) return 0.0;
+        if (_states.Count > 1000) _states.Clear();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -166,6 +171,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
     {
         if (candles.Length <= period) return (20.0, 0.0, 0.0);
+        if (_states.Count > 1000) _states.Clear();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -193,6 +199,7 @@ internal sealed class IndicatorCache
         ReadOnlySpan<MiniAppController.OhlcCandle> candles, int period = 14)
     {
         if (candles.Length <= period) return 0.0;
+        if (_states.Count > 1000) _states.Clear();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {
@@ -218,6 +225,7 @@ internal sealed class IndicatorCache
 
     public StatefulSmc GetSmcState(string asset, string tf, ReadOnlySpan<MiniAppController.OhlcCandle> candles, double currentPrice)
     {
+        if (_states.Count > 1000) _states.Clear();
         var s = _states.GetOrAdd((asset, tf), _ => new CacheState());
         lock (s)
         {

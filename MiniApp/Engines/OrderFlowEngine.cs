@@ -38,19 +38,20 @@ public static class OrderFlowEngine
         double priceDelta = statefulOf.PriceDelta;
         double priceDeltaBps = (priceDelta / Math.Max(1e-8, currentPrice)) * 10000.0;
         double cvd = statefulOf.CumulativeVolumeDelta;
+        double recentCvd = statefulOf.BuyVolume - statefulOf.SellVolume; // B12-FIX: Local CVD slope
 
         string state;
         double scoreContribution = 0;
         string desc = "BALANCED";
 
         // ─── 2. Spoofing & Absorption Detection (BPS Based) ───
-        if (deltaRatio > 1.8 && cvd > 0 && priceDeltaBps < -0.1)
+        if (deltaRatio > 1.8 && recentCvd > 0 && priceDeltaBps < -0.1)
         {
             state = "BEARISH_ABSORPTION";
             scoreContribution = -0.30;
             desc = "BEARISH_CVD_DIVERGENCE";
         }
-        else if (deltaRatio < 0.55 && cvd < 0 && priceDeltaBps > 0.1)
+        else if (deltaRatio < 0.55 && recentCvd < 0 && priceDeltaBps > 0.1)
         {
             state = "BULLISH_ABSORPTION";
             scoreContribution = 0.30;

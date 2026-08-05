@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Text.Json;
+using System.Threading;
 
 namespace ValutaBot.MiniApp;
 
@@ -14,6 +15,14 @@ public static class SignalTracker
     // Cooldown map to prevent duplicate signals spam (fine to stay in memory)
     private static readonly ConcurrentDictionary<string, DateTime> _cooldowns = new();
 
+    // B2-FIX: Semaphore prevents concurrent VerifyPendingAsync runs
+    private static readonly SemaphoreSlim _verifySemaphore = new(1, 1);
+
+    // L1-FIX: 30-секундный кэш signal_votes — убирает 3 SELECT на каждый тик
+    private static List<(string signalName, int verified, int correct)>? _signalVotesCache;
+    private static DateTime _signalVotesCacheExpiry = DateTime.MinValue;
+    private static readonly SemaphoreSlim _signalVotesCacheLock = new(1, 1);
+
     private static readonly Timer _verifyTimer;
 
     static SignalTracker()
@@ -22,8 +31,11 @@ public static class SignalTracker
         _verifyTimer = new Timer(
             _ => Task.Run(async () =>
             {
+                // B2-FIX: WaitAsync(0) — non-blocking try-acquire. If already running, skip this tick.
+                if (!await _verifySemaphore.WaitAsync(0)) return;
                 try { await VerifyPendingAsync(); }
                 catch (Exception ex) { Console.WriteLine($"[Tracker] Verify error: {ex.Message}"); }
+                finally { _verifySemaphore.Release(); }
             }),
             null,
             TimeSpan.FromSeconds(30),
@@ -51,12 +63,26 @@ public static class SignalTracker
         int verifyDelaySecs = expiryCandles * timeframeSecs + 5; // +5s buffer for candle close
 
         string cooldownKey = $"{asset}_{timeframe}";
-        if (_cooldowns.TryGetValue(cooldownKey, out var lastSignalAt) && (DateTime.UtcNow - lastSignalAt).TotalSeconds < 30)
+        var now = DateTime.UtcNow;
+        bool isOnCooldown = true;
+
+        _cooldowns.AddOrUpdate(cooldownKey,
+            _ => { isOnCooldown = false; return now; },
+            (_, lastSignalAt) =>
+            {
+                if ((now - lastSignalAt).TotalSeconds >= 30)
+                {
+                    isOnCooldown = false;
+                    return now;
+                }
+                return lastSignalAt;
+            });
+
+        if (isOnCooldown)
         {
             BotLogger.Warn($"[Tracker] Cooldown active for {cooldownKey}. Skipping duplicate signal recording.");
             return;
         }
-        _cooldowns[cooldownKey] = DateTime.UtcNow;
 
         var record = new PredictionRecord
         {
@@ -95,7 +121,7 @@ public static class SignalTracker
     public static async Task<AccuracyStats[]> GetAllStatsAsync()
     {
         var rows = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetAllStatsAsync();
-        return rows.Select(r => new AccuracyStats($"{r.asset}_{r.timeframe}", r.verified, r.verified, r.correct)).ToArray();
+        return rows.Select(r => new AccuracyStats($"{r.asset}_{r.timeframe}", r.total, r.verified, r.correct)).ToArray();
     }
 
     public static async Task<int> GetPendingCountAsync()
@@ -126,8 +152,25 @@ public static class SignalTracker
 
     public static async Task<double> GetSignalWeightAsync(string signalName, double baseWeight = 1.0)
     {
-        var votes = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetAllSignalVotesAsync();
-        return CalculateSignalWeight(votes, signalName, baseWeight);
+        // L1-FIX: Используем кэш 30 сек — убираем SELECT на каждый тик
+        if (_signalVotesCache == null || DateTime.UtcNow > _signalVotesCacheExpiry)
+        {
+            await _signalVotesCacheLock.WaitAsync();
+            try
+            {
+                // Double-check после получения блокировки
+                if (_signalVotesCache == null || DateTime.UtcNow > _signalVotesCacheExpiry)
+                {
+                    _signalVotesCache = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.GetAllSignalVotesAsync();
+                    _signalVotesCacheExpiry = DateTime.UtcNow.AddSeconds(30);
+                }
+            }
+            finally
+            {
+                _signalVotesCacheLock.Release();
+            }
+        }
+        return CalculateSignalWeight(_signalVotesCache, signalName, baseWeight);
     }
 
     // ── Background Verification ────────────────────────────────────────────
@@ -189,7 +232,11 @@ public static class SignalTracker
                 }
             }
 
-            _ = TradeOutcomeTracker.OnTradeVerifiedAsync(record);
+            _ = Task.Run(async () =>
+            {
+                try { await TradeOutcomeTracker.OnTradeVerifiedAsync(record); }
+                catch (Exception ex) { Console.WriteLine($"[Tracker] ML Tracker Error for {record.Id}: {ex.Message}"); }
+            });
 
             await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.DeletePendingTradeAsync(record.Id);
 
@@ -206,9 +253,19 @@ public static class SignalTracker
         string sym = record.BinanceSymbol;
 
         // Fast path: Web Socket live prices (no allocations)
-        if (BinanceWebSocketStream.TryGetLiveCandles(sym, "1m", out double[] wsPrices, out double[] wsVolumes, out int count) && count > 0) { var p = wsPrices[count - 1]; System.Buffers.ArrayPool<double>.Shared.Return(wsPrices); System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes); return p; }
+        // B1-FIX: Always return rented arrays to ArrayPool even when count==0.
+        // Previously: `TryGet(...) && count > 0` — short-circuit skipped Return() when count==0 → ArrayPool leak → OOM.
+        if (BinanceWebSocketStream.TryGetLiveCandles(sym, "1m", out double[] wsPrices, out double[] wsVolumes, out int count))
         {
-            
+            try
+            {
+                if (count > 0) return wsPrices[count - 1];
+            }
+            finally
+            {
+                if (wsPrices != null) System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
+                if (wsVolumes != null) System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
+            }
         }
 
         // Fallback: Binance REST API (Historical Kline)
@@ -229,6 +286,13 @@ public static class SignalTracker
         // 3. TwelveData REST API
         if (record.IsForex)
         {
+            var day = DateTime.UtcNow.DayOfWeek;
+            if (day == DayOfWeek.Saturday || day == DayOfWeek.Sunday)
+            {
+                Console.WriteLine($"[Tracker] Weekend detected. Skipping TwelveData fetch for {record.Asset} to avoid stale Friday prices.");
+                return null;
+            }
+
             try
             {
                 double? tdPrice = await TwelveDataService.FetchCurrentPriceAsync(record.Asset);

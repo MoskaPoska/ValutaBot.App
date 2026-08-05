@@ -50,7 +50,8 @@ public static class BotLogger
                 buffer.AppendLine(logLine);
                 
                 // If there are more items currently available, buffer them before hitting disk
-                while (_logChannel.Reader.TryRead(out var extraLine))
+                int batchLimit = 1000;
+                while (batchLimit-- > 0 && _logChannel.Reader.TryRead(out var extraLine))
                 {
                     buffer.AppendLine(extraLine);
                 }

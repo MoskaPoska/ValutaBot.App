@@ -41,33 +41,13 @@ public static class ContinuousStateEngine
         int n = prices.Length;
         double currentPrice = prices[^1];
 
-        // 1. Calculate 1st Derivative: Instantaneous Velocity dp/dt using Savitzky-Golay filter (5-point)
-        double instantVelocity = 0;
-        if (n >= 5)
-        {
-            // SG 1st derivative coefficients: [-2, -1, 0, 1, 2] / 10
-            double sgVelocity = (-2.0 * prices[^5] - 1.0 * prices[^4] + 0.0 * prices[^3] + 1.0 * prices[^2] + 2.0 * prices[^1]) / 10.0;
-            instantVelocity = (sgVelocity / Math.Max(1e-8, prices[^3])) * 10_000.0; // Bps relative to center point
-        }
-        else
-        {
-            instantVelocity = ((prices[^1] - prices[^2]) / Math.Max(1e-8, prices[^2])) * 10_000.0;
-        }
+        // SG 1st derivative coefficients: [-2, -1, 0, 1, 2] / 10
+        double sgVelocity = (-2.0 * prices[^5] - 1.0 * prices[^4] + 0.0 * prices[^3] + 1.0 * prices[^2] + 2.0 * prices[^1]) / 10.0;
+        double instantVelocity = (sgVelocity / Math.Max(1e-8, prices[^3])) * 10_000.0; // Bps relative to center point
 
-        // 2. Calculate 2nd Derivative: Instantaneous Acceleration d2p/dt2 using Savitzky-Golay filter (5-point)
-        double instantAcceleration = 0;
-        if (n >= 5)
-        {
-            // SG 2nd derivative coefficients: [2, -1, -2, -1, 2] / 7
-            double sgAccel = (2.0 * prices[^5] - 1.0 * prices[^4] - 2.0 * prices[^3] - 1.0 * prices[^2] + 2.0 * prices[^1]) / 7.0;
-            instantAcceleration = (sgAccel / Math.Max(1e-8, prices[^3])) * 10_000.0; // Bps
-        }
-        else
-        {
-            double v1 = ((prices[^2] - prices[^3]) / Math.Max(1e-8, prices[^3])) * 10_000.0;
-            double v2 = ((prices[^1] - prices[^2]) / Math.Max(1e-8, prices[^2])) * 10_000.0;
-            instantAcceleration = v2 - v1;
-        }
+        // SG 2nd derivative coefficients: [2, -1, -2, -1, 2] / 7
+        double sgAccel = (2.0 * prices[^5] - 1.0 * prices[^4] - 2.0 * prices[^3] - 1.0 * prices[^2] + 2.0 * prices[^1]) / 7.0;
+        double instantAcceleration = (sgAccel / Math.Max(1e-8, prices[^3])) * 10_000.0; // Bps
 
         // 3. 4th-Order Continuous Kalman State Filtering
         double kalmanState = FilterKalmanContinuous(prices);
@@ -114,11 +94,13 @@ public static class ContinuousStateEngine
     private static double FilterKalmanContinuous(ReadOnlySpan<double> prices)
     {
         double currentPrice = prices[^1];
-        double processNoise = currentPrice * 0.0001; // 0.01% of price
-        double measurementNoise = currentPrice * 0.001; // 0.1% of price
+        // B9-FIX: Clamp noise values to minimum 1e-8 to prevent NaN when currentPrice≈0.
+        // Previously: measurementNoise=currentPrice*0.001=0 when price=0 → k=0/(0+0)=NaN → poisons VelocityRegime and StateSignal.
+        double processNoise = Math.Max(1e-8, currentPrice * 0.0001);
+        double measurementNoise = Math.Max(1e-8, currentPrice * 0.001);
 
         double est = prices[0];
-        double err = currentPrice * 0.01;
+        double err = Math.Max(1e-8, currentPrice * 0.01);
         
         for (int i = 0; i < prices.Length; i++) 
         { 

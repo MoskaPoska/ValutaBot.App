@@ -16,7 +16,7 @@ public interface IMathEngine
 
 public interface IMarketAnalyzer
 {
-    (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal) ScoreTimeframe(
+    (double score, double confidence, double rsiVal, double hmaVal, double volStrengthVal, double atrVal) ScoreTimeframe(
         string asset, string timeframe, ReadOnlySpan<double> prices, ReadOnlySpan<double> volumes, ReadOnlySpan<MiniAppController.OhlcCandle> candles = default,
         double? adxOverride = null, double? atrOverride = null, bool isForex = false);
     

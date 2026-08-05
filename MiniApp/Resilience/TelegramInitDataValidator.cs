@@ -60,7 +60,19 @@ public static class TelegramInitDataValidator
             byte[] expectedHashBytes = HMAC_SHA256(Encoding.UTF8.GetBytes(dataCheckString), secretKey);
             string expectedHash = Convert.ToHexString(expectedHashBytes).ToLowerInvariant();
 
-            if (!string.Equals(hash, expectedHash, StringComparison.OrdinalIgnoreCase))
+            byte[] providedHashBytes;
+            try 
+            {
+                providedHashBytes = Convert.FromHexString(hash);
+            }
+            catch 
+            {
+                Console.WriteLine($"[InitData] Hash is not valid hex.");
+                return false;
+            }
+
+            if (providedHashBytes.Length != expectedHashBytes.Length || 
+                !CryptographicOperations.FixedTimeEquals(providedHashBytes, expectedHashBytes))
             {
                 Console.WriteLine($"[InitData] Hash mismatch detected for initData authorization.");
                 return false;
@@ -83,14 +95,17 @@ public static class TelegramInitDataValidator
 
             // Check auth_date expiration (e.g. 24 hours)
             string? authDateStr = parsed["auth_date"];
-            if (long.TryParse(authDateStr, out long authDate))
+            if (!long.TryParse(authDateStr, out long authDate))
             {
-                var authTime = DateTimeOffset.FromUnixTimeSeconds(authDate).UtcDateTime;
-                if ((DateTime.UtcNow - authTime).TotalHours > 24)
-                {
-                    Console.WriteLine($"[InitData] Session expired: authTime={authTime}, current={DateTime.UtcNow}");
-                    return false;
-                }
+                Console.WriteLine($"[InitData] Missing or invalid auth_date.");
+                return false;
+            }
+
+            var authTime = DateTimeOffset.FromUnixTimeSeconds(authDate).UtcDateTime;
+            if (Math.Abs((DateTime.UtcNow - authTime).TotalHours) > 24)
+            {
+                Console.WriteLine($"[InitData] Session expired or invalid time: authTime={authTime}, current={DateTime.UtcNow}");
+                return false;
             }
 
             return true;

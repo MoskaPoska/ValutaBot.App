@@ -46,6 +46,7 @@ public class MonteCarloEngine : IMonteCarloEngine
         if (currentPrice <= 0) currentPrice = 1.0;
         if (atr <= 0) atr = currentPrice * 0.0005; // Fallback volatility 0.05%
         
+        if (winProbability > 1.0) winProbability /= 100.0;
         double prob = Math.Clamp(winProbability, 0.35, 0.95);
         bool isBuy = direction.Equals("BUY", StringComparison.OrdinalIgnoreCase);
 

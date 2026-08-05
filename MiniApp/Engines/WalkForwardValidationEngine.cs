@@ -31,10 +31,17 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
         var cooloff = _cooloffMap.GetOrAdd(key, _ => new CooloffState());
 
         // 1. Check if Cooloff Phase is active (triggered after 3 consecutive losses)
-        bool isCooloffActive = DateTime.UtcNow < cooloff.CooloffUntil;
+        bool isCooloffActive;
+        DateTime cooloffUntil;
+        lock (cooloff)
+        {
+            cooloffUntil = cooloff.CooloffUntil;
+            isCooloffActive = DateTime.UtcNow < cooloffUntil;
+        }
+
         if (isCooloffActive)
         {
-            BotLogger.Warn($"[Drawdown Protection] Cooloff active for {key} until {cooloff.CooloffUntil:HH:mm:ss}. ML weight suppressed to 0.1x.");
+            BotLogger.Warn($"[Drawdown Protection] Cooloff active for {key} until {cooloffUntil:HH:mm:ss}. ML weight suppressed to 0.1x.");
             return new WalkForwardResult(
                 IsOverfitted: true,
                 IsCooloffActive: true,

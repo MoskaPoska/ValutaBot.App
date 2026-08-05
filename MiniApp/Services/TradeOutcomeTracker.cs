@@ -1,4 +1,4 @@
-﻿using ValutaBot.App.MiniApp.Data.Repositories;
+using ValutaBot.App.MiniApp.Data.Repositories;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,10 +7,12 @@ namespace ValutaBot.MiniApp;
 
 public static class TradeOutcomeTracker
 {
-    public static IWalkForwardValidationEngine WfEngine { get; set; }
-    public static IAutoCalibrationEngine CalibrationEngine { get; set; }
+    public static IWalkForwardValidationEngine? WfEngine { get; set; }
+    public static IAutoCalibrationEngine? CalibrationEngine { get; set; }
     private static volatile bool _initialized = false;
     private static readonly SemaphoreSlim _initSemaphore = new(1, 1);
+    private static readonly SemaphoreSlim _csvSemaphore = new(1, 1); // B5-FIX: Concurrent CSV write lock
+    private static int _eurusdTradeCounter = 0;
 
     public static async Task InitializeAsync()
     {
@@ -20,6 +22,23 @@ public static class TradeOutcomeTracker
         try
         {
             if (_initialized) return;
+
+            if (CalibrationEngine == null)
+            {
+                BotLogger.Warn("[TradeOutcomeTracker] CalibrationEngine not yet injected. Delaying initialization.");
+                return;
+            }
+
+            // L2-FIX: Создаём таблицу calibration_state если не существует
+            await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.EnsureCalibrationTableAsync();
+
+            // L2-FIX: Загружаем сохранённые EMA-веса из PostgreSQL
+            var calibStates = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.LoadCalibrationStateAsync();
+            foreach (var state in calibStates)
+            {
+                CalibrationEngine.RestoreState(state.sourceName, state.asset, state.timeframe, state.totalTrades, state.emaWinRate);
+            }
+            BotLogger.Info($"[TradeOutcomeTracker] Restored {calibStates.Count} EMA calibration states from PostgreSQL.");
 
             var outcomes = await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.LoadTradeOutcomesAsync(1000);
             BotLogger.Info($"[TradeOutcomeTracker] Loaded {outcomes.Count} historical outcomes from PostgreSQL DB.");
@@ -90,9 +109,30 @@ public static class TradeOutcomeTracker
             }
             else
             {
-                // Old trade with no source directions tracked. Only record global outcome.
+                // Старая сделка без source_directions. Только глобальный исход.
                 CalibrationEngine?.RecordSourceOutcome("GLOBAL", record.Asset, record.Timeframe, wasCorrect);
             }
+
+            // L2-FIX: Сохраняем актуальное EMA-состояние в БД (асинхронно, чтобы не блокировать основной поток)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    if (CalibrationEngine != null)
+                    {
+                        foreach (var stat in CalibrationEngine.GetAllStats())
+                        {
+                            await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.SaveCalibrationStateAsync(
+                                stat.key.Source, stat.key.Asset, stat.key.Timeframe,
+                                stat.totalTrades, stat.emaWinRate);
+                        }
+                    }
+                }
+                catch (Exception persistEx)
+                {
+                    BotLogger.Warn($"[TradeOutcomeTracker] Calibration persist notice: {persistEx.Message}");
+                }
+            });
 
             _ = Task.Run(async () =>
             {
@@ -116,6 +156,52 @@ public static class TradeOutcomeTracker
             WfEngine?.RecordTradeOutcome(record.Asset, record.Timeframe, wasCorrect);
 
             BotLogger.Info($"[TradeOutcomeTracker] Verified trade {record.Id} ({record.Asset} {record.Timeframe}) -> {(wasCorrect ? "WIN" : "LOSS")}. Online RL weights & Walk-Forward state updated.");
+
+            // ── ML Telemetry: Continuous Calibration ──
+            if (record.Asset == "EUR/USD OTC")
+            {
+                int currentCount = Interlocked.Increment(ref _eurusdTradeCounter);
+                if (currentCount % 20 == 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var globalStats = CalibrationEngine?.GetStatsReport("GLOBAL", record.Asset, record.Timeframe) ?? "No Global Stats";
+                            var ofStats = CalibrationEngine?.GetStatsReport("OrderFlow", record.Asset, record.Timeframe) ?? "No OF Stats";
+                            var taStats = CalibrationEngine?.GetStatsReport("TechAnalysis", record.Asset, record.Timeframe) ?? "No TA Stats";
+                            
+                            string report = $"[📊 ML Self-Learning]\nAsset: {record.Asset} | Trades: {currentCount}\n\n" +
+                                            $"🔹 GLOBAL: {globalStats}\n" +
+                                            $"🔹 OrderFlow: {ofStats}\n" +
+                                            $"🔹 TechAnalysis: {taStats}";
+                            
+                            await TelegramBotService.SendMessageToAdmins(report);
+                            
+                            string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
+                            Directory.CreateDirectory(logDir);
+                            string logFile = Path.Combine(logDir, "ml_calibration.csv");
+                            
+                            await _csvSemaphore.WaitAsync(); // B5-FIX: Prevent IOException when multiple trades complete at same time
+                            try
+                            {
+                                bool writeHeader = !System.IO.File.Exists(logFile);
+                                using var writer = new System.IO.StreamWriter(logFile, append: true);
+                                if (writeHeader) await writer.WriteLineAsync("Timestamp,Iteration,Asset,GlobalStats,OrderFlowStats,TechAnalysisStats");
+                                await writer.WriteLineAsync($"{DateTime.UtcNow:O},{currentCount},{record.Asset},{globalStats},{ofStats},{taStats}");
+                            }
+                            finally
+                            {
+                                _csvSemaphore.Release();
+                            }
+                        }
+                        catch (Exception tEx)
+                        {
+                            BotLogger.Error("[TradeOutcomeTracker] Error sending ML telemetry", tEx);
+                        }
+                    });
+                }
+            }
         }
         catch (Exception ex)
         {

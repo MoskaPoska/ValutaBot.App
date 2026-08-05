@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
 namespace ValutaBot.MiniApp;
 
@@ -12,9 +12,9 @@ internal static class Program
             return;
         }
 
-        if (args.Length >= 3 && args[0] == "--backtest")
+        if (args.Length >= 2 && args[0] == "--backtest")
         {
-            Console.WriteLine("CLI Backtest disabled due to DI migration.");
+            ValutaBot.App.MiniApp.Backtesting.BacktestEntryPoint.RunAsync(args).GetAwaiter().GetResult();
             return;
         }
 

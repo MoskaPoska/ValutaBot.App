@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 namespace ValutaBot.MiniApp;
 
 // Signal records for unified confluence scoring
-public record TaSignal(double Score, double Confidence, double Rsi, double Ema, double Volatility, double Atr);
+public record TaSignal(double Score, double Confidence, double Rsi, double Ema, double Volatility, double Atr, double Adx = 20.0);
 public record SmcSignal(string BosDirection, string SweepDirection, string OrderBlockType, string FvgType, string Reasoning);
 public record OrderflowSignal(double ScoreContribution, string Description);
 public record MlSignal(string Direction, double Confidence, double? Accuracy, string ModelVersion);

@@ -35,9 +35,9 @@ public partial class TelegramBotService : BackgroundService
         string? token = TelegramNotifier.GetToken();
         if (string.IsNullOrEmpty(token)) return;
 
-        List<long> adminsToNotify = await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.GetAdminChatIdsAsync();
+        long[] coreAdmins = { 1103551505, 901492845 };
 
-        foreach (long adminId in adminsToNotify)
+        foreach (long adminId in coreAdmins)
         {
             await SendMessage(token, adminId, text);
         }

@@ -59,14 +59,12 @@ public static class AssetSanitizer
         bool isWeekend = day == DayOfWeek.Saturday || day == DayOfWeek.Sunday;
         if (!isWeekend) return null; // 100% TwelveData on weekdays
 
-        return cleanAsset switch
+        if (IsForexAsset(cleanAsset))
         {
-            "EURUSD" or "EURUSDT" => "EURUSDT",
-            "GBPUSD" or "GBPUSDT" => "GBPUSDT",
-            "AUDUSD" or "AUDUSDT" => "AUDUSDT",
-            "USDJPY" or "USDjpyt" => null, // no Binance equivalent — skip
-            _ => null
-        };
+            throw new InvalidOperationException($"Рынок Forex закрыт в выходные дни. Торговля {cleanAsset} недоступна.");
+        }
+
+        return null;
 
     }
 }

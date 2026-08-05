@@ -42,7 +42,10 @@ public static class AuthService
                 byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(tgUserId.ToString()));
                 string expectedSign = Convert.ToHexString(hash).ToLowerInvariant();
                 
-                if (!string.Equals(providedSign, expectedSign, StringComparison.OrdinalIgnoreCase))
+                if (providedSign.Length != expectedSign.Length ||
+                    !CryptographicOperations.FixedTimeEquals(
+                        Encoding.UTF8.GetBytes(providedSign.ToLowerInvariant()),
+                        Encoding.UTF8.GetBytes(expectedSign)))
                 {
                     return (false, "Invalid custom authorization signature");
                 }

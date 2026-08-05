@@ -7,5 +7,6 @@ public interface ITradeTimeoutEngine
         string timeframe,
         double atr,
         double volRatio,
-        SmcEngine.SmcAnalysisResult smc);
+        SmcEngine.SmcAnalysisResult smc,
+        double currentPrice);
 }

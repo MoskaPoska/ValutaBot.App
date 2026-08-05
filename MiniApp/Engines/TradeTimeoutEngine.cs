@@ -20,16 +20,21 @@ public class TradeTimeoutEngine : ITradeTimeoutEngine
         string timeframe,
         double atr,
         double volRatio,
-        SmcEngine.SmcAnalysisResult smc)
+        SmcEngine.SmcAnalysisResult smc,
+        double currentPrice)
     {
         int baseCandles = 15;
         string dynamicReason = "Base timeout applied (15 candles).";
 
-        // If ATR is extremely low relative to average price, the market is completely dead.
-        // We cut the trade very fast to free up margin. (Assuming ATR < 0.05% of asset price roughly implies a dead market for scalping)
-        // Note: ATR isn't normalized by price here natively, so we use a heuristic based on VolRatio primarily, 
-        // but if ATR is practically 0, we can drop it.
-        bool isDeadMarket = atr < 0.00001; // absolute zero check fallback
+        // B14-FIX: Use normalized ATR (% of price) instead of absolute value.
+        // Previously: `atr < 0.00001` was wrong for all assets:
+        //   - SHIB (price ~0.00001): ATR ≈ price → always triggered "dead market" → forced 5-candle timeout
+        //   - BTC  (price ~$60,000): ATR ~$500 → never triggered even on fully frozen market
+        // Fix: compare ATR/price ratio. Threshold 0.0005 = 0.05% of price (scale-invariant).
+        double lastPrice = currentPrice > 0 ? currentPrice : 1.0;
+        double normalizedAtr = atr / lastPrice;
+        bool isDeadMarket = atr > 0 && normalizedAtr < 0.0005; // < 0.05% of price = frozen market
+        bool isZeroAtr = atr <= 0; // completely missing ATR data
         
         if (isDeadMarket || volRatio < 0.3)
         {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace ValutaBot.MiniApp.Indicators;
@@ -14,30 +14,48 @@ public class StatefulOrderFlow
 
     private DateTime _lastProcessedTime;
 
-    // We keep a small window of the last 12 processed candles to calculate short-term DeltaRatio
     private readonly Queue<(double buy, double sell)> _shortTermWindow = new();
     private double _shortTermBuyVolume = 0;
     private double _shortTermSellVolume = 0;
-
-    public double CumulativeVolumeDelta => _cumulativeVolumeDelta;
     
-    // The DeltaRatio is calculated over the short-term window (12 candles), as it reflects immediate momentum
-    public double DeltaRatio 
-    { 
-        get 
-        {
-            double sell = _shortTermSellVolume > 1e-8 ? _shortTermSellVolume : 1.0;
-            return _shortTermBuyVolume / sell;
-        } 
+    // B10-FIX: Track open candle volume separately so getters can include it without permanent accumulation
+    private double _openBuyVolume = 0;
+    private double _openSellVolume = 0;
+    private bool _openHasInstitutionalBlockTrade = false;
+
+    public double CumulativeVolumeDelta
+    {
+        get { lock (_lockObj) { return _cumulativeVolumeDelta; } }
     }
-    
-    public double BuyVolume => _shortTermBuyVolume;
-    public double SellVolume => _shortTermSellVolume;
 
-    public bool HasInstitutionalBlockTrade { get; private set; }
-    
-    public double PriceDelta { get; private set; }
-    public double CurrentPrice { get; private set; }
+    // The DeltaRatio is calculated over the short-term window (12 candles), as it reflects immediate momentum
+    public double DeltaRatio
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                double buy = _shortTermBuyVolume + _openBuyVolume;
+                double sell = (_shortTermSellVolume + _openSellVolume) > 1e-8 ? (_shortTermSellVolume + _openSellVolume) : 1.0;
+                return buy / sell;
+            }
+        }
+    }
+
+    public double BuyVolume  { get { lock (_lockObj) { return _shortTermBuyVolume + _openBuyVolume;  } } }
+    public double SellVolume { get { lock (_lockObj) { return _shortTermSellVolume + _openSellVolume; } } }
+
+    public bool HasInstitutionalBlockTrade
+    {
+        get { lock (_lockObj) { return _hasInstitutionalBlockTrade || _openHasInstitutionalBlockTrade; } }
+        private set { _hasInstitutionalBlockTrade = value; }
+    }
+    private bool _hasInstitutionalBlockTrade;
+
+    public double PriceDelta  { get { lock (_lockObj) { return _priceDelta;  } } }
+    public double CurrentPrice { get { lock (_lockObj) { return _currentPrice; } } }
+    private double _priceDelta;
+    private double _currentPrice;
 
     private readonly object _lockObj = new();
 
@@ -70,23 +88,18 @@ public class StatefulOrderFlow
             // For the current open candle, we calculate the state without permanently committing
             if (candles.Length > 0)
             {
-                HasInstitutionalBlockTrade = false;
-                
-                // Back up the short term values before applying the open candle
-                double backupBuy = _shortTermBuyVolume;
-                double backupSell = _shortTermSellVolume;
+                // B11-FIX: Reset open block trade flag, preserve historical block trade flag
+                _openHasInstitutionalBlockTrade = false;
+                _openBuyVolume = 0;
+                _openSellVolume = 0;
 
                 ProcessCandle(candles[^1], isPermanent: false);
 
                 if (candles.Length >= 5)
                 {
-                    PriceDelta = candles[^1].Close - candles[^5].Close;
+                    _priceDelta = candles[^1].Close - candles[^5].Close;
                 }
-                CurrentPrice = candles[^1].Close;
-                
-                // Restore short term values to not permanently commit the open candle to the rolling sum
-                _shortTermBuyVolume = backupBuy;
-                _shortTermSellVolume = backupSell;
+                _currentPrice = candles[^1].Close;
             }
         }
     }
@@ -114,7 +127,10 @@ public class StatefulOrderFlow
             return;
 
         if (totalVol >= blockTradeThreshold)
-            HasInstitutionalBlockTrade = true;
+        {
+            if (isPermanent) _hasInstitutionalBlockTrade = true;
+            else _openHasInstitutionalBlockTrade = true;
+        }
 
         double range = c.High - c.Low;
         double buyV, sellV;
@@ -149,10 +165,9 @@ public class StatefulOrderFlow
         }
         else
         {
-            // For the uncommitted open candle, we just temporarily add its volume to the short-term sum
-            // (Note: the calling method will restore the sum immediately after reading properties)
-            _shortTermBuyVolume += buyV;
-            _shortTermSellVolume += sellV;
+            // For the uncommitted open candle, we just temporarily save its volume
+            _openBuyVolume = buyV;
+            _openSellVolume = sellV;
         }
     }
 }

@@ -26,10 +26,38 @@ public class AutoCalibrationEngine : IAutoCalibrationEngine
     private class SourceStats
     {
         public int TotalTrades { get; set; }
-        public double EmaWinRate { get; set; } = 0.50; // Neutral start
+        public double EmaWinRate { get; set; } = 0.50; // Нейтральный старт
     }
 
     private readonly ConcurrentDictionary<SignalKey, SourceStats> _statsMap = new();
+
+    // L2-FIX: Восстанавливает состояние EMA-весов из PostgreSQL после рестарта.
+    // Вызывается из TradeOutcomeTracker.InitializeAsync после загрузки калибровочных данных.
+    public void RestoreState(string sourceName, string asset, string timeframe, int totalTrades, double emaWinRate)
+    {
+        var key = new SignalKey(sourceName, asset, timeframe);
+        var stats = _statsMap.GetOrAdd(key, _ => new SourceStats());
+        lock (stats)
+        {
+            stats.TotalTrades = totalTrades;
+            stats.EmaWinRate  = emaWinRate;
+        }
+    }
+
+    public IEnumerable<(SignalKey key, int totalTrades, double emaWinRate)> GetAllStats()
+    {
+        foreach (var kv in _statsMap)
+        {
+            int trades;
+            double winRate;
+            lock (kv.Value) 
+            { 
+                trades = kv.Value.TotalTrades;
+                winRate = kv.Value.EmaWinRate;
+            }
+            yield return (kv.Key, trades, winRate);
+        }
+    }
 
     public MarketRegime DetectMarketRegime(double adx, double volRatio, double rsi, ReadOnlySpan<double> prices = default)
     {
@@ -111,23 +139,39 @@ public class AutoCalibrationEngine : IAutoCalibrationEngine
         {
             "TechAnalysis" => regime switch
             {
-                MarketRegime.TrendingImpulse => 1.2,
-                MarketRegime.RangingFlat => 0.8,
+                MarketRegime.TrendingImpulse    => 1.2,
+                MarketRegime.RangingFlat        => 0.8,
                 MarketRegime.HighVolatilityChaos => 0.5,
                 _ => 1.0
             },
             "OrderFlow" => regime switch
             {
-                MarketRegime.TrendingImpulse => 0.9,
-                MarketRegime.RangingFlat => 1.3, // OF shines in ranges (reversals)
+                MarketRegime.TrendingImpulse    => 0.9,
+                MarketRegime.RangingFlat        => 1.3, // OF хорошо работает в диапазонах (развороты)
                 MarketRegime.HighVolatilityChaos => 0.7,
                 _ => 1.0
             },
             "SMC" => regime switch
             {
-                MarketRegime.TrendingImpulse => 1.1, // Break of structure works
-                MarketRegime.RangingFlat => 0.6, // SMC fails in tight ranges often
-                MarketRegime.HighVolatilityChaos => 1.4, // Liquidity sweeps shine here
+                MarketRegime.TrendingImpulse    => 1.1, // BOS работает в тренде
+                MarketRegime.RangingFlat        => 0.6, // SMC слабее в узких диапазонах
+                MarketRegime.HighVolatilityChaos => 1.4, // Liquidity sweeps — в хаосе лучший сигнал
+                _ => 1.0
+            },
+            // L4-FIX: LIGHTGBM и SKENDER_MATH ранее всегда возвращали 1.0 (ветка _).
+            // Теперь калибруются по режиму — EMA-винрейт применяется корректно.
+            "LIGHTGBM" => regime switch
+            {
+                MarketRegime.TrendingImpulse    => 1.3, // ML отлично распознаёт импульсы
+                MarketRegime.RangingFlat        => 0.9,
+                MarketRegime.HighVolatilityChaos => 0.6, // Хаос плохо предсказывается ML
+                _ => 1.0
+            },
+            "SKENDER_MATH" => regime switch
+            {
+                MarketRegime.TrendingImpulse    => 1.0,
+                MarketRegime.RangingFlat        => 1.2, // Математика устойчивее в флэте
+                MarketRegime.HighVolatilityChaos => 0.8,
                 _ => 1.0
             },
             _ => 1.0

@@ -191,17 +191,31 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
             return (pending + verified, verified, correct);
         }
 
-        public static async Task<List<(string asset, string timeframe, int verified, int correct)>> GetAllStatsAsync()
+        public static async Task<List<(string asset, string timeframe, int total, int verified, int correct)>> GetAllStatsAsync()
         {
-            if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return new List<(string, string, int, int)>();
+            if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return new List<(string, string, int, int, int)>();
             using var conn = DbConnectionFactory.GetConnection();
+            
+            var pendingRows = await conn.QueryAsync(
+                "SELECT asset, timeframe, COUNT(*) as Pending FROM pending_trades GROUP BY asset, timeframe");
+            
             var rows = await conn.QueryAsync(
                 "SELECT asset, timeframe, COUNT(*) as Verified, COALESCE(SUM(CASE WHEN was_win THEN 1 ELSE 0 END), 0) as Correct FROM trade_outcomes GROUP BY asset, timeframe");
             
-            var result = new List<(string, string, int, int)>();
+            var result = new List<(string, string, int, int, int)>();
             foreach (var r in rows)
             {
-                result.Add((r.asset, r.timeframe, Convert.ToInt32(r.verified), Convert.ToInt32(r.correct)));
+                int verified = Convert.ToInt32(r.verified);
+                int pending = 0;
+                foreach (var p in pendingRows)
+                {
+                    if (p.asset == r.asset && p.timeframe == r.timeframe)
+                    {
+                        pending = Convert.ToInt32(p.pending);
+                        break;
+                    }
+                }
+                result.Add((r.asset, r.timeframe, verified + pending, verified, Convert.ToInt32(r.correct)));
             }
             return result;
         }
@@ -219,6 +233,92 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
                 result.Add((r.signal_name, Convert.ToInt32(r.verified), Convert.ToInt32(r.correct)));
             }
             return result;
+        }
+
+        // ── L2-FIX: Персистентность EMA-весов AutoCalibrationEngine ─────────────
+
+        /// <summary>
+        /// Сохраняет EMA-состояние калибровщика в PostgreSQL.
+        /// Вызывается из TradeOutcomeTracker после каждой обработки сделки.
+        /// </summary>
+        public static async Task SaveCalibrationStateAsync(string sourceName, string asset, string timeframe, int totalTrades, double emaWinRate)
+        {
+            if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return;
+            try
+            {
+                using var conn = DbConnectionFactory.GetConnection();
+                await conn.ExecuteAsync(@"
+                    INSERT INTO calibration_state (source_name, asset, timeframe, total_trades, ema_win_rate, updated_at)
+                    VALUES (@sourceName, @asset, @timeframe, @totalTrades, @emaWinRate, @updatedAt)
+                    ON CONFLICT (source_name, asset, timeframe) DO UPDATE SET
+                        total_trades = EXCLUDED.total_trades,
+                        ema_win_rate = EXCLUDED.ema_win_rate,
+                        updated_at   = EXCLUDED.updated_at",
+                    new { sourceName, asset, timeframe, totalTrades, emaWinRate, updatedAt = DateTime.UtcNow.ToString("o") });
+            }
+            catch (Exception ex)
+            {
+                BotLogger.Warn($"[TradeRepository] SaveCalibrationState notice: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Загружает сохранённые EMA-веса при старте бота.
+        /// Возвращает список записей для восстановления AutoCalibrationEngine._statsMap.
+        /// </summary>
+        public static async Task<List<(string sourceName, string asset, string timeframe, int totalTrades, double emaWinRate)>> LoadCalibrationStateAsync()
+        {
+            if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString()))
+                return new List<(string, string, string, int, double)>();
+            try
+            {
+                using var conn = DbConnectionFactory.GetConnection();
+                var rows = await conn.QueryAsync(
+                    "SELECT source_name, asset, timeframe, total_trades, ema_win_rate FROM calibration_state");
+                var result = new List<(string, string, string, int, double)>();
+                foreach (var r in rows)
+                {
+                    result.Add((
+                        (string)r.source_name,
+                        (string)r.asset,
+                        (string)r.timeframe,
+                        Convert.ToInt32(r.total_trades),
+                        Convert.ToDouble(r.ema_win_rate)
+                    ));
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                BotLogger.Warn($"[TradeRepository] LoadCalibrationState notice: {ex.Message}");
+                return new List<(string, string, string, int, double)>();
+            }
+        }
+
+        /// <summary>
+        /// Создаёт таблицу calibration_state если не существует.
+        /// </summary>
+        public static async Task EnsureCalibrationTableAsync()
+        {
+            if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return;
+            try
+            {
+                using var conn = DbConnectionFactory.GetConnection();
+                await conn.ExecuteAsync(@"
+                    CREATE TABLE IF NOT EXISTS calibration_state (
+                        source_name  TEXT NOT NULL,
+                        asset        TEXT NOT NULL,
+                        timeframe    TEXT NOT NULL,
+                        total_trades INT  NOT NULL DEFAULT 0,
+                        ema_win_rate DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+                        updated_at   TEXT NOT NULL,
+                        PRIMARY KEY (source_name, asset, timeframe)
+                    )");
+            }
+            catch (Exception ex)
+            {
+                BotLogger.Warn($"[TradeRepository] EnsureCalibrationTable notice: {ex.Message}");
+            }
         }
     }
 }

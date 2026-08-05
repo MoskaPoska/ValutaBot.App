@@ -30,7 +30,7 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
     public ValutaBot.MiniApp.Indicators.StatefulSmc GetSmcState(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles, double currentPrice)
         => _cache.GetSmcState(asset, timeframe, candles, currentPrice);
 
-    public (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal) ScoreTimeframe(
+    public (double score, double confidence, double rsiVal, double hmaVal, double volStrengthVal, double atrVal) ScoreTimeframe(
         string asset, string timeframe, ReadOnlySpan<double> prices, ReadOnlySpan<double> volumes, ReadOnlySpan<MiniAppController.OhlcCandle> candles = default,
         double? adxOverride = null, double? atrOverride = null, bool isForex = false)
     {
@@ -155,7 +155,9 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         for (int i = 0; i < 25; i++)
         {
             int idx = prices.Length - 25 + i;
-            returns[i] = Math.Log(prices[idx] / (prices[idx - 1] == 0 ? 1e-10 : prices[idx - 1]));
+            double prevPrice = prices[idx - 1] <= 0 ? 1e-10 : prices[idx - 1];
+            double currPrice = prices[idx] <= 0 ? 1e-10 : prices[idx];
+            returns[i] = Math.Log(currPrice / prevPrice);
         }
 
         double shortVol = StandardDeviationScalar(returns.Slice(20, 5));

@@ -57,7 +57,7 @@ public static partial class MiniAppUI
             </div>
         </div>
 
-        <div class='top-categories' id='topCategories'>
+        <div class='top-categories' id='topCategories' style='display:none;'>
             <div class='top-cat-btn active' data-cat='fiat'>
                 <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><path d='M7 9h6a2 2 0 0 1 0 4H7'/><path d='M10 5v2m0 8v2'/></svg>
                 <div class='label'>Валюты</div>

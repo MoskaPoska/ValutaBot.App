@@ -57,7 +57,7 @@ public static class SmcEngine
             nearestFvg.HasValue ? Math.Abs(nearestFvg.Value.Top - nearestFvg.Value.Bottom) : 0,
             hasBullOb || hasBearOb,
             obType,
-            nearestOb?.Top ?? (nearestOb?.Bottom ?? 0), // Use Top for Bullish, Bottom for Bearish ideally, but just return a level
+            hasBullOb ? (nearestOb?.Top ?? 0) : (hasBearOb ? (nearestOb?.Bottom ?? 0) : 0),
             nearestOb.HasValue,
             smc.HasBos,
             smc.BosDirection

@@ -8,6 +8,8 @@ namespace ValutaBot.MiniApp.CQRS.Handlers;
 
 public class MarketAnalysisContext
 {
+    private static string _lastSeenModelVersion = "";
+    
     private readonly GetMarketAnalysisQueryHandler _handler;
     private readonly string _asset;
     private readonly string _timeframe;
@@ -184,6 +186,49 @@ public class MarketAnalysisContext
                     _lgbmConfidence = (float)prediction.Confidence;
                     _lgbmModelVersion = prediction.ModelVersion;
                     _lgbmAccuracy = prediction.Accuracy;
+
+                    // ── ML Telemetry: Global Retraining ──
+                    if (!string.IsNullOrEmpty(prediction.ModelVersion))
+                    {
+                        string oldVer = System.Threading.Interlocked.Exchange(ref _lastSeenModelVersion, prediction.ModelVersion);
+                        if (oldVer != prediction.ModelVersion)
+                        {
+
+                            // Skip the very first startup assignment spam, only alert on actual changes during runtime
+                            if (!string.IsNullOrEmpty(oldVer))
+                            {
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        string accStr = prediction.Accuracy.HasValue ? $"{prediction.Accuracy.Value * 100:F1}%" : "N/A";
+                                        string aucStr = prediction.Auc.HasValue ? $"{prediction.Auc.Value:F3}" : "N/A";
+
+                                        string report = $"[🧠 ML Global Retrain Detected]\n" +
+                                                        $"Asset: {_asset}\n" +
+                                                        $"New Model: <code>{prediction.ModelVersion}</code>\n" +
+                                                        $"Previous: <code>{oldVer}</code>\n\n" +
+                                                        $"🔹 Cross-Validation Accuracy: {accStr}\n" +
+                                                        $"🔹 AUC-ROC Score: {aucStr}";
+
+                                        await TelegramBotService.SendMessageToAdmins(report);
+
+                                        string logDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
+                                        System.IO.Directory.CreateDirectory(logDir);
+                                        string logFile = System.IO.Path.Combine(logDir, "ml_global_retrain.csv");
+                                        bool writeHeader = !System.IO.File.Exists(logFile);
+                                        using var writer = new System.IO.StreamWriter(logFile, append: true);
+                                        if (writeHeader) await writer.WriteLineAsync("Timestamp,Asset,OldVersion,NewVersion,Accuracy,Auc");
+                                        await writer.WriteLineAsync($"{DateTime.UtcNow:O},{_asset},{oldVer},{prediction.ModelVersion},{prediction.Accuracy},{prediction.Auc}");
+                                    }
+                                    catch (Exception tEx)
+                                    {
+                                        BotLogger.Error("[MarketAnalysis] Error sending ML global telemetry", tEx);
+                                    }
+                                });
+                            }
+                        }
+                    }
                 }
 
                 var llmService = new LlmReportingService();
@@ -244,7 +289,7 @@ public class MarketAnalysisContext
         bool isSubMinute = _timeframe.ToLower().StartsWith("s");
         
         // Construct Signals for the Confluence Matrix
-        var taSignal = new TaSignal(_mainResult.score, _mainResult.confidence, _mainResult.rsiVal, _mainResult.emaVal, _mainResult.volStrengthVal, _mainAtr);
+        var taSignal = new TaSignal(_mainResult.score, _mainResult.confidence, _mainResult.rsiVal, _mainResult.emaVal, _mainResult.volStrengthVal, _mainAtr, _mainAdx);
         var smcSignal = new SmcSignal(_smcResult.BosDirection, _smcResult.SweepDirection, _smcResult.OrderBlockType, _smcResult.FvgType, "SMC Analyzed");
         var ofSignal = new OrderflowSignal(_orderFlowResult.ScoreContribution, _orderFlowResult.Description);
         var mlSignal = new MlSignal(_lgbmDirection, _lgbmConfidence, _lgbmAccuracy, _lgbmModelVersion);
@@ -264,7 +309,7 @@ public class MarketAnalysisContext
         
         int timeframeSec = _handler._fetcher.TimeframeSeconds(_timeframe);
         double volRatio = _handler._marketAnalyzer.CalculateVolatilityRatio(_mainPrices);
-        var timeoutResult = _handler._timeoutEngine.CalculateTimeout(_asset, _timeframe, _mainAtr, volRatio, _smcResult);
+        var timeoutResult = _handler._timeoutEngine.CalculateTimeout(_asset, _timeframe, _mainAtr, volRatio, _smcResult, _mainPrices[^1]);
         
         // --- PRODUCTION KILL SWITCH (Pre-Simulation) ---
         if (_wfResult.IsCooloffActive)
