@@ -241,7 +241,7 @@ public static class SignalTracker
 
             await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.DeletePendingTradeAsync(record.Id);
 
-            string icon = correct ? "✅" : "❌";
+            string icon = correct ? "вњ…" : "вќЊ";
             Console.WriteLine(
                 $"[Tracker] {icon} {record.Asset}/{record.Timeframe} {record.Direction} " +
                 $"entry={record.EntryPrice:F5} exit={exitPrice:F5} " +
@@ -253,8 +253,32 @@ public static class SignalTracker
     {
         string sym = record.BinanceSymbol;
 
-        // 1. Binance REST API (Historical Kline for Crypto)
-        // B1-FIX: We strictly use historical klines for exact candle match, avoiding live WebSocket slippage.
+        // Fast path: Web Socket live prices (no allocations)
+        // B1-FIX: Always return rented arrays to ArrayPool even when count==0.
+        // Previously: `TryGet(...) && count > 0` вЂ” short-circuit skipped Return() when count==0 в†’ ArrayPool leak в†’ OOM.
+        if (BinanceWebSocketStream.TryGetLiveCandles(sym, "1m", out double[] wsOpens, out double[] wsHighs, out double[] wsLows, out double[] wsPrices, out double[] wsVolumes, out int count))
+        {
+            try
+            {
+                if (count > 0) return wsPrices[count - 1];
+            }
+            finally
+            {
+                if (wsPrices != null) 
+                {
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsOpens);
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsHighs);
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsLows);
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
+                }
+                if (wsVolumes != null) 
+                {
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
+                }
+            }
+        }
+
+        // Fallback: Binance REST API (Historical Kline)
         if (!record.IsForex)
         {
             try

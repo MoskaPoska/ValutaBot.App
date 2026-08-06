@@ -18,11 +18,6 @@ public static class AuthService
             return (false, "Internal Server Error: Missing bot token configuration."); 
         }
 
-        if (context.Request.Headers.TryGetValue("X-Paper-Trade-Bypass", out var bypassVal) && bypassVal == "true")
-        {
-            return (true, null); // Allow paper trader
-        }
-
         if (!context.Request.Headers.TryGetValue("X-Telegram-Init-Data", out var initDataValues))
         {
             return (false, "Missing authorization header");

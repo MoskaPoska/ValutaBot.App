@@ -39,7 +39,7 @@ RATE_LIMIT_DELAY = 8.0  # seconds between requests (stay under 8 req/min)
 
 
 def to_twelvedata_symbol(symbol: str) -> str:
-    sym = symbol.upper().replace("_OTC", "")
+    sym = symbol.upper()
     if sym in ["GOLD", "XAUUSD"]: return "XAU/USD"
     if sym in ["SILVER", "XAGUSD"]: return "XAG/USD"
     if len(sym) == 6:

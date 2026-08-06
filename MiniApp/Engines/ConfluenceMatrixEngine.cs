@@ -255,17 +255,16 @@ public class ConfluenceMatrixEngine(
         // 4. ML / Mathematical Consensus Matrix Layer (META-LABELING OVERRIDE)
         double scoreMath = Math.Clamp(totalScore, -2.5, 2.5) / 2.5; // Normalized to [-1.0, 1.0]
         string candidateDir = "NEUTRAL";
-        int probability = 50;
+        double finalConfidenceScore = 0.0;
 
         bool isMlConfident = (mlSignal.Direction == "BUY" || mlSignal.Direction == "PUT");
 
         if (isMlConfident)
         {
             // ML is highly confident and overrides Math entirely
-            // We use the raw probability directly from LightGBM (No more squeezing)
             candidateDir = mlSignal.Direction;
-            probability = (int)Math.Round(mlSignal.Confidence * 100);
-            probability = Math.Clamp(probability, 51, 99);
+            double normLgbm = Math.Max(0, (mlSignal.Confidence - 0.5) * 2.0);
+            finalConfidenceScore = candidateDir == "BUY" ? normLgbm : -normLgbm;
         }
         else
         {
@@ -277,13 +276,14 @@ public class ConfluenceMatrixEngine(
             {
                 candidateDir = totalScore >= 0 ? "BUY" : "PUT";
             }
-            
-            // 5. Final Decision (Math Formula)
-            double absWeightedScore = Math.Abs(scoreMath);
-            probability = isSubMinute
-                ? Math.Clamp(50 + (int)Math.Round(absWeightedScore * 40), 50, 91)
-                : Math.Clamp(50 + (int)Math.Round(absWeightedScore * 45), 50, 95);
+            finalConfidenceScore = scoreMath;
         }
+
+        // 5. Final Decision
+        double absWeightedScore = Math.Abs(finalConfidenceScore);
+        int probability = isSubMinute
+            ? Math.Clamp(50 + (int)Math.Round(absWeightedScore * 40), 50, 91)
+            : Math.Clamp(50 + (int)Math.Round(absWeightedScore * 45), 50, 95);
 
         // MTF Golden Boost — only apply when 4D dominant direction MATCHES candidateDir.
         // FIX: Previously boosted unconditionally, inflating probability even when MTF

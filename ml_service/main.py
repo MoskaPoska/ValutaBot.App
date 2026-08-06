@@ -33,7 +33,7 @@ log = logging.getLogger("ml-service")
 
 from contextlib import asynccontextmanager
 
-_DEFAULT_SYMBOLS = os.getenv("PRETRAIN_SYMBOLS", "EURUSD_OTC").split(",")
+_DEFAULT_SYMBOLS = os.getenv("PRETRAIN_SYMBOLS", "EURUSD,GBPUSD,USDJPY").split(",")
 _DEFAULT_INTERVALS = os.getenv("PRETRAIN_INTERVALS", "s5,s15,s30,1m,5m,15m").split(",")
 
 
@@ -319,12 +319,6 @@ def _background_train(symbol: str, interval: str, candles: Optional[list]):
     log.info(f"[BG Train] Starting {symbol}_{interval}")
     report = predictor.train(candles)
     log.info(f"[BG Train] Done: {report}")
-    
-    try:
-        import requests
-        requests.post("http://localhost:5000/api/ml-notify/global-retrain", json=report, timeout=2.0)
-    except Exception as e:
-        log.warning(f"[BG Train] Failed to notify C# backend: {e}")
 
 
 @app.post("/feedback")
@@ -375,12 +369,11 @@ def feedback(req: TrainFeedback):
             recent_candles = _fetch_local_sqlite_main(req.asset, req.timeframe, 200)
 
         if len(recent_candles) >= 60:
-            metrics = predictor.partial_fit_online(recent_candles, req.was_win, req.direction)
-            if metrics:
+            ok = predictor.partial_fit_online(recent_candles, req.was_win, req.direction)
+            if ok:
                 log.info(f"[SGD] Online update done for {req.asset} ({req.timeframe}) | win={req.was_win} | truthful_data={bool(cached_live_candles)}")
-                return {"status": "ok", "message": "Feedback saved. Local Tactician (SGD) updated instantly.", "metrics": metrics}
             
-        return {"status": "ok", "message": "Feedback saved. No SGD update performed (insufficient data)."}
+        return {"status": "ok", "message": "Feedback saved. Local Tactician (SGD) updated instantly."}
 
     except Exception as e:
         log.error(f"[Online RL] DB Error: {e}")

@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Polly;
@@ -139,12 +139,10 @@ public class MarketDataFetcher
 
     private static async Task<MiniAppController.OhlcCandle[]?> FetchBinanceKlinsAsync(string symbol, string interval, int limit)
     {
-        string cacheKey = $"{symbol}_{interval}";
+        string cacheKey = $"{symbol}_{interval}_{limit}";
         if (_klinesCache.TryGetValue(cacheKey, out var cached) && DateTime.UtcNow < cached.Expiration)
         {
-            if (cached.Data.Length >= limit)
-                return cached.Data.TakeLast(limit).ToArray();
-            // If cached data is smaller than requested, proceed to fetch
+            return cached.Data;
         }
 
         var semaphore = _fetchLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
@@ -154,15 +152,13 @@ public class MarketDataFetcher
             // Double check lock
             if (_klinesCache.TryGetValue(cacheKey, out cached) && DateTime.UtcNow < cached.Expiration)
             {
-                if (cached.Data.Length >= limit)
-                    return cached.Data.TakeLast(limit).ToArray();
+                return cached.Data;
             }
 
-            int fetchLimit = Math.Max(limit, 200); // Always fetch a healthy chunk
-            string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={fetchLimit}";
+            string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
             
             var httpFactory = MiniAppController.HttpFactory
-                ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory не инициализирован. Сервер еще запускается, повторите запрос.");
+                ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ. РЎРµСЂРІРµСЂ РµС‰С‘ Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ, РїРѕРІС‚РѕСЂРёС‚Рµ Р·Р°РїСЂРѕСЃ.");
             var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(httpFactory.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
             
             if (arr == null || arr.Length == 0) return Array.Empty<MiniAppController.OhlcCandle>();
@@ -174,8 +170,8 @@ public class MarketDataFetcher
                 result[i] = new MiniAppController.OhlcCandle(k[1], k[2], k[3], k[4], k[5], DateTimeOffset.FromUnixTimeMilliseconds((long)k[0]).UtcDateTime);
             }
             
-            _klinesCache[cacheKey] = (DateTime.UtcNow.AddSeconds(5), result); // 5 sec TTL
-            return result.TakeLast(limit).ToArray();
+            _klinesCache[cacheKey] = (DateTime.UtcNow.AddSeconds(2), result);
+            return result;
         }
         finally
         {
