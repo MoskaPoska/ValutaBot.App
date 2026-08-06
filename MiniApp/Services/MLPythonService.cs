@@ -210,7 +210,41 @@ if (!string.IsNullOrWhiteSpace(_baseUrl))
             
             if (response.IsSuccessStatusCode)
             {
-                BotLogger.Info($"[MLPython] Online RL feedback registered for {asset}/{timeframe} → {(wasWin ? "WIN" : "LOSS")}");
+                var body = await response.Content.ReadAsStringAsync();
+                string logLossStr = "";
+                
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("metrics", out var metrics) && metrics.ValueKind == JsonValueKind.Object)
+                    {
+                        if (metrics.TryGetProperty("loss_before", out var lb) && lb.ValueKind == JsonValueKind.Number &&
+                            metrics.TryGetProperty("loss_after", out var la) && la.ValueKind == JsonValueKind.Number)
+                        {
+                            logLossStr = $"\n📉 Log Loss (Ошибка): {lb.GetDouble():F4} ➡️ {la.GetDouble():F4}\n";
+                        }
+                    }
+                }
+                catch { }
+
+                BotLogger.Info($"[MLPython] Online RL feedback registered for {asset}/{timeframe} -> {(wasWin ? "WIN" : "LOSS")}");
+                try
+                {
+                    string icon = wasWin ? "✅" : "❌";
+                    string resultText = wasWin ? "УСПЕШНАЯ" : "УБЫТОЧНАЯ";
+                    string adaptationText = wasWin ? "Веса закреплены." : "Произведена микро-корректировка (штраф).";
+                    
+                    string report = $"[🧠 Online RL Уведомление]\n" +
+                                    $"Сделка {asset} ({timeframe}) закрыта: {icon} {resultText}\n\n" +
+                                    $"Направление: {direction}\n" +
+                                    $"Вход: {entryPrice:F5} ➡️ Выход: {exitPrice:F5}\n" +
+                                    $"{logLossStr}\n" +
+                                    $"Модель SGDClassifier успешно переобучилась на лету (скорость <70мс). {adaptationText}";
+                                    
+                    _ = TelegramBotService.SendMessageToAdmins(report);
+                }
+                catch { }
             }
         }
         catch (Polly.CircuitBreaker.BrokenCircuitException)

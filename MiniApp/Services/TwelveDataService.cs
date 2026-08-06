@@ -39,10 +39,17 @@ public static partial class TwelveDataService
 
         if (cacheTtlSeconds > 0 && _memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) cachedData))
         {
-            BotLogger.Info($"[TwelveData] Using IMemoryCache data for {rawAsset} ({interval})");
-            return cachedData;
+            if (cachedData.prices.Length >= limit)
+            {
+                BotLogger.Info($"[TwelveData] Using IMemoryCache data for {rawAsset} ({interval})");
+                return (cachedData.prices.TakeLast(limit).ToArray(), 
+                        cachedData.volumes.TakeLast(limit).ToArray(), 
+                        cachedData.candles.TakeLast(limit).ToArray());
+            }
+            // If cached data is smaller, proceed to fetch
         }
 
+        int fetchLimit = Math.Max(limit, 200); // Always fetch a healthy chunk
         string apiKey = GetApiKey();
         if (string.IsNullOrEmpty(apiKey)) return null;
 
@@ -64,7 +71,7 @@ public static partial class TwelveDataService
             string tdInterval = ConvertInterval(interval) ?? "";
             if (string.IsNullOrEmpty(symbol) || string.IsNullOrEmpty(tdInterval)) return null;
 
-            string url = $"https://api.twelvedata.com/time_series?symbol={Uri.EscapeDataString(symbol)}&interval={tdInterval}&outputsize={limit}&apikey={apiKey}";
+            string url = $"https://api.twelvedata.com/time_series?symbol={Uri.EscapeDataString(symbol)}&interval={tdInterval}&outputsize={fetchLimit}&apikey={apiKey}";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.UserAgent.ParseAdd("ValutaBot/1.0");
 

@@ -367,6 +367,10 @@ class ForexPredictor:
             else:
                 y = np.array([0 if was_win else 1])
 
+            from sklearn.metrics import log_loss
+            loss_before = None
+            loss_after = None
+
             with self._online_lock:
                 if self._online_model is None:
                     self._online_model = SGDClassifier(
@@ -376,8 +380,24 @@ class ForexPredictor:
                         random_state=42,
                         warm_start=True,
                     )
+                
+                try:
+                    if hasattr(self._online_model, "classes_") and len(self._online_model.classes_) == 2:
+                        y_pred_proba = self._online_model.predict_proba(X_last)
+                        loss_before = log_loss(y, y_pred_proba, labels=[0, 1])
+                except Exception:
+                    pass
+
                 self._online_model.partial_fit(X_last, y, classes=self._online_classes)
                 self._sgd_update_count += 1  # Bug3 fix: track update count
+                
+                try:
+                    if hasattr(self._online_model, "classes_") and len(self._online_model.classes_) == 2:
+                        y_pred_proba = self._online_model.predict_proba(X_last)
+                        loss_after = log_loss(y, y_pred_proba, labels=[0, 1])
+                except Exception:
+                    pass
+
                 online_model = self._online_model
                 sgd_count = self._sgd_update_count
 
@@ -385,7 +405,7 @@ class ForexPredictor:
             sgd_path = SGD_MODEL_DIR / f"{self._key}_sgd.pkl"
             joblib.dump({"model": online_model, "count": sgd_count}, sgd_path)
             log.info(f"[SGD] partial_fit done for {self._key} | dir={direction} win={was_win} | label={y[0]} | total_updates={sgd_count}")
-            return True
+            return {"loss_before": loss_before, "loss_after": loss_after, "updates": sgd_count}
 
         except Exception as e:
             log.error(f"[SGD] partial_fit error for {self._key}: {e}")

@@ -197,6 +197,46 @@ public static partial class MiniAppController
         app.MapGet("/api/stats", (Delegate)HandleGetStats).RequireRateLimiting("Global");
         app.MapGet("/api/signal-stats", (Delegate)HandleGetSignalStats).RequireRateLimiting("Global");
 
+        // Webhook for Python ML to notify about global retrain completion
+        app.MapPost("/api/ml-notify/global-retrain", async (HttpContext context) =>
+        {
+            try
+            {
+                using var reader = new StreamReader(context.Request.Body);
+                var body = await reader.ReadToEndAsync();
+                
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("error", out var errorProp))
+                {
+                    string errorMsg = errorProp.GetString() ?? "Unknown error";
+                    BotLogger.Warn($"[ML Webhook] Python training failed: {errorMsg}");
+                    return Results.BadRequest(new { error = errorMsg });
+                }
+                
+                string symbol = root.GetProperty("symbol").GetString() ?? "Unknown";
+                string interval = root.GetProperty("interval").GetString() ?? "Unknown";
+                double accuracy = root.GetProperty("accuracy").GetDouble();
+                double auc = root.GetProperty("auc").GetDouble();
+                int nTrain = root.GetProperty("n_train").GetInt32();
+                
+                string report = $"[🌐 Глобальное Переобучение Завершено]\n\n" +
+                                $"Пара: {symbol} ({interval})\n" +
+                                $"Обработано свечей: {nTrain:N0}\n" +
+                                $"Точность модели (Accuracy): {accuracy * 100:F2}%\n" +
+                                $"Площадь под кривой (AUC): {auc:F3}";
+                                
+                _ = ValutaBot.MiniApp.TelegramBotService.SendMessageToAdmins(report);
+                return Results.Ok();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ML Webhook Error] {ex.Message}");
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         app.MapGet("/api/fear-greed", async Task<IResult> (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";

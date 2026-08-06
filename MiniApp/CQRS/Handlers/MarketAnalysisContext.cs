@@ -46,6 +46,7 @@ public class MarketAnalysisContext
     
     private double _mainAdx, _mainPdi, _mainMdi, _mainAtr;
     private (double score, double confidence, double rsiVal, double emaVal, double volStrengthVal, double atrVal) _mainResult;
+    private MiniAppController.OhlcCandle[]? _higherOhlcCandles;
 
     public MarketAnalysisContext(GetMarketAnalysisQueryHandler handler, string asset, string timeframe)
     {
@@ -56,9 +57,14 @@ public class MarketAnalysisContext
 
     public async Task<object> ExecuteAnalysisAsync()
     {
+        var swTotal = System.Diagnostics.Stopwatch.StartNew();
+        long fetchMs = 0, mathMs = 0, mlMs = 0, matrixMs = 0;
+
         try
         {
+            var swPhase = System.Diagnostics.Stopwatch.StartNew();
             await InitializeDataAsync();
+            fetchMs = swPhase.ElapsedMilliseconds;
 
             if (_mainPrices == null || _mainPrices.Length == 0)
             {
@@ -72,11 +78,18 @@ public class MarketAnalysisContext
                 throw new Exception(gatekeeper.Reason);
             }
 
+            swPhase.Restart();
             await AnalyzeCoreMechanicsAsync();
             await EvaluateTechnicalIndicatorsAsync();
-            await GatherMachineLearningAsync();
+            mathMs = swPhase.ElapsedMilliseconds;
 
-            return await BuildFinalConsensusAsync();
+            swPhase.Restart();
+            await GatherMachineLearningAsync();
+            mlMs = swPhase.ElapsedMilliseconds;
+
+            swPhase.Restart();
+            var finalResult = await BuildFinalConsensusAsync(fetchMs, mathMs, mlMs, matrixMs, swPhase, swTotal);
+            return finalResult;
         }
         catch (ExchangeUnavailableException exEx)
         {
@@ -114,41 +127,42 @@ public class MarketAnalysisContext
 
         _mainOhlcKey = _symbol != null ? $"{_symbol}_{_mainInterval}" : $"{_clean}_{_mainInterval}";
 
-        var mainResultTuple = await _handler._fetcher.FetchBinanceWithFallback(_symbol, _mainInterval, _clean, _limit);
-        _mainPrices = mainResultTuple.prices;
-        _mainVolumes = mainResultTuple.volumes;
-
-        try
-        {
-            _ohlcCandles = await _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, _timeframe, _asset, _limit);
-        }
-        catch (Exception ex)
-        {
-            BotLogger.Warn($"[Analysis] Failed to fetch OHLC candles: {ex.Message}");
-            _ohlcCandles = Array.Empty<MiniAppController.OhlcCandle>();
-        }
+        var mainTask = _handler._fetcher.FetchBinanceWithFallback(_symbol, _mainInterval, _clean, _limit);
+        var ohlcTask = _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, _timeframe, _asset, _limit);
 
         var higherTask = _higherTf != null ? SafeFetch(_higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
         var lowerTask = _lowerTf != null ? SafeFetch(_lowerTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
+        var higherOhlcTask = _higherTf != null ? SafeFetchOhlc(_higherTf) : Task.FromResult<MiniAppController.OhlcCandle[]?>(null);
 
         var extraTasks = new List<Task<(double[] prices, double[] volumes)?>>();
-        if (_isMajor)
+        string[] checkTfs = { "m1", "m5", "m15", "h1" };
+        foreach (var cTf in checkTfs)
         {
-            string[] checkTfs = { "m1", "m5", "m15", "h1" };
-            foreach (var cTf in checkTfs)
+            if (cTf != _timeframe && cTf != _higherTf && cTf != _lowerTf)
             {
-                if (cTf != _timeframe && cTf != _higherTf && cTf != _lowerTf)
-                {
-                    extraTasks.Add(SafeFetch(cTf));
-                }
+                extraTasks.Add(SafeFetch(cTf));
             }
         }
 
-        await Task.WhenAll(higherTask, lowerTask);
-        if (extraTasks.Count > 0) await Task.WhenAll(extraTasks);
+        var allTasks = new List<Task> { mainTask, ohlcTask, higherTask, lowerTask, higherOhlcTask };
+        allTasks.AddRange(extraTasks);
+        await Task.WhenAll(allTasks);
 
-        _higherResultData = await higherTask;
-        _lowerResultData = await lowerTask;
+        var mainResultTuple = mainTask.Result;
+        _mainPrices = mainResultTuple.prices;
+        _mainVolumes = mainResultTuple.volumes;
+        
+        _ohlcCandles = ohlcTask.IsCompletedSuccessfully ? ohlcTask.Result : Array.Empty<MiniAppController.OhlcCandle>();
+
+        _higherResultData = higherTask.Result;
+        _lowerResultData = lowerTask.Result;
+        _higherOhlcCandles = higherOhlcTask.Result;
+    }
+
+    private async Task<MiniAppController.OhlcCandle[]?> SafeFetchOhlc(string tf)
+    {
+        try { return await _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, tf, _asset, _limit); }
+        catch (Exception ex) { BotLogger.Warn($"[Analysis] Failed to fetch higher TF OHLC candles: {ex.Message}"); return null; }
     }
 
     private async Task<(double[] prices, double[] volumes)?> SafeFetch(string tf)
@@ -187,7 +201,7 @@ public class MarketAnalysisContext
                     _lgbmConfidence = Math.Clamp(_lgbmConfidence, 0f, 1f);
 
                     // META-LABELING: If ML confidence is weak (or heavily penalized by WalkForward), neutralize it entirely.
-                    if (_lgbmConfidence < 0.55f)
+                    if (_lgbmConfidence < 0.51f)
                     {
                         BotLogger.Info($"[ML Override] WalkForward suppressed ML confidence to {_lgbmConfidence:F2}. Reverting to pure Math.");
                         _lgbmDirection = "NEUTRAL";
@@ -270,36 +284,23 @@ public class MarketAnalysisContext
         {
             var higherOhlcKey = _higherTf != null ? (_symbol != null ? $"{_symbol}_{_handler._fetcher.IntervalMap(_higherTf)}" : $"{_clean}_{_handler._fetcher.IntervalMap(_higherTf)}") : null;
             
-            MiniAppController.OhlcCandle[]? higherOhlc = null;
-            if (_higherTf != null)
+            if (_higherResultData.HasValue && _higherOhlcCandles != null)
             {
-                try
-                {
-                    higherOhlc = await _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, _higherTf, _asset);
-                }
-                catch (Exception ex)
-                {
-                    BotLogger.Warn($"[Analysis] Failed to fetch higher TF OHLC candles: {ex.Message}");
-                }
-            }
-            
-            if (_higherResultData.HasValue && higherOhlc != null)
-            {
-                var htfSmcResult = SmcEngine.AnalyzeSmcStructure(_asset, _higherTf ?? "", higherOhlc, _higherResultData.Value.prices.Length > 0 ? _higherResultData.Value.prices[^1] : 0.0);
+                var htfSmcResult = SmcEngine.AnalyzeSmcStructure(_asset, _higherTf ?? "", _higherOhlcCandles, _higherResultData.Value.prices.Length > 0 ? _higherResultData.Value.prices[^1] : 0.0);
                 var mtfValidation = SmcEngine.ValidateMtfSmcAlignment(_smcResult, htfSmcResult);
                 _conflictPenalty *= mtfValidation.ConfluenceMultiplier;
                 BotLogger.Info($"[MTF SMC Validation] Alignment: {mtfValidation.AlignmentStatus} | Multiplier={mtfValidation.ConfluenceMultiplier:F2}x");
             }
 
-            var (hAdx, hPdi, hMdi) = higherOhlc != null ? _handler._mathEngine.ComputeTrueAdx(_asset, _higherTf ?? "", higherOhlc) : (20.0, 0.0, 0.0);
-            double hAtr = higherOhlc != null ? _handler._mathEngine.ComputeAtr(_asset, _higherTf ?? "", higherOhlc) : 0;
-            var higherResult = _handler._marketAnalyzer.ScoreTimeframe(_asset, _higherTf ?? "", _higherResultData.Value.prices, _higherResultData.Value.volumes ?? Array.Empty<double>(), candles: higherOhlc, adxOverride: hAdx, atrOverride: hAtr, isForex: _isForex);
+            var (hAdx, hPdi, hMdi) = _higherOhlcCandles != null ? _handler._mathEngine.ComputeTrueAdx(_asset, _higherTf ?? "", _higherOhlcCandles) : (20.0, 0.0, 0.0);
+            double hAtr = _higherOhlcCandles != null ? _handler._mathEngine.ComputeAtr(_asset, _higherTf ?? "", _higherOhlcCandles) : 0;
+            var higherResult = _handler._marketAnalyzer.ScoreTimeframe(_asset, _higherTf ?? "", _higherResultData.Value.prices, _higherResultData.Value.volumes ?? Array.Empty<double>(), candles: _higherOhlcCandles, adxOverride: hAdx, atrOverride: hAtr, isForex: _isForex);
             
             _conflictPenalty *= GetMarketAnalysisQueryHandler.MfConflictPenalty(_mainResult, higherResult);
         }
     }
 
-    private async Task<object> BuildFinalConsensusAsync()
+    private async Task<object> BuildFinalConsensusAsync(long fetchMs, long mathMs, long mlMs, long matrixMs, System.Diagnostics.Stopwatch swPhase, System.Diagnostics.Stopwatch swTotal)
     {
         bool isSubMinute = _timeframe.ToLower().StartsWith("s");
         
@@ -318,6 +319,12 @@ public class MarketAnalysisContext
             _asset, _timeframe, isSubMinute, _conflictPenalty, 
             taSignal, smcSignal, ofSignal, mlSignal, stateSignal, mtfResult
         );
+
+        matrixMs = swPhase.ElapsedMilliseconds;
+        swTotal.Stop();
+        
+        string latencyLog = $"[Latency] Total: {swTotal.ElapsedMilliseconds}ms | Fetch: {fetchMs}ms | Math: {mathMs}ms | ML: {mlMs}ms | Matrix: {matrixMs}ms";
+        BotLogger.Info(latencyLog);
 
         string finalDirection = consensus.FinalDirection;
         int finalProbability = consensus.Probability;
@@ -394,7 +401,14 @@ public class MarketAnalysisContext
             kellyLabel = mcResult.KellyLabel,
             monteCarloSummary = mcResult.SummaryReasoning,
             wfIsCooloffActive = _wfResult.IsCooloffActive,
-            llmReport = _llmReport
+            llmReport = _llmReport,
+            latencies = new { 
+                total = swTotal.ElapsedMilliseconds, 
+                fetch = fetchMs, 
+                math = mathMs, 
+                ml = mlMs, 
+                matrix = matrixMs 
+            }
         };
     }
 }
