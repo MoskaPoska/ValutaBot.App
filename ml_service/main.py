@@ -227,6 +227,10 @@ def list_models():
         return [p.get_status() for p in _predictors.values()]
 
 
+# Cache to hold the latest live candles per symbol/interval for truthful SGD feedback
+_live_candles_cache = {}
+_cache_lock = threading.Lock()
+
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest):
     if len(req.candles) < 60:
@@ -245,8 +249,12 @@ def predict(req: PredictRequest):
         )
 
     interval = _normalize_interval(req.interval)
-    predictor = _get_predictor(req.symbol, interval)
+    
+    # Store truthful live candles for SGD feedback
+    with _cache_lock:
+        _live_candles_cache[(req.symbol, interval)] = req.candles
 
+    predictor = _get_predictor(req.symbol, interval)
 
     # Auto-train in background if model is stale or missing
     if predictor.needs_retrain():
@@ -348,12 +356,22 @@ def feedback(req: TrainFeedback):
         conn.close()
         
         # Tier 2 (Local Tactician): instant SGD update — no heavy retrain
-        predictor = _get_predictor(req.asset, _normalize_interval(req.timeframe))
-        recent_candles = _fetch_local_sqlite_main(req.asset, req.timeframe, 200)
+        norm_interval = _normalize_interval(req.timeframe)
+        predictor = _get_predictor(req.asset, norm_interval)
+        
+        with _cache_lock:
+            cached_live_candles = _live_candles_cache.get((req.asset, norm_interval))
+            
+        recent_candles = []
+        if cached_live_candles:
+            recent_candles = _candles_to_dicts(cached_live_candles)
+        else:
+            recent_candles = _fetch_local_sqlite_main(req.asset, req.timeframe, 200)
+
         if len(recent_candles) >= 60:
             ok = predictor.partial_fit_online(recent_candles, req.was_win, req.direction)
             if ok:
-                log.info(f"[SGD] Online update done for {req.asset} ({req.timeframe}) | win={req.was_win}")
+                log.info(f"[SGD] Online update done for {req.asset} ({req.timeframe}) | win={req.was_win} | truthful_data={bool(cached_live_candles)}")
             
         return {"status": "ok", "message": "Feedback saved. Local Tactician (SGD) updated instantly."}
 

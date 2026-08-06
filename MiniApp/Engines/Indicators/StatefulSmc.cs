@@ -39,6 +39,7 @@ public class StatefulSmc
     public string SweepDirection    { get { lock (_lockObj) { return _sweepDirection;    } } }
     public bool   HasBos            { get { lock (_lockObj) { return _hasBos;            } } }
     public string BosDirection      { get { lock (_lockObj) { return _bosDirection;      } } }
+    public string CurrentTrend      { get { lock (_lockObj) { return _currentTrend;      } } }
 
     public void Update(ReadOnlySpan<MiniAppController.OhlcCandle> candles, double currentPrice)
     {
@@ -46,17 +47,17 @@ public class StatefulSmc
 
         lock (_lockObj)
         {
-            // Reset transient single-tick events
-            _hasLiquiditySweep = false;
-            _sweepDirection    = "NONE";
-            _hasBos            = false;
-            _bosDirection      = "NONE";
-
             for (int i = 2; i < candles.Length - 1; i++)
             {
                 var c = candles[i];
                 if (c.Timestamp <= _lastProcessedTime && _lastProcessedTime != default)
                     continue;
+
+                // Reset transient single-tick events for the NEW closed candle
+                _hasLiquiditySweep = false;
+                _sweepDirection    = "NONE";
+                _hasBos            = false;
+                _bosDirection      = "NONE";
 
                 _recentAtr = GetAtrAt(candles, i, 14); // B13-FIX: Point-in-time ATR, no lookahead bias
 

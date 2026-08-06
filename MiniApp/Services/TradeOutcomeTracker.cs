@@ -81,14 +81,10 @@ public static class TradeOutcomeTracker
             bool wasCorrect = record.WasCorrect ?? false;
             double exitPriceVal = record.ExitPrice ?? record.EntryPrice;
 
-            double priceDiffAbs = Math.Abs(exitPriceVal - record.EntryPrice);
-            double priceDiffPct = priceDiffAbs / (record.EntryPrice + 1e-9);
-
-            if (priceDiffPct < 0.00005)
-            {
-                BotLogger.Info($"[TradeOutcomeTracker] Trade {record.Id} diff {priceDiffPct*10000:F2} bps is below noise threshold. Skipping ML RL update.");
-                return;
-            }
+            // РО (Pocket Option) Fix: The old secondary 'noise threshold' filter (0.00005 = 5 pips) was completely removed here.
+            // On Pocket Option, over 60% of 1-minute trades close within a 1-4 pip margin.
+            // By returning early, the ML RL loop was being starved of its most critical data.
+            // Since SignalTracker.cs already filters exact Refunds, every trade reaching this method is a guaranteed binary Win/Loss and must be processed.
 
             if (record.SourceDirections != null && record.SourceDirections.Count > 0)
             {
@@ -139,7 +135,8 @@ public static class TradeOutcomeTracker
                         record.EntryPrice,
                         exitPriceVal,
                         record.Direction,
-                        wasCorrect
+                        wasCorrect,
+                        AssetSanitizer.IsForexAsset(record.Asset)
                     );
                 }
                 catch (Exception mlEx)

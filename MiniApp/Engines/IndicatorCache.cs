@@ -51,10 +51,28 @@ internal sealed class IndicatorCache
             _orderFlowCache.TryRemove(k, out _);
     }
 
-    public static Indicators.StatefulOrderFlow GetOrderFlow(string asset, string timeframe)
+    // Maintain last tick for OrderFlow cache validation
+    private static readonly ConcurrentDictionary<string, long> _orderFlowLastTicks = new();
+
+    public static Indicators.StatefulOrderFlow GetOrderFlow(string asset, string timeframe, ReadOnlySpan<MiniAppController.OhlcCandle> candles)
     {
         if (_orderFlowCache.Count > 1000) PruneOrderFlowCache();
         string key = $"{asset}_{timeframe}";
+        
+        long lastTick = _orderFlowLastTicks.GetValueOrDefault(key, 0);
+        int unseen = CountUnseen(candles, lastTick);
+        
+        if (unseen > 50 || IsTimestampRewind(candles, lastTick))
+        {
+            // Reset the cache
+            _orderFlowCache[key] = new Indicators.StatefulOrderFlow();
+        }
+        
+        if (candles.Length > 0)
+        {
+            _orderFlowLastTicks[key] = candles[^1].Timestamp.Ticks;
+        }
+
         return _orderFlowCache.GetOrAdd(key, _ => new Indicators.StatefulOrderFlow());
     }
 

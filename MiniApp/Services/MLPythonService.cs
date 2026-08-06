@@ -184,15 +184,17 @@ if (!string.IsNullOrWhiteSpace(_baseUrl))
         double entryPrice,
         double exitPrice,
         string direction,
-        bool wasWin)
+        bool wasWin,
+        bool isForex = false)
     {
         if (string.IsNullOrWhiteSpace(_baseUrl)) return;
 
         try
         {
+            var binanceSymbol = MapSymbol(asset, isForex);
             var payload = new
             {
-                asset,
+                asset = binanceSymbol, // FIX: Pass the mapped symbol so Python updates the correct model
                 timeframe,
                 entry_price = entryPrice,
                 exit_price = exitPrice,

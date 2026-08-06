@@ -13,6 +13,9 @@ namespace ValutaBot.MiniApp;
 /// </summary>
 public class CandleSeriesBuffer
 {
+    private readonly double[] _opens;
+    private readonly double[] _highs;
+    private readonly double[] _lows;
     private readonly double[] _prices;
     private readonly double[] _volumes;
     private int _head = 0;
@@ -26,11 +29,14 @@ public class CandleSeriesBuffer
     public CandleSeriesBuffer(int capacity = 100)
     {
         _capacity = capacity;
+        _opens = new double[capacity];
+        _highs = new double[capacity];
+        _lows = new double[capacity];
         _prices = new double[capacity];
         _volumes = new double[capacity];
     }
 
-    public void Update(double price, double volume, long candleTime)
+    public void Update(double open, double high, double low, double close, double volume, long candleTime)
     {
         lock (_lock)
         {
@@ -38,13 +44,18 @@ public class CandleSeriesBuffer
             {
                 // Update latest tick (same candle)
                 int idx = (_head - 1 + _capacity) % _capacity;
-                _prices[idx] = price;
+                _highs[idx] = Math.Max(_highs[idx], high);
+                _lows[idx] = Math.Min(_lows[idx], low);
+                _prices[idx] = close;
                 _volumes[idx] = volume;
             }
             else
             {
                 // Push new candle
-                _prices[_head] = price;
+                _opens[_head] = open;
+                _highs[_head] = high;
+                _lows[_head] = low;
+                _prices[_head] = close;
                 _volumes[_head] = volume;
                 _head = (_head + 1) % _capacity;
                 if (_count < _capacity) _count++;
@@ -54,12 +65,15 @@ public class CandleSeriesBuffer
         }
     }
 
-    public (double[] prices, double[] volumes, int count) GetOrderedSnapshotRented()
+    public (double[] opens, double[] highs, double[] lows, double[] closes, double[] volumes, int count) GetOrderedSnapshotRented()
     {
         lock (_lock)
         {
-            if (_count == 0) return (Array.Empty<double>(), Array.Empty<double>(), 0);
+            if (_count == 0) return (Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>(), 0);
 
+            double[] outOpens = ArrayPool<double>.Shared.Rent(_count);
+            double[] outHighs = ArrayPool<double>.Shared.Rent(_count);
+            double[] outLows = ArrayPool<double>.Shared.Rent(_count);
             double[] outPrices = ArrayPool<double>.Shared.Rent(_count);
             double[] outVolumes = ArrayPool<double>.Shared.Rent(_count);
 
@@ -67,10 +81,13 @@ public class CandleSeriesBuffer
             for (int i = 0; i < _count; i++)
             {
                 int srcIdx = (startIdx + i) % _capacity;
+                outOpens[i] = _opens[srcIdx];
+                outHighs[i] = _highs[srcIdx];
+                outLows[i] = _lows[srcIdx];
                 outPrices[i] = _prices[srcIdx];
                 outVolumes[i] = _volumes[srcIdx];
             }
-            return (outPrices, outVolumes, _count);
+            return (outOpens, outHighs, outLows, outPrices, outVolumes, _count);
         }
     }
 }
@@ -94,19 +111,22 @@ public static class BinanceWebSocketStream
     private static CancellationTokenSource? _cts;
     private static bool _isRunning = false;
 
-    public static bool TryGetLiveCandles(string symbol, string interval, out double[] prices, out double[] volumes, out int count)
+    public static bool TryGetLiveCandles(string symbol, string interval, out double[] opens, out double[] highs, out double[] lows, out double[] prices, out double[] volumes, out int count)
     {
         string key = $"{symbol.ToUpper()}_{interval.ToLower()}";
         if (_liveCandles.TryGetValue(key, out var buffer))
         {
             if ((DateTime.UtcNow - buffer.UpdatedAt).TotalSeconds < 5)
             {
-                (prices, volumes, count) = buffer.GetOrderedSnapshotRented();
+                (opens, highs, lows, prices, volumes, count) = buffer.GetOrderedSnapshotRented();
                 return true;
             }
         }
 
-        prices = Array.Empty<double>();
+        opens = Array.Empty<double>();
+highs = Array.Empty<double>();
+lows = Array.Empty<double>();
+prices = Array.Empty<double>();
         volumes = Array.Empty<double>();
         count = 0;
         return false;
@@ -288,7 +308,10 @@ public static class BinanceWebSocketStream
             var reader = new System.Text.Json.Utf8JsonReader(jsonData);
             string? stream = null;
             string? symbol = null;
-            double closePrice = 0;
+            double openPrice = 0;
+double highPrice = 0;
+double lowPrice = 0;
+double closePrice = 0;
             double volume = 0;
             long startTime = 0;
             
@@ -306,7 +329,31 @@ public static class BinanceWebSocketStream
                         reader.Read();
                         symbol = reader.GetString();
                     }
-                    else if (reader.ValueTextEquals("c"u8))
+                    else if (reader.ValueTextEquals("o"u8))
+{
+    reader.Read();
+    if (reader.TokenType == System.Text.Json.JsonTokenType.String)
+        _ = System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out openPrice, out _);
+    else
+        openPrice = reader.GetDouble();
+}
+else if (reader.ValueTextEquals("h"u8))
+{
+    reader.Read();
+    if (reader.TokenType == System.Text.Json.JsonTokenType.String)
+        _ = System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out highPrice, out _);
+    else
+        highPrice = reader.GetDouble();
+}
+else if (reader.ValueTextEquals("l"u8))
+{
+    reader.Read();
+    if (reader.TokenType == System.Text.Json.JsonTokenType.String)
+        _ = System.Buffers.Text.Utf8Parser.TryParse(reader.ValueSpan, out lowPrice, out _);
+    else
+        lowPrice = reader.GetDouble();
+}
+else if (reader.ValueTextEquals("c"u8))
                     {
                         reader.Read();
                         if (reader.TokenType == System.Text.Json.JsonTokenType.String)
@@ -339,7 +386,7 @@ public static class BinanceWebSocketStream
                         string key = $"{ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol)}_{interval.ToLower()}";
 
                         var buffer = _liveCandles.GetOrAdd(key, CreateBuffer);
-                        buffer.Update(closePrice, volume, startTime);
+                        buffer.Update(openPrice, highPrice, lowPrice, closePrice, volume, startTime);
 var cleanSymbol = ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol);
 
                     }
@@ -354,6 +401,8 @@ var cleanSymbol = ValutaBot.MiniApp.AssetSanitizer.Sanitize(symbol);
 
     
 }
+
+
 
 
 

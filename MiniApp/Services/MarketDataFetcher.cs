@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Polly;
@@ -82,7 +82,7 @@ public class MarketDataFetcher
     public async Task<MiniAppController.OhlcCandle[]> FetchBinanceOhlcCandlesAsync(string symbol, string interval, int limit = 50)
     {
         // Try Websocket fast path first
-        if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count))
+        if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsOpens, out var wsHighs, out var wsLows, out var wsPrices, out var wsVolumes, out int count))
         {
             try
             {
@@ -92,14 +92,17 @@ public class MarketDataFetcher
                     int startIdx = count - limit;
                     for (int i = 0; i < limit; i++)
                     {
-                        resultFast[i] = new MiniAppController.OhlcCandle(wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsPrices[startIdx + i], wsVolumes[startIdx + i], DateTime.UtcNow.AddSeconds(i - limit));
+                        resultFast[i] = new MiniAppController.OhlcCandle(wsOpens[startIdx + i], wsHighs[startIdx + i], wsLows[startIdx + i], wsPrices[startIdx + i], wsVolumes[startIdx + i], DateTime.UtcNow.AddSeconds(i - limit));
                     }
                     return resultFast;
                 }
             }
             finally
             {
-                // FIX: always return rented arrays — even if count < limit (previously leaked)
+                // FIX: always return rented arrays вЂ” even if count < limit (previously leaked)
+                System.Buffers.ArrayPool<double>.Shared.Return(wsOpens);
+                System.Buffers.ArrayPool<double>.Shared.Return(wsHighs);
+                System.Buffers.ArrayPool<double>.Shared.Return(wsLows);
                 System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
                 System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
             }
@@ -155,7 +158,7 @@ public class MarketDataFetcher
             string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}";
             
             var httpFactory = MiniAppController.HttpFactory
-                ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory не инициализирован. Сервер ещё запускается, повторите запрос.");
+                ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ. РЎРµСЂРІРµСЂ РµС‰С‘ Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ, РїРѕРІС‚РѕСЂРёС‚Рµ Р·Р°РїСЂРѕСЃ.");
             var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<double[][]>(httpFactory.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
             
             if (arr == null || arr.Length == 0) return Array.Empty<MiniAppController.OhlcCandle>();
@@ -211,12 +214,12 @@ public class MarketDataFetcher
                 if (tdResult != null)
                     return (tdResult.Value.prices, tdResult.Value.volumes);
             }
-            throw new ExchangeUnavailableException($"Crypto not supported: {cleanForCheck}", "Р‘РѕС‚ СЂР°Р±РѕС‚Р°РµС‚ С‚РѕР»СЊРєРѕ СЃ С„РѕСЂРµРєСЃ-РїР°СЂР°РјРё.");
+            throw new ExchangeUnavailableException($"Crypto not supported: {cleanForCheck}", "Р вЂР С•РЎвЂљ РЎР‚Р В°Р В±Р С•РЎвЂљР В°Р ВµРЎвЂљ РЎвЂљР С•Р В»РЎРЉР С”Р С• РЎРѓ РЎвЂћР С•РЎР‚Р ВµР С”РЎРѓ-Р С—Р В°РЎР‚Р В°Р СР С‘.");
         }
 
         if (symbol != null)
         {
-            if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsPrices, out var wsVolumes, out int count))
+            if (BinanceWebSocketStream.TryGetLiveCandles(symbol, interval, out var wsOpens, out var wsHighs, out var wsLows, out var wsPrices, out var wsVolumes, out int count))
             {
                 try
                 {
@@ -234,7 +237,10 @@ public class MarketDataFetcher
                 }
                 finally
                 {
-                    System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
+                    System.Buffers.ArrayPool<double>.Shared.Return(wsOpens);
+                System.Buffers.ArrayPool<double>.Shared.Return(wsHighs);
+                System.Buffers.ArrayPool<double>.Shared.Return(wsLows);
+                System.Buffers.ArrayPool<double>.Shared.Return(wsPrices);
                     System.Buffers.ArrayPool<double>.Shared.Return(wsVolumes);
                 }
             }
@@ -275,7 +281,7 @@ public class MarketDataFetcher
                 }
             }
 
-            throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", "Р‘РёСЂР¶Р° РЅРµРґРѕСЃС‚СѓРїРЅР°.");
+            throw new ExchangeUnavailableException($"Fallback blocked for {originalAsset ?? symbol}", "Р вЂР С‘РЎР‚Р В¶Р В° Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р Р…Р В°.");
         }
     }
 
@@ -284,7 +290,7 @@ public class MarketDataFetcher
     {
         string url = $"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&endTime={endTimeMs}&limit=1";
         var httpFactory = MiniAppController.HttpFactory
-            ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory не инициализирован.");
+            ?? throw new InvalidOperationException("[MarketDataFetcher] HttpFactory РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ.");
         var arr = await System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync(httpFactory.CreateClient("Binance"), new Uri(url), ValutaBotJsonContext.Default.DoubleArrayArray);
         if (arr != null && arr.Length > 0 && arr[0].Length >= 5)
         {
@@ -293,6 +299,7 @@ public class MarketDataFetcher
         return null;
     }
 }
+
 
 
 

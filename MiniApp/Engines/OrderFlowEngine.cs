@@ -31,7 +31,7 @@ public static class OrderFlowEngine
             return new OrderFlowResult(0, 0, 1.0, 0, "BALANCED", 0, false, "INSUFFICIENT_DATA");
         }
 
-        var statefulOf = IndicatorCache.GetOrderFlow(asset, timeframe);
+        var statefulOf = IndicatorCache.GetOrderFlow(asset, timeframe, candles);
         statefulOf.Update(candles);
 
         double deltaRatio = statefulOf.DeltaRatio;

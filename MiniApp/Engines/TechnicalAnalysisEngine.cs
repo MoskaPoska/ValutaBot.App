@@ -51,10 +51,31 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         double score = 0;
         double confidence = 60.0;
 
-        score += (rsi - 50.0) / 40.0;
+        // Adaptive Regime-Switching Weights (Level 3 Fix)
+        double hmaWeight = 0.15;
 
-        if (lastPrice > hma) score += 0.15;
-        else if (lastPrice < hma) score -= 0.15;
+        if (adxVal < 20.0)
+        {
+            // Ranging Market: Boost Mean-Reversion (INVERTED RSI)
+            hmaWeight = 0.0;
+            // RSI > 50 generates a negative score (SELL/PUT) because we are hitting the ceiling
+            score -= ((rsi - 50.0) / 40.0) * 2.0;
+        }
+        else if (adxVal > 25.0)
+        {
+            // Trending Market: Boost Trend-Following
+            hmaWeight = 0.30;
+            // RSI > 50 generates a positive score (BUY/CALL) indicating momentum
+            score += ((rsi - 50.0) / 40.0) * 0.5;
+        }
+        else 
+        {
+            // Neutral zone
+            score += ((rsi - 50.0) / 40.0) * 1.0;
+        }
+
+        if (lastPrice > hma) score += hmaWeight;
+        else if (lastPrice < hma) score -= hmaWeight;
 
         if (adxVal > 25.0)
         {

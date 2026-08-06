@@ -81,6 +81,9 @@ public class StatefulOrderFlow
                     _shortTermSellVolume = 0;
                 }
 
+                // FIX: Reset permanent block trade flag before processing the new closed candle
+                _hasInstitutionalBlockTrade = false;
+
                 ProcessCandle(c, isPermanent: true);
                 _lastProcessedTime = c.Timestamp;
             }

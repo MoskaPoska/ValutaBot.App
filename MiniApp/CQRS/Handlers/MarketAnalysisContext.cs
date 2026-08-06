@@ -183,8 +183,20 @@ public class MarketAnalysisContext
                 if (prediction != null && prediction.Direction != "NEUTRAL")
                 {
                     _lgbmDirection = prediction.Direction;
-                    _lgbmConfidence = (float)(prediction.Confidence * _wfResult.WeightMultiplier); // FIX: apply WF suppression multiplier
+                    _lgbmConfidence = (float)(prediction.Confidence * _wfResult.WeightMultiplier);
                     _lgbmConfidence = Math.Clamp(_lgbmConfidence, 0f, 1f);
+
+                    // META-LABELING: If ML confidence is weak (or heavily penalized by WalkForward), neutralize it entirely.
+                    if (_lgbmConfidence < 0.55f)
+                    {
+                        BotLogger.Info($"[ML Override] WalkForward suppressed ML confidence to {_lgbmConfidence:F2}. Reverting to pure Math.");
+                        _lgbmDirection = "NEUTRAL";
+                    }
+                    else
+                    {
+                        BotLogger.Info($"[ML Override] ML confident ({_lgbmConfidence:F2}). Taking full control of the directional vector.");
+                    }
+
                     _lgbmModelVersion = prediction.ModelVersion;
                     _lgbmAccuracy = prediction.Accuracy;
 

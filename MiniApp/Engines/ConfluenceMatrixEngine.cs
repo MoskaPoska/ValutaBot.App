@@ -190,9 +190,9 @@ public class ConfluenceMatrixEngine(
 
         // 1. Technical Analysis (Base)
         double taWeight  = await SignalTracker.GetSignalWeightAsync("INDICATORS", 1.0);
-        totalScore      += (taSignal.Score + ofSignal.ScoreContribution) * taWeight * conflictPenalty;
-        totalConfidence += taSignal.Confidence * taWeight * conflictPenalty;
-        totalWeight     += taWeight * conflictPenalty;
+        totalScore      += (taSignal.Score + ofSignal.ScoreContribution) * taWeight;
+        totalConfidence += taSignal.Confidence * taWeight;
+        totalWeight     += taWeight;
 
         // 2. Velocity / Continuous State
         double stateWeight  = await SignalTracker.GetSignalWeightAsync("VelocityState", 1.5);
@@ -200,21 +200,44 @@ public class ConfluenceMatrixEngine(
         totalConfidence    += 60.0 * stateWeight;
         totalWeight        += stateWeight;
 
-        // 3. Smart Money Concepts (SMC)
-        int smcScore = 0;
-        if (smcSignal.SweepDirection == "BULLISH_SWEEP") smcScore += 2;
-        else if (smcSignal.SweepDirection == "BEARISH_SWEEP") smcScore -= 2;
-        if (smcSignal.BosDirection == "BULLISH_BOS") smcScore += 2;
-        else if (smcSignal.BosDirection == "BEARISH_BOS") smcScore -= 2;
-        if (smcSignal.OrderBlockType == "BULLISH_OB") smcScore += 1;
-        else if (smcSignal.OrderBlockType == "BEARISH_OB") smcScore -= 1;
-        if (smcSignal.FvgType == "BULLISH_FVG") smcScore += 1;
-        else if (smcSignal.FvgType == "BEARISH_FVG") smcScore -= 1;
+        // 3. Smart Money Concepts (SMC) - Adaptive Regime Switching (Level 3 Fix)
+        double smcTrendScore = 0.0;
+        double smcReversionScore = 0.0;
 
-        if (smcScore != 0)
+        // Reversion / Range boundaries
+        if (smcSignal.SweepDirection == "BULLISH_SWEEP") smcReversionScore += 2.0;
+        else if (smcSignal.SweepDirection == "BEARISH_SWEEP") smcReversionScore -= 2.0;
+
+        // Trend / Breakouts
+        if (smcSignal.BosDirection == "BULLISH_BOS") smcTrendScore += 2.0;
+        else if (smcSignal.BosDirection == "BEARISH_BOS") smcTrendScore -= 2.0;
+        if (smcSignal.OrderBlockType == "BULLISH_OB") smcTrendScore += 1.0;
+        else if (smcSignal.OrderBlockType == "BEARISH_OB") smcTrendScore -= 1.0;
+        if (smcSignal.FvgType == "BULLISH_FVG") smcTrendScore += 1.0;
+        else if (smcSignal.FvgType == "BEARISH_FVG") smcTrendScore -= 1.0;
+
+        double trendWeight = 1.0;
+        double reversionWeight = 1.0;
+
+        if (taSignal.Adx < 20.0)
+        {
+            // Choppy / Flat Market: Nerf BOS, Boost Sweeps
+            trendWeight = 0.0;
+            reversionWeight = 2.0;
+        }
+        else if (taSignal.Adx > 25.0)
+        {
+            // Trending Market: Boost BOS, Nerf Sweeps
+            trendWeight = 1.5;
+            reversionWeight = 0.5;
+        }
+
+        double finalSmcScore = (smcTrendScore * trendWeight) + (smcReversionScore * reversionWeight);
+
+        if (Math.Abs(finalSmcScore) > 0.1)
         {
             double smcWeight  = await SignalTracker.GetSignalWeightAsync("SMC", 1.0);
-            totalScore       += ((double)smcScore / 6.0) * smcWeight;
+            totalScore       += (finalSmcScore / 6.0) * smcWeight;
             totalConfidence  += 60.0 * smcWeight;
             totalWeight      += smcWeight;
         }
@@ -226,33 +249,38 @@ public class ConfluenceMatrixEngine(
             totalConfidence /= totalWeight;
         }
 
-        // 4. ML / Mathematical Consensus Matrix Layer
-        var    regime       = autoCalib.DetectMarketRegime(taSignal.Adx, taSignal.Volatility, taSignal.Rsi);
-        double weightLgbm   = autoCalib.GetCalibratedRegimeWeight("LIGHTGBM",    asset, timeframe, regime);
-        double weightMath   = autoCalib.GetCalibratedRegimeWeight("SKENDER_MATH", asset, timeframe, regime);
+        // Apply conflict penalty globally to the normalized score
+        totalScore *= conflictPenalty;
 
-        double normLgbm  = Math.Max(0, (mlSignal.Confidence - 0.5) * 2.0);
-        double scoreLgbm = mlSignal.Direction == "BUY"  ?  normLgbm
-                         : mlSignal.Direction == "PUT"  ? -normLgbm : 0;
+        // 4. ML / Mathematical Consensus Matrix Layer (META-LABELING OVERRIDE)
+        double scoreMath = Math.Clamp(totalScore, -2.5, 2.5) / 2.5; // Normalized to [-1.0, 1.0]
+        string candidateDir = "NEUTRAL";
+        double finalConfidenceScore = 0.0;
 
-        double scoreMath = Math.Clamp(totalScore, -2.5, 2.5) / 2.5;
+        bool isMlConfident = (mlSignal.Direction == "BUY" || mlSignal.Direction == "PUT");
 
-        double activeWeightLgbm = (mlSignal.Direction == "BUY" || mlSignal.Direction == "PUT")
-                                  ? weightLgbm : 0;
-        double activeWeightMath = weightMath;
-
-        double totalWeightSum = activeWeightLgbm + activeWeightMath;
-        if (totalWeightSum < 1e-9) totalWeightSum = 1.0;
-
-        double weightedScore = (scoreLgbm * activeWeightLgbm + scoreMath * activeWeightMath)
-                               / totalWeightSum;
+        if (isMlConfident)
+        {
+            // ML is highly confident and overrides Math entirely
+            candidateDir = mlSignal.Direction;
+            double normLgbm = Math.Max(0, (mlSignal.Confidence - 0.5) * 2.0);
+            finalConfidenceScore = candidateDir == "BUY" ? normLgbm : -normLgbm;
+        }
+        else
+        {
+            // ML is weak or penalized, Math operates autonomously 100%
+            candidateDir = scoreMath > 0.0001 ? "BUY" : scoreMath < -0.0001 ? "PUT" : "NEUTRAL";
+            
+            // Elimination of NEUTRAL for Pocket Option (Always output a vector)
+            if (candidateDir == "NEUTRAL")
+            {
+                candidateDir = totalScore >= 0 ? "BUY" : "PUT";
+            }
+            finalConfidenceScore = scoreMath;
+        }
 
         // 5. Final Decision
-        string candidateDir = weightedScore > 0.0001 ? "BUY"
-                            : weightedScore < -0.0001 ? "PUT"
-                            : (totalScore > 0.02 ? "BUY" : totalScore < -0.02 ? "PUT" : "NEUTRAL");
-
-        double absWeightedScore = Math.Abs(weightedScore);
+        double absWeightedScore = Math.Abs(finalConfidenceScore);
         int probability = isSubMinute
             ? Math.Clamp(50 + (int)Math.Round(absWeightedScore * 40), 50, 91)
             : Math.Clamp(50 + (int)Math.Round(absWeightedScore * 45), 50, 95);
