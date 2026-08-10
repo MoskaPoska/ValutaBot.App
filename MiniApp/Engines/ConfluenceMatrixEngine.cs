@@ -17,7 +17,8 @@ public record ConfluenceMatrixResult(
 
 public class ConfluenceMatrixEngine(
     MarketDataFetcher fetcher,
-    IMarketAnalyzer marketAnalyzer) : IConfluenceMatrixEngine
+    IMarketAnalyzer marketAnalyzer,
+    Microsoft.Extensions.Options.IOptions<TradingBotSettings>? options = null) : IConfluenceMatrixEngine
 {
     // ── 4D Matrix ─────────────────────────────────────────────────────────────
 
@@ -259,16 +260,12 @@ public class ConfluenceMatrixEngine(
             double normLgbm = Math.Max(0, (mlSignal.Confidence - 0.5) * 2.0);
             double mlScore = mlSignal.Direction == "BUY" ? normLgbm : -normLgbm;
             
-            finalConfidenceScore = (mlScore * 0.6) + (scoreMath * 0.4);
+            double mlWeight = options?.Value.MlWeight ?? 0.6;
+            double mathWeight = options?.Value.MathWeight ?? 0.4;
+            finalConfidenceScore = (mlScore * mlWeight) + (scoreMath * mathWeight);
         }
         
         candidateDir = finalConfidenceScore > 0.0001 ? "BUY" : finalConfidenceScore < -0.0001 ? "PUT" : "NEUTRAL";
-        
-        // Elimination of NEUTRAL for Pocket Option (Always output a vector)
-        if (candidateDir == "NEUTRAL")
-        {
-            candidateDir = finalConfidenceScore >= 0 ? "BUY" : "PUT";
-        }
 
         // 5. Final Decision
         double absWeightedScore = Math.Abs(finalConfidenceScore);

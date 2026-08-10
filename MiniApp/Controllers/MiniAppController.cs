@@ -47,6 +47,10 @@ public static partial class MiniAppController
         Console.WriteLine("=====================================================");
 
         var builder = WebApplication.CreateBuilder(args);
+        
+        var botSettings = builder.Configuration.GetSection("TradingBotSettings").Get<TradingBotSettings>() ?? new TradingBotSettings();
+        builder.Services.Configure<TradingBotSettings>(builder.Configuration.GetSection("TradingBotSettings"));
+
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("AllowMiniApp", p => p
@@ -65,10 +69,27 @@ public static partial class MiniAppController
                 .WithHeaders("X-Telegram-Init-Data", "Content-Type", "Accept"));
         });
         builder.Services.AddHostedService<TelegramBotService>();
-        builder.Services.AddHttpClient("Binance").AddStandardResilienceHandler();
-        builder.Services.AddHttpClient("TwelveData").AddStandardResilienceHandler();
+        builder.Services.AddHttpClient("Binance").AddStandardResilienceHandler(options =>
+        {
+            options.Retry.MaxRetryAttempts = botSettings.MaxHttpRetries;
+            options.Retry.Delay = TimeSpan.FromMilliseconds(botSettings.HttpRetryDelayMs);
+            options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(3);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(5);
+        });
+        builder.Services.AddHttpClient("TwelveData").AddStandardResilienceHandler(options =>
+        {
+            options.Retry.MaxRetryAttempts = botSettings.MaxHttpRetries;
+            options.Retry.Delay = TimeSpan.FromMilliseconds(botSettings.HttpRetryDelayMs);
+            options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(3);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(5);
+        });
         builder.Services.AddHttpClient("FNG").AddStandardResilienceHandler();
-        builder.Services.AddHttpClient("MLPythonService").AddStandardResilienceHandler();
+        builder.Services.AddHttpClient("MLPythonService").AddStandardResilienceHandler(options =>
+        {
+            options.Retry.MaxRetryAttempts = 0;
+            options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(botSettings.FastFailTimeoutSeconds);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(botSettings.FastFailTimeoutSeconds);
+        });
         builder.Services.AddHttpClient("Telegram", client => 
         {
             client.Timeout = TimeSpan.FromSeconds(60); // Must be longer than getUpdates timeout=30
@@ -121,8 +142,10 @@ public static partial class MiniAppController
         TradeOutcomeTracker.CalibrationEngine = _sharedAutoCalib;
         TradeOutcomeTracker.WfEngine = _sharedWfEngine;
 
+        builder.Environment.WebRootPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "MiniApp", "wwwroot");
         var app = builder.Build();
         HttpFactory = app.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>();
+        app.UseStaticFiles();
         app.UseCors("AllowMiniApp");
         
         // SECURITY: Global HTTP Security Headers (prevent MIME-sniffing, XSS, etc.)
@@ -158,7 +181,7 @@ public static partial class MiniAppController
                 await context.Response.WriteAsync(bypassScript);
                 return;
             }
-            await context.Response.WriteAsync(MiniAppUI.GetHtml());
+            await context.Response.SendFileAsync(System.IO.Path.Combine(app.Environment.WebRootPath, "index.html"));
         });
 
 
@@ -183,7 +206,7 @@ public static partial class MiniAppController
                 var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(
                     _sharedTaEngine, _sharedTaEngine, _sharedTaEngine,
                     _sharedFetcher, _sharedWfEngine,
-                    new ConfluenceMatrixEngine(_sharedFetcher, _sharedTaEngine),
+                    new ConfluenceMatrixEngine(_sharedFetcher, _sharedTaEngine, Microsoft.Extensions.Options.Options.Create(botSettings)),
                     _sharedTimeoutEngine, _sharedMcEngine);
                 var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization

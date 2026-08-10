@@ -1,4 +1,4 @@
-namespace ValutaBot.MiniApp;
+﻿namespace ValutaBot.MiniApp;
 
 public static partial class MiniAppUI
 {
@@ -23,13 +23,13 @@ public static partial class MiniAppUI
             return '';
         }
 
-        let currentAsset = 'EUR/USD';
+        let currentAsset = 'EUR/USD OTC';
         let currentTf = 'm1';
         let syncStatusInterval = null;
 
         const assetsData = {
             fiat: {
-                otc: ['EUR/USD']
+                otc: ['EUR/USD OTC']
             },
             commodities: {
                 otc: []
@@ -53,11 +53,11 @@ public static partial class MiniAppUI
 
         function renderAssets(arr) {
             const top = getTopAssets();
-            const majors = ['EUR/USD'];
+            const majors = ['EUR/USD OTC'];
             return arr.map(function(a) {
-                var star = top.indexOf(a) !== -1 ? '<span class=""top-star"">★</span>' : '';
+                var star = top.indexOf(a) !== -1 ? '<span class="top-star">в…</span>' : '';
                 var cls = majors.indexOf(a) !== -1 ? 'asset-item major' : 'asset-item';
-                return '<div class=""' + cls + '"" data-asset=""' + a + '"">' + a + star + '</div>';
+                return '<div class="' + cls + '" data-asset="' + a + '">' + a + star + '</div>';
             }).join('');
         }
 
@@ -101,7 +101,7 @@ public static partial class MiniAppUI
             if (livePriceContainer) livePriceContainer.style.display = 'flex';
             const valEl = document.getElementById('livePriceValue');
             if (valEl) {
-                valEl.innerText = 'ЗАГРУЗКА...';
+                valEl.innerText = 'Р—РђР“Р РЈР—РљРђ...';
                 valEl.className = 'live-price-value';
             }
 
@@ -270,11 +270,11 @@ public static partial class MiniAppUI
             var p = new URLSearchParams(window.location.search);
             var a = p.get('asset'), t = p.get('tf');
             if (a) {
-                var el = document.querySelector('.asset-item[data-asset=""' + a.toUpperCase() + '""]');
+                var el = document.querySelector('.asset-item[data-asset="' + a.toUpperCase() + '"]');
                 if (el) { setAsset(el); el.scrollIntoView && el.scrollIntoView({ block: 'nearest' }); }
             }
             if (t) {
-                var el = document.querySelector('.tf-btn[data-tf=""' + t.toUpperCase() + '""]');
+                var el = document.querySelector('.tf-btn[data-tf="' + t.toUpperCase() + '"]');
                 if (el) setTf(el);
             }
         })();
@@ -405,8 +405,8 @@ public static partial class MiniAppUI
             }
         }
 
-        /* ─── Status bar animation (non-blocking) ─── */
-        const sbStatuses = ['ЗАГРУЗКА ДАННЫХ', 'ПОЛУЧЕНИЕ ЦЕНЫ', 'АНАЛИЗ РЫНКА'];
+        /* в”Ђв”Ђв”Ђ Status bar animation (non-blocking) в”Ђв”Ђв”Ђ */
+        const sbStatuses = ['Р—РђР“Р РЈР—РљРђ Р”РђРќРќР«РҐ', 'РџРћР›РЈР§Р•РќРР• Р¦Р•РќР«', 'РђРќРђР›РР— Р Р«РќРљРђ'];
         let sbTimer = null, sbIdx = 0;
 
         function startStatusBar() {
@@ -415,7 +415,7 @@ public static partial class MiniAppUI
             sb.classList.add('show');
             const title = document.getElementById('sbTitle');
             const sub = document.getElementById('sbSub');
-            if (title) title.innerHTML = 'АНАЛИЗИРУЮ РЫНОК<span class=\'blink\'>.</span>';
+            if (title) title.innerHTML = 'РђРќРђР›РР—РР РЈР® Р Р«РќРћРљ<span class=\'blink\'>.</span>';
             if (sub) { sub.textContent = sbStatuses[0]; sub.className = 'sb-sub'; }
             sbIdx = 0;
 
@@ -425,7 +425,7 @@ public static partial class MiniAppUI
                 if (title) {
                     const m = title.textContent.match(/\.+$/);
                     const dots = m ? m[0].length : 0;
-                    title.innerHTML = 'АНАЛИЗИРУЮ РЫНОК<span class=\'blink\'>' + '.'.repeat((dots % 3) + 1) + '</span>';
+                    title.innerHTML = 'РђРќРђР›РР—РР РЈР® Р Р«РќРћРљ<span class=\'blink\'>' + '.'.repeat((dots % 3) + 1) + '</span>';
                 }
                 sbIdx = (sbIdx + 1) % sbStatuses.length;
                 const sub = document.getElementById('sbSub');
@@ -458,53 +458,53 @@ public static partial class MiniAppUI
             const errDisp = document.getElementById('errorDisplay');
             if (!errDisp) return;
 
-            let title = '⚠️ Ошибка';
-            let desc = 'Произошла непредвиденная ошибка при обработке запроса.';
+            let title = 'вљ пёЏ РћС€РёР±РєР°';
+            let desc = 'РџСЂРѕРёР·РѕС€Р»Р° РЅРµРїСЂРµРґРІРёРґРµРЅРЅР°СЏ РѕС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ Р·Р°РїСЂРѕСЃР°.';
 
             if (rawError) {
                 const errLower = rawError.toLowerCase();
                 
                 if (errLower.includes('run out of api credits') || errLower.includes('api credits') || (errLower.includes('limit') && errLower.includes('twelvedata'))) {
-                    title = '⚠️ Лимит TwelveData исчерпан';
-                    desc = 'Превышен суточный лимит запросов к API TwelveData (800 шт). Пожалуйста, подождите обновления лимита (следующий день).';
+                    title = 'вљ пёЏ Р›РёРјРёС‚ TwelveData РёСЃС‡РµСЂРїР°РЅ';
+                    desc = 'РџСЂРµРІС‹С€РµРЅ СЃСѓС‚РѕС‡РЅС‹Р№ Р»РёРјРёС‚ Р·Р°РїСЂРѕСЃРѕРІ Рє API TwelveData (800 С€С‚). РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ Р»РёРјРёС‚Р° (СЃР»РµРґСѓСЋС‰РёР№ РґРµРЅСЊ).';
                 } else if (errLower.includes('too many requests') || errLower.includes('rate limit') || errLower.includes('429')) {
-                    title = '⚠️ Превышен лимит запросов';
+                    title = 'вљ пёЏ РџСЂРµРІС‹С€РµРЅ Р»РёРјРёС‚ Р·Р°РїСЂРѕСЃРѕРІ';
                     const match = rawError.match(/(\d+)s/);
-                    const sec = match ? ` на ${match[1]} сек.` : '';
-                    desc = `Слишком много запросов. Пожалуйста, подождите${sec} перед следующим сканированием.`;
+                    const sec = match ? ` РЅР° ${match[1]} СЃРµРє.` : '';
+                    desc = `РЎР»РёС€РєРѕРј РјРЅРѕРіРѕ Р·Р°РїСЂРѕСЃРѕРІ. РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ${sec} РїРµСЂРµРґ СЃР»РµРґСѓСЋС‰РёРј СЃРєР°РЅРёСЂРѕРІР°РЅРёРµРј.`;
                 } else if (errLower.includes('access denied') || errLower.includes('deposit required')) {
-                    title = '⚠️ Доступ ограничен';
-                    desc = 'Для использования бота необходима регистрация на Pocket Option и внесение депозита.';
+                    title = 'вљ пёЏ Р”РѕСЃС‚СѓРї РѕРіСЂР°РЅРёС‡РµРЅ';
+                    desc = 'Р”Р»СЏ РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ Р±РѕС‚Р° РЅРµРѕР±С…РѕРґРёРјР° СЂРµРіРёСЃС‚СЂР°С†РёСЏ РЅР° Pocket Option Рё РІРЅРµСЃРµРЅРёРµ РґРµРїРѕР·РёС‚Р°.';
                 } else if (errLower.includes('signature') || errLower.includes('initdata') || errLower.includes('unauthorized') || errLower.includes('401')) {
-                    title = '⚠️ Ошибка авторизации';
-                    desc = 'Пожалуйста, перезапустите бота через Telegram, чтобы обновить сессию.';
+                    title = 'вљ пёЏ РћС€РёР±РєР° Р°РІС‚РѕСЂРёР·Р°С†РёРё';
+                    desc = 'РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРµСЂРµР·Р°РїСѓСЃС‚РёС‚Рµ Р±РѕС‚Р° С‡РµСЂРµР· Telegram, С‡С‚РѕР±С‹ РѕР±РЅРѕРІРёС‚СЊ СЃРµСЃСЃРёСЋ.';
                 } else if (errLower.includes('asset and timeframe')) {
-                    title = '⚠️ Неверные параметры';
-                    desc = 'Необходимо выбрать валютную пару и таймфрейм.';
+                    title = 'вљ пёЏ РќРµРІРµСЂРЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹';
+                    desc = 'РќРµРѕР±С…РѕРґРёРјРѕ РІС‹Р±СЂР°С‚СЊ РІР°Р»СЋС‚РЅСѓСЋ РїР°СЂСѓ Рё С‚Р°Р№РјС„СЂРµР№Рј.';
                 } else if (errLower.includes('pocketid')) {
-                    title = '⚠️ Ошибка профиля';
-                    desc = 'Не указан Pocket Option ID.';
+                    title = 'вљ пёЏ РћС€РёР±РєР° РїСЂРѕС„РёР»СЏ';
+                    desc = 'РќРµ СѓРєР°Р·Р°РЅ Pocket Option ID.';
                 } else if (errLower.includes('api key') || errLower.includes('apikey')) {
-                    title = '⚠️ Сбой конфигурации';
-                    desc = 'На сервере не настроен API-ключ TwelveData.';
+                    title = 'вљ пёЏ РЎР±РѕР№ РєРѕРЅС„РёРіСѓСЂР°С†РёРё';
+                    desc = 'РќР° СЃРµСЂРІРµСЂРµ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ API-РєР»СЋС‡ TwelveData.';
                 } else if (errLower.includes('plan') || errLower.includes('subscription') || errLower.includes('tier')) {
-                    title = '⚠️ Ограничение тарифа';
-                    desc = 'Ваш тариф TwelveData не поддерживает этот актив или таймфрейм. Попробуйте выбрать другой инструмент.';
+                    title = 'вљ пёЏ РћРіСЂР°РЅРёС‡РµРЅРёРµ С‚Р°СЂРёС„Р°';
+                    desc = 'Р’Р°С€ С‚Р°СЂРёС„ TwelveData РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ СЌС‚РѕС‚ Р°РєС‚РёРІ РёР»Рё С‚Р°Р№РјС„СЂРµР№Рј. РџРѕРїСЂРѕР±СѓР№С‚Рµ РІС‹Р±СЂР°С‚СЊ РґСЂСѓРіРѕР№ РёРЅСЃС‚СЂСѓРјРµРЅС‚.';
                 } else if (errLower.includes('fetch') || errLower.includes('network') || errLower.includes('failed') || errLower.includes('connect')) {
-                    title = '⚠️ Ошибка соединения';
-                    desc = 'Не удалось подключиться к серверу. Пожалуйста, проверьте интернет-соединение.';
+                    title = 'вљ пёЏ РћС€РёР±РєР° СЃРѕРµРґРёРЅРµРЅРёСЏ';
+                    desc = 'РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРєР»СЋС‡РёС‚СЊСЃСЏ Рє СЃРµСЂРІРµСЂСѓ. РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїСЂРѕРІРµСЂСЊС‚Рµ РёРЅС‚РµСЂРЅРµС‚-СЃРѕРµРґРёРЅРµРЅРёРµ.';
                 } else {
-                    title = '⚠️ Сбой операции';
+                    title = 'вљ пёЏ РЎР±РѕР№ РѕРїРµСЂР°С†РёРё';
                     desc = rawError;
-                    desc = desc.replace(/failed/gi, 'ошибка');
-                    desc = desc.replace(/error/gi, 'сбой');
-                    desc = desc.replace(/internal server error/gi, 'Внутренняя ошибка сервера');
+                    desc = desc.replace(/failed/gi, 'РѕС€РёР±РєР°');
+                    desc = desc.replace(/error/gi, 'СЃР±РѕР№');
+                    desc = desc.replace(/internal server error/gi, 'Р’РЅСѓС‚СЂРµРЅРЅСЏСЏ РѕС€РёР±РєР° СЃРµСЂРІРµСЂР°');
                 }
             }
 
             function escapeHtml(str) {
                 if (!str) return '';
-                return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/""/g, '&quot;').replace(/'/g, '&#039;');
+                return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
             }
 
             const safeTitle = escapeHtml(title);
@@ -512,10 +512,10 @@ public static partial class MiniAppUI
             const safeDebug = escapeHtml(debugText);
 
             errDisp.innerHTML = `
-                <div class=""error-header"">${safeTitle}</div>
-                <div class=""error-desc"">${safeDesc}</div>
-                <div class=""error-debug-toggle"" onclick=""toggleErrorDebug(this)"">▸ Детали отладки</div>
-                <div class=""error-debug-content"" id=""errorDebugContent"" style=""display: none;"">${safeDebug}</div>
+                <div class="error-header">${safeTitle}</div>
+                <div class="error-desc">${safeDesc}</div>
+                <div class="error-debug-toggle" onclick="toggleErrorDebug(this)">в–ё Р”РµС‚Р°Р»Рё РѕС‚Р»Р°РґРєРё</div>
+                <div class="error-debug-content" id="errorDebugContent" style="display: none;">${safeDebug}</div>
             `;
             errDisp.style.display = 'block';
         }
@@ -525,7 +525,7 @@ public static partial class MiniAppUI
             if (!content) return;
             const isHidden = content.style.display === 'none';
             content.style.display = isHidden ? 'block' : 'none';
-            btn.innerText = isHidden ? '▾ Скрыть детали' : '▸ Детали отладки';
+            btn.innerText = isHidden ? 'в–ѕ РЎРєСЂС‹С‚СЊ РґРµС‚Р°Р»Рё' : 'в–ё Р”РµС‚Р°Р»Рё РѕС‚Р»Р°РґРєРё';
         }
 
         async function executeAnalysis() {
@@ -546,7 +546,7 @@ public static partial class MiniAppUI
                     }
                     if (btn) {
                         btn.disabled = true;
-                        btn.innerText = 'СКАНИРОВАНИЕ...';
+                        btn.innerText = 'РЎРљРђРќРР РћР’РђРќРР•...';
                     }
                 });
 
@@ -567,11 +567,11 @@ public static partial class MiniAppUI
                     if (sphere) sphere.classList.remove('analyzing');
                     if (btn) {
                         btn.disabled = false;
-                        btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
+                        btn.innerText = 'РџРћР›РЈР§РРўР¬ РђРќРђР›РР—';
                     }
 
                     if(data.error) {
-                        const debugMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
+                        const debugMsg = `вЂў Р”Р»РёРЅР° С‚РѕРєРµРЅР°: ${tg && tg.initData ? tg.initData.length : 0}\nвЂў РџР»Р°С‚С„РѕСЂРјР°: ${tg ? tg.platform : 'unknown'}\nвЂў РђРґСЂРµСЃ: ${window.location.href}`;
                         renderError(data.error, debugMsg);
                         return;
                     }
@@ -581,15 +581,15 @@ public static partial class MiniAppUI
                     const isUnclear = data.unclear === true;
                     const resDir = document.getElementById('resDir');
                     if (data.direction === 'BUY') {
-                        resDir.innerText = 'ВВЕРХ';
+                        resDir.innerText = 'Р’Р’Р•Р РҐ';
                         resDir.style.color = '#00e676';
                         sphere.classList.add('buy-signal');
                     } else if (data.direction === 'PUT') {
-                        resDir.innerText = 'ВНИЗ';
+                        resDir.innerText = 'Р’РќРР—';
                         resDir.style.color = '#ff1744';
                         sphere.classList.add('put-signal');
                     } else {
-                        resDir.innerText = 'НЕЙТРАЛЬНО';
+                        resDir.innerText = 'РќР•Р™РўР РђР›Р¬РќРћ';
                         resDir.style.color = 'var(--dim)';
                         sphere.classList.add('neutral-signal');
                     }
@@ -615,22 +615,22 @@ public static partial class MiniAppUI
                         if (volEl) {
                             const vs = data.volumeStrength;
                             if (Math.abs(vs) > 0.1) {
-                                volEl.innerText = vs > 0 ? '↑ ' + vs.toFixed(1) + 'x' : '↓ ' + Math.abs(vs).toFixed(1) + 'x';
+                                volEl.innerText = vs > 0 ? 'в†‘ ' + vs.toFixed(1) + 'x' : 'в†“ ' + Math.abs(vs).toFixed(1) + 'x';
                                 volEl.style.color = vs > 0.5 ? '#00e676' : vs < -0.5 ? '#ff1744' : 'var(--subtext)';
                             } else {
-                                volEl.innerText = 'Баланс';
+                                volEl.innerText = 'Р‘Р°Р»Р°РЅСЃ';
                                 volEl.style.color = 'var(--subtext)';
                             }
                         }
                     }
                     if (data.tfConflict) {
                         const rp = document.getElementById('resProb');
-                        if (rp) rp.innerText += ' ⚠️';
+                        if (rp) rp.innerText += ' вљ пёЏ';
                     }
 
-                    // ── ML Ensemble Card ──
-                    if (data.llmReport && data.llmReport !== 'LLM-сводка загружается...') {
-                        if (data.llmReport.includes('Оффлайн или низкая уверенность')) {
+                    // в”Ђв”Ђ ML Ensemble Card в”Ђв”Ђ
+                    if (data.llmReport && data.llmReport !== 'LLM-СЃРІРѕРґРєР° Р·Р°РіСЂСѓР¶Р°РµС‚СЃСЏ...') {
+                        if (data.llmReport.includes('РћС„С„Р»Р°Р№РЅ РёР»Рё РЅРёР·РєР°СЏ СѓРІРµСЂРµРЅРЅРѕСЃС‚СЊ')) {
                             const mlCard = document.getElementById('mlEnsembleCard');
                             if (mlCard) mlCard.style.display = 'none';
                         } else {
@@ -639,12 +639,12 @@ public static partial class MiniAppUI
                             const badge = document.getElementById('mlEnsembleBadge');
                             const isEnabled = data.lgbmModelVersion && data.lgbmModelVersion !== 'disabled';
                             if (badge) {
-                                badge.innerText = isEnabled ? '🧠 ML Ансамбль' : '⚠️ ML';
+                                badge.innerText = isEnabled ? 'рџ§  ML РђРЅСЃР°РјР±Р»СЊ' : 'вљ пёЏ ML';
                                 badge.style.background = isEnabled ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)' : 'rgba(100,100,100,0.4)';
                             }
                             const dir = document.getElementById('mlEnsembleDir');
                             if (dir && data.lgbmDirection) {
-                                dir.innerText = data.lgbmDirection === 'BUY' ? 'ВВЕРХ' : data.lgbmDirection === 'PUT' ? 'ВНИЗ' : '—';
+                                dir.innerText = data.lgbmDirection === 'BUY' ? 'Р’Р’Р•Р РҐ' : data.lgbmDirection === 'PUT' ? 'Р’РќРР—' : 'вЂ”';
                                 dir.style.color = data.lgbmDirection === 'BUY' ? '#a78bfa' : data.lgbmDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
                             }
                             const rep = document.getElementById('mlEnsembleReport');
@@ -654,11 +654,11 @@ public static partial class MiniAppUI
                         }
                     }
 
-                    // ── Confluence + Win Rate Card ──
+                    // в”Ђв”Ђ Confluence + Win Rate Card в”Ђв”Ђ
                     const confCard = document.getElementById('confluenceCard');
                     if (confCard) confCard.style.display = 'block';
                     const confLabel = document.getElementById('confluenceLabel');
-                    if (confLabel) confLabel.innerText = data.confluenceLabel || 'Анализ';
+                    if (confLabel) confLabel.innerText = data.confluenceLabel || 'РђРЅР°Р»РёР·';
                     const goldenBadge = document.getElementById('goldenSetupBadge');
                     if (goldenBadge) goldenBadge.style.display = data.goldenSetup ? 'inline-block' : 'none';
                     const wrAssetEl = document.getElementById('winRateAsset');
@@ -668,7 +668,7 @@ public static partial class MiniAppUI
                             wrAssetEl.innerText = pct + '%';
                             wrAssetEl.style.color = pct >= 55 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#f43f5e';
                         } else {
-                            wrAssetEl.innerText = 'нет данных';
+                            wrAssetEl.innerText = 'РЅРµС‚ РґР°РЅРЅС‹С…';
                             wrAssetEl.style.color = 'var(--subtext)';
                         }
                     }
@@ -679,7 +679,7 @@ public static partial class MiniAppUI
                             wrOverallEl.innerText = pct + '%';
                             wrOverallEl.style.color = pct >= 55 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#f43f5e';
                         } else {
-                            wrOverallEl.innerText = 'нет данных';
+                            wrOverallEl.innerText = 'РЅРµС‚ РґР°РЅРЅС‹С…';
                         }
                     }
                     const sigCountEl = document.getElementById('signalsCount');
@@ -689,13 +689,13 @@ public static partial class MiniAppUI
                         sigCountEl.innerText = verified + (pending > 0 ? ' (+' + pending + ')' : '');
                     }
 
-                    // ── Monte Carlo & Risk Card ──
+                    // в”Ђв”Ђ Monte Carlo & Risk Card в”Ђв”Ђ
                     if (data.evLabel || data.kellyLabel) {
                         const mcCard = document.getElementById('mcCard');
                         if (mcCard) mcCard.style.display = 'block';
                         const mcSimEl = document.getElementById('mcSimCount');
                         if (mcSimEl && data.monteCarloIterations) {
-                            mcSimEl.innerText = (data.monteCarloSuccess || 0) + ' / ' + data.monteCarloIterations + ' удачных';
+                            mcSimEl.innerText = (data.monteCarloSuccess || 0) + ' / ' + data.monteCarloIterations + ' СѓРґР°С‡РЅС‹С…';
                         }
                         const evEl = document.getElementById('mcEv');
                         if (evEl) {
@@ -710,16 +710,16 @@ public static partial class MiniAppUI
                         const wfEl = document.getElementById('wfStatus');
                         if (wfEl) {
                             if (data.wfIsCooloffActive) {
-                                wfEl.innerText = 'Охлаждение';
+                                wfEl.innerText = 'РћС…Р»Р°Р¶РґРµРЅРёРµ';
                                 wfEl.style.color = '#ff1744';
                             } else {
-                                wfEl.innerText = 'В норме';
+                                wfEl.innerText = 'Р’ РЅРѕСЂРјРµ';
                                 wfEl.style.color = '#10b981';
                             }
                         }
                     }
 
-                    // ── Reasoning Card ──
+                    // в”Ђв”Ђ Reasoning Card в”Ђв”Ђ
                     if (data.claudeReasoning) {
                         const rCard = document.getElementById('reasoningCard');
                         if (rCard) rCard.style.display = 'block';
@@ -727,12 +727,12 @@ public static partial class MiniAppUI
                         if (rText) rText.innerText = data.claudeReasoning;
                         const rDir = document.getElementById('reasoningDir');
                         if (rDir) {
-                            rDir.innerText = data.direction === 'BUY' ? 'ВВЕРХ' : data.direction === 'PUT' ? 'ВНИЗ' : 'НЕЙТРАЛЬНО';
+                            rDir.innerText = data.direction === 'BUY' ? 'Р’Р’Р•Р РҐ' : data.direction === 'PUT' ? 'Р’РќРР—' : 'РќР•Р™РўР РђР›Р¬РќРћ';
                             rDir.style.color = data.direction === 'BUY' ? '#a78bfa' : data.direction === 'PUT' ? '#f472b6' : 'var(--dim)';
                         }
                     }
 
-                    // ── News Card ──
+                    // в”Ђв”Ђ News Card в”Ђв”Ђ
                     if (data.newsScore && Math.abs(data.newsScore) > 0.1 && data.newsSummary) {
                         const nCard = document.getElementById('newsCard');
                         if (nCard) nCard.style.display = 'block';
@@ -763,11 +763,12 @@ public static partial class MiniAppUI
                 stopStatusBar();
                 sphere.classList.remove('analyzing');
                 btn.disabled = false;
-                btn.innerText = 'ПОЛУЧИТЬ АНАЛИЗ';
-                const catchMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
+                btn.innerText = 'РџРћР›РЈР§РРўР¬ РђРќРђР›РР—';
+                const catchMsg = `вЂў Р”Р»РёРЅР° С‚РѕРєРµРЅР°: ${tg && tg.initData ? tg.initData.length : 0}\nвЂў РџР»Р°С‚С„РѕСЂРјР°: ${tg ? tg.platform : 'unknown'}\nвЂў РђРґСЂРµСЃ: ${window.location.href}`;
                 renderError(e.message, catchMsg);
             }
         }
         ";
     }
 }
+

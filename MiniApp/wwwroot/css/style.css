@@ -1,10 +1,4 @@
-namespace ValutaBot.MiniApp;
-
-public static partial class MiniAppUI
-{
-    public static string GetCssStyles()
-    {
-        return @"
+﻿
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=Unbounded:wght@600;700;800;900&display=swap');
         :root {
             --bg: #03010c;
@@ -41,7 +35,7 @@ public static partial class MiniAppUI
             -moz-osx-font-smoothing: grayscale;
         }
 
-        /* ─── Animated Premium Mesh Background ─── */
+        /* в”Ђв”Ђв”Ђ Animated Premium Mesh Background в”Ђв”Ђв”Ђ */
         body::before {
             content: '';
             position: fixed;
@@ -62,7 +56,7 @@ public static partial class MiniAppUI
             100% { transform: scale(1) translate(-2%, 2%); opacity: 0.8; }
         }
 
-        /* ─── Animated background particles ─── */
+        /* в”Ђв”Ђв”Ђ Animated background particles в”Ђв”Ђв”Ђ */
 
         .particle-field {
             position: fixed;
@@ -103,7 +97,7 @@ public static partial class MiniAppUI
             100% { transform: translateY(-20vh) scale(1); opacity: 0; }
         }
 
-        /* ─── Welcome Section ─── */
+        /* в”Ђв”Ђв”Ђ Welcome Section в”Ђв”Ђв”Ђ */
         .welcome-section {
             display: flex;
             justify-content: space-between;
@@ -141,7 +135,7 @@ public static partial class MiniAppUI
             filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
         }
 
-        /* ─── 3D Magic Ball + Rings + Pedestal ─── */
+        /* в”Ђв”Ђв”Ђ 3D Magic Ball + Rings + Pedestal в”Ђв”Ђв”Ђ */
         .sphere-container {
             position: relative;
             width: 120px;
@@ -239,7 +233,7 @@ public static partial class MiniAppUI
             100% { opacity: 1; }
         }
 
-        /* Spherical surface arcs — create 3D depth on rotation */
+        /* Spherical surface arcs вЂ” create 3D depth on rotation */
         .ball-line {
             position: absolute;
             border-radius: 50%;
@@ -272,7 +266,7 @@ public static partial class MiniAppUI
             opacity: 0.9;
         }
 
-        /* Orbital Rings — 3 orbits at different angles & speeds */
+        /* Orbital Rings вЂ” 3 orbits at different angles & speeds */
         .orbits {
             position: absolute;
             top: 50%;
@@ -351,7 +345,7 @@ public static partial class MiniAppUI
         }
 
 
-        /* Pedestal — 3-layer hi-tech stand */
+        /* Pedestal вЂ” 3-layer hi-tech stand */
         .base-stand {
             position: absolute;
             bottom: 8px;
@@ -389,7 +383,7 @@ public static partial class MiniAppUI
             border: 1px solid rgba(74,33,150,0.15);
         }
 
-        /* ─── Ornate divider ─── */
+        /* в”Ђв”Ђв”Ђ Ornate divider в”Ђв”Ђв”Ђ */
         .magic-divider {
             height: 1px;
             background: linear-gradient(90deg, transparent, rgba(124,77,255,0.25), transparent);
@@ -397,7 +391,7 @@ public static partial class MiniAppUI
             position: relative;
         }
         .magic-divider::after {
-            content: '✦';
+            content: 'вњ¦';
             position: absolute;
             top: 50%;
             left: 50%;
@@ -408,7 +402,7 @@ public static partial class MiniAppUI
             padding: 0 10px;
         }
 
-        /* ─── Top Categories ─── */
+        /* в”Ђв”Ђв”Ђ Top Categories в”Ђв”Ђв”Ђ */
         .top-categories {
             display: flex;
             background: rgba(255, 255, 255, 0.02);
@@ -467,7 +461,7 @@ public static partial class MiniAppUI
         .top-cat-btn.active svg { opacity: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
         .top-cat-btn.active svg path, .top-cat-btn.active svg circle { stroke: #fff; }
 
-        /* ─── Selector Section ─── */
+        /* в”Ђв”Ђв”Ђ Selector Section в”Ђв”Ђв”Ђ */
         .selector-section {
             background: rgba(255, 255, 255, 0.02);
             backdrop-filter: blur(24px);
@@ -562,7 +556,7 @@ public static partial class MiniAppUI
         .tf-btn:hover { background: rgba(124,77,255,0.08); border-color: rgba(124,77,255,0.2); }
         .tf-btn.active { background: linear-gradient(135deg, var(--accent), #6a3de8); color: #fff; border-color: var(--accent); box-shadow: 0 4px 20px var(--accent-glow); }
 
-        /* ─── Analyze Button ─── */
+        /* в”Ђв”Ђв”Ђ Analyze Button в”Ђв”Ђв”Ђ */
         .btn-analyze {
             width: 100%;
             height: var(--btn-h);
@@ -606,7 +600,7 @@ public static partial class MiniAppUI
         .btn-analyze:active { transform: scale(0.96) translateY(0); box-shadow: 0 4px 12px rgba(124, 77, 255, 0.3); }
         .btn-analyze:disabled { opacity: 0.6; transform: none; box-shadow: none; animation: none; cursor: not-allowed; }
 
-        /* ─── Results ─── */
+        /* в”Ђв”Ђв”Ђ Results в”Ђв”Ђв”Ђ */
         .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
         .res-card {
             background: rgba(255, 255, 255, 0.02);
@@ -648,7 +642,7 @@ public static partial class MiniAppUI
         .res-dir-chart { margin-top: auto; width: 100%; height: 22px; }
         .res-dir-chart svg { width: 100%; height: 100%; }
 
-        /* ─── Levels ─── */
+        /* в”Ђв”Ђв”Ђ Levels в”Ђв”Ђв”Ђ */
         .levels-bar {
             display: none;
             background: linear-gradient(135deg, rgba(124,77,255,0.06), rgba(0,188,212,0.03));
@@ -685,7 +679,7 @@ public static partial class MiniAppUI
             position: relative;
         }
         .levels-divider::after {
-            content: '◆';
+            content: 'в—†';
             position: absolute;
             top: 50%;
             left: 50%;
@@ -707,7 +701,7 @@ public static partial class MiniAppUI
         }
         .res-card.flash { animation: resultFlash 0.7s ease-out; }
 
-        /* ─── ML Forecast Card ─── */
+        /* в”Ђв”Ђв”Ђ ML Forecast Card в”Ђв”Ђв”Ђ */
         .ml-card {
             margin-top: 12px;
             background: linear-gradient(135deg, rgba(124,77,255,0.05), rgba(0,229,255,0.02));
@@ -725,7 +719,7 @@ public static partial class MiniAppUI
         .ml-dir { font-size: 16px; font-weight: 800; font-family: 'Unbounded', sans-serif; }
         .ml-conf { font-size: 14px; font-weight: 800; font-family: 'Unbounded', sans-serif; color: var(--accent); }
 
-        /* ─── News Card ─── */
+        /* в”Ђв”Ђв”Ђ News Card в”Ђв”Ђв”Ђ */
         .news-card {
             margin-top: 12px;
             background: linear-gradient(135deg, rgba(0,229,255,0.04), rgba(124,77,255,0.02));
@@ -745,7 +739,7 @@ public static partial class MiniAppUI
         .news-list.open { display: flex; }
         .news-list-item { font-size: 10px; color: var(--dim); padding: 4px 8px; background: rgba(124,77,255,0.04); border-radius: 6px; line-height: 1.4; }
 
-        /* ─── Candle Countdown ─── */
+        /* в”Ђв”Ђв”Ђ Candle Countdown в”Ђв”Ђв”Ђ */
         .candle-countdown {
             background: linear-gradient(90deg, rgba(124,77,255,0.04), rgba(0,229,255,0.02));
             border: 1px solid var(--panel-border);
@@ -768,7 +762,7 @@ public static partial class MiniAppUI
         .candle-countdown .time { font-size: 18px; font-weight: 800; font-family: 'Unbounded', sans-serif; color: var(--accent); min-width: 56px; text-align: right; letter-spacing: 1px; }
         .candle-countdown .time.warning { color: #ffd600; }
 
-        /* ─── Tabs ─── */
+        /* в”Ђв”Ђв”Ђ Tabs в”Ђв”Ђв”Ђ */
         .tab-bar {
             display: flex;
             background: rgba(255,255,255,0.02);
@@ -802,7 +796,7 @@ public static partial class MiniAppUI
         }
         .candle-countdown .time.critical { color: #ff1744; }
 
-        /* ─── Status Bar ─── */
+        /* в”Ђв”Ђв”Ђ Status Bar в”Ђв”Ђв”Ђ */
         .status-bar {
             display: none;
             background: linear-gradient(135deg, rgba(124,77,255,0.06), rgba(0,188,212,0.03));
@@ -842,7 +836,7 @@ public static partial class MiniAppUI
         .app-screen { display: none; }
         .app-screen.active { display: block; }
 
-        /* ─── History ─── */
+        /* в”Ђв”Ђв”Ђ History в”Ђв”Ђв”Ђ */
         .hist-header {
             font-family: 'Unbounded', sans-serif;
             font-size: 16px;
@@ -861,10 +855,10 @@ public static partial class MiniAppUI
             position: relative;
         }
         .filter-btn.active { background: rgba(124,77,255,0.12); border-color: var(--accent); color: #fff; box-shadow: 0 0 12px rgba(124,77,255,0.15); }
-        /* ─── Top asset star ─── */
+        /* в”Ђв”Ђв”Ђ Top asset star в”Ђв”Ђв”Ђ */
         .top-star { font-size: 13px; line-height: 1; color: var(--gold); margin-left: 5px; display: inline-block; filter: drop-shadow(0 0 4px rgba(255,215,0,0.5)); }
 
-        /* ─── Live Price Display ─── */
+        /* в”Ђв”Ђв”Ђ Live Price Display в”Ђв”Ђв”Ђ */
         .live-price-container {
             display: none;
             justify-content: center;
@@ -914,7 +908,7 @@ public static partial class MiniAppUI
             100% { opacity: 0.3; }
         }
 
-        /* ─── Dynamic Sphere States ─── */
+        /* в”Ђв”Ђв”Ђ Dynamic Sphere States в”Ђв”Ђв”Ђ */
         .sphere-container.buy-signal .magic-ball {
             background:
                 repeating-linear-gradient(85deg,
@@ -1081,7 +1075,7 @@ public static partial class MiniAppUI
             100% { transform: translate(20px, 105px) scale(0.5); opacity: 0; }
         }
 
-        /* ─── Beautiful Error Box ─── */
+        /* в”Ђв”Ђв”Ђ Beautiful Error Box в”Ђв”Ђв”Ђ */
         .error-box {
             background: rgba(255, 23, 68, 0.08);
             border: 1px solid rgba(255, 23, 68, 0.25);
@@ -1140,7 +1134,7 @@ public static partial class MiniAppUI
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        /* ─── Sync Status Bar ─── */
+        /* в”Ђв”Ђв”Ђ Sync Status Bar в”Ђв”Ђв”Ђ */
         .sync-container {
             display: flex;
             align-items: center;
@@ -1179,6 +1173,4 @@ public static partial class MiniAppUI
             font-size: 11px;
             opacity: 0.6;
         }
-    ";
-    }
-}
+    
