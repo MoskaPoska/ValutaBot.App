@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Polly;
@@ -124,7 +124,13 @@ public class MarketDataFetcher
         }
 
         string cleanAsset = AssetSanitizer.Sanitize(originalAsset ?? symbol ?? "EURUSDT");
-        string binanceSymbol = symbol ?? (cleanAsset.EndsWith("USDT") ? cleanAsset : cleanAsset + "USDT");
+        string binanceSymbol = symbol ?? (cleanAsset switch
+        {
+            "EURUSD" or "EURUSDT" => "EURUSDT",
+            "GBPUSD" or "GBPUSDT" => "GBPUSDT",
+            "AUDUSD" or "AUDUSDT" => "AUDUSDT",
+            _ => cleanAsset.EndsWith("USDT") ? cleanAsset : cleanAsset + "USDT"
+        });
         
         try
         {
