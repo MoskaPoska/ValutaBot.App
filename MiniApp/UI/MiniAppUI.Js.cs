@@ -23,13 +23,13 @@ public static partial class MiniAppUI
             return '';
         }
 
-        let currentAsset = 'EUR/USD OTC';
+        let currentAsset = 'EUR/USD';
         let currentTf = 'm1';
         let syncStatusInterval = null;
 
         const assetsData = {
             fiat: {
-                otc: ['EUR/USD OTC']
+                otc: ['EUR/USD']
             },
             commodities: {
                 otc: []
@@ -53,7 +53,7 @@ public static partial class MiniAppUI
 
         function renderAssets(arr) {
             const top = getTopAssets();
-            const majors = ['EUR/USD OTC'];
+            const majors = ['EUR/USD'];
             return arr.map(function(a) {
                 var star = top.indexOf(a) !== -1 ? '<span class=""top-star"">★</span>' : '';
                 var cls = majors.indexOf(a) !== -1 ? 'asset-item major' : 'asset-item';
@@ -372,6 +372,13 @@ public static partial class MiniAppUI
                 c.classList.add('flash');
             });
         }
+        
+        function parseMd(text) {
+            if (!text) return '';
+            return text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+                       .replace(/\*(.*?)\*/g, '<i>$1</i>')
+                       .replace(/\n/g, '<br/>');
+        }
 
         setInterval(updateCountdown, 1000);
         setTimeout(updateCountdown, 100);
@@ -623,21 +630,28 @@ public static partial class MiniAppUI
 
                     // ── ML Ensemble Card ──
                     if (data.llmReport && data.llmReport !== 'LLM-сводка загружается...') {
-                        const mlCard = document.getElementById('mlEnsembleCard');
-                        if (mlCard) mlCard.style.display = 'block';
-                        const badge = document.getElementById('mlEnsembleBadge');
-                        const isEnabled = data.lgbmModelVersion && data.lgbmModelVersion !== 'disabled';
-                        if (badge) {
-                            badge.innerText = isEnabled ? '🧠 ML Ансамбль' : '⚠️ ML';
-                            badge.style.background = isEnabled ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)' : 'rgba(100,100,100,0.4)';
+                        if (data.llmReport.includes('Оффлайн или низкая уверенность')) {
+                            const mlCard = document.getElementById('mlEnsembleCard');
+                            if (mlCard) mlCard.style.display = 'none';
+                        } else {
+                            const mlCard = document.getElementById('mlEnsembleCard');
+                            if (mlCard) mlCard.style.display = 'block';
+                            const badge = document.getElementById('mlEnsembleBadge');
+                            const isEnabled = data.lgbmModelVersion && data.lgbmModelVersion !== 'disabled';
+                            if (badge) {
+                                badge.innerText = isEnabled ? '🧠 ML Ансамбль' : '⚠️ ML';
+                                badge.style.background = isEnabled ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)' : 'rgba(100,100,100,0.4)';
+                            }
+                            const dir = document.getElementById('mlEnsembleDir');
+                            if (dir && data.lgbmDirection) {
+                                dir.innerText = data.lgbmDirection === 'BUY' ? 'ВВЕРХ' : data.lgbmDirection === 'PUT' ? 'ВНИЗ' : '—';
+                                dir.style.color = data.lgbmDirection === 'BUY' ? '#a78bfa' : data.lgbmDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
+                            }
+                            const rep = document.getElementById('mlEnsembleReport');
+                            if (rep) {
+                                rep.innerHTML = parseMd(data.llmReport);
+                            }
                         }
-                        const dir = document.getElementById('mlEnsembleDir');
-                        if (dir && data.lgbmDirection) {
-                            dir.innerText = data.lgbmDirection === 'BUY' ? 'ВВЕРХ' : data.lgbmDirection === 'PUT' ? 'ВНИЗ' : '—';
-                            dir.style.color = data.lgbmDirection === 'BUY' ? '#a78bfa' : data.lgbmDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
-                        }
-                        const rep = document.getElementById('mlEnsembleReport');
-                        if (rep) rep.innerText = data.llmReport;
                     }
 
                     // ── Confluence + Win Rate Card ──
