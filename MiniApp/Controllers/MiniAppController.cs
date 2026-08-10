@@ -50,7 +50,17 @@ public static partial class MiniAppController
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("AllowMiniApp", p => p
-                .AllowAnyOrigin()
+                .SetIsOriginAllowed(origin => 
+                {
+                    if (string.IsNullOrEmpty(origin)) return false;
+                    var host = new Uri(origin).Host.ToLowerInvariant();
+                    return host == "web.telegram.org" || 
+                           host.EndsWith("ngrok-free.dev") || 
+                           host.EndsWith("ngrok.io") ||
+                           host.EndsWith("railway.app") ||
+                           host == "localhost" || 
+                           host == "127.0.0.1";
+                })
                 .WithMethods("GET", "POST", "OPTIONS")
                 .WithHeaders("X-Telegram-Init-Data", "Content-Type", "Accept"));
         });
@@ -173,7 +183,7 @@ public static partial class MiniAppController
                 var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(
                     _sharedTaEngine, _sharedTaEngine, _sharedTaEngine,
                     _sharedFetcher, _sharedWfEngine,
-                    new ConfluenceMatrixEngine(_sharedFetcher, _sharedTaEngine, _sharedAutoCalib),
+                    new ConfluenceMatrixEngine(_sharedFetcher, _sharedTaEngine),
                     _sharedTimeoutEngine, _sharedMcEngine);
                 var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization

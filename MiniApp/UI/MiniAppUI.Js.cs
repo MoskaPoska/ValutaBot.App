@@ -681,7 +681,7 @@ public static partial class MiniAppUI
                         if (mcCard) mcCard.style.display = 'block';
                         const mcSimEl = document.getElementById('mcSimCount');
                         if (mcSimEl && data.monteCarloIterations) {
-                            mcSimEl.innerText = (data.monteCarloSuccess || 0) + ' / ' + data.monteCarloIterations + ' успехов';
+                            mcSimEl.innerText = (data.monteCarloSuccess || 0) + ' / ' + data.monteCarloIterations + ' удачных';
                         }
                         const evEl = document.getElementById('mcEv');
                         if (evEl) {

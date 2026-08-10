@@ -45,7 +45,7 @@ internal static class Program
         var autoCalibEngine = new AutoCalibrationEngine();
         TradeOutcomeTracker.WfEngine = wfEngine;
         TradeOutcomeTracker.CalibrationEngine = autoCalibEngine;
-        var cmEngine = new ConfluenceMatrixEngine(new MarketDataFetcher(), ta, autoCalibEngine);
+        var cmEngine = new ConfluenceMatrixEngine(new MarketDataFetcher(), ta);
         var aeEngine = new TradeTimeoutEngine();
         Console.WriteLine("==================================================");
         

@@ -64,7 +64,7 @@ public class TradeTimeoutEngine : ITradeTimeoutEngine
             dynamicReason += " | SMC Alert: Entered at OrderBlock/FVG. Reaction must be immediate. Timeout cut by 40%.";
         }
 
-        string timeoutText = $"{baseCandles} candles";
+        string timeoutText = $"{baseCandles} свечей";
         string reasoning = $"Timeout: {timeoutText}. {dynamicReason}";
 
         return new TimeoutResult(baseCandles, timeoutText, reasoning);

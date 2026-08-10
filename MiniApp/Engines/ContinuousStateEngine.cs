@@ -25,7 +25,7 @@ public static class ContinuousStateEngine
     /// </summary>
     public static ContinuousStateResult EvaluateContinuousState(ReadOnlySpan<double> prices, string asset = "GLOBAL", string timeframe = "m1")
     {
-        if (prices == null || prices.Length < 10)
+        if (prices.Length < 10)
         {
             return new ContinuousStateResult(0, 0, 0, "UNKNOWN", 0, "Недостаточно данных для непрерывного анализа.");
         }

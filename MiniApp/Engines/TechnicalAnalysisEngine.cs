@@ -34,7 +34,10 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         string asset, string timeframe, ReadOnlySpan<double> prices, ReadOnlySpan<double> volumes, ReadOnlySpan<MiniAppController.OhlcCandle> candles = default,
         double? adxOverride = null, double? atrOverride = null, bool isForex = false)
     {
-        if (prices.Length < 14 || candles.Length < 14) return (0.0, 50.0, 50.0, 0.0, 0.0, 0.0);
+        if (prices.Length < 14 || candles.Length < 14)
+        {
+            throw new Exception($"ОТКАЗ API: Недостаточно свечей для технического анализа. Получено {prices.Length}. Нужно минимум 14.");
+        }
 
         double rsi = ComputeConnorsRsi(asset, timeframe, candles);
         double hma = ComputeHma(asset, timeframe, candles, 9);

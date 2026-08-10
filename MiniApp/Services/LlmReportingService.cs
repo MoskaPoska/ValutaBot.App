@@ -26,13 +26,22 @@ namespace ValutaBot.App.MiniApp.Services
                 if (l3IsBuy == isBuy) confluence++;
             }
 
-            string llmOutput = $"🤖 **Нейро-Анализ (Python ML)**\n\n" +
-                               $"Анализ актива **{asset}** завершен. {trendStr}\n\n" +
-                               $"🧠 **ML Модель ({modelVersion}):**\n" +
-                               $"- Направление: {direction}\n" +
-                               $"- Уверенность: {Math.Round(confidence * 100, 1)}%\n\n" +
-                               $"📡 **Тех. Совпадение (Confluence):** {confluence}/3 уровней подтверждают ML-прогноз.\n\n" +
-                               $"*Рекомендация:* Рассмотреть позицию {direction}, с обязательным контролем риск-менеджмента.";
+            string llmOutput = $"🤖 **Автоматизированный Анализ**\n\n" +
+                               $"Анализ актива **{asset}** завершен. {trendStr}\n\n";
+
+            if (mlPrediction != null && mlPrediction.Direction != "NEUTRAL")
+            {
+                llmOutput += $"🧠 **Ансамбль ML ({modelVersion}):**\n" +
+                             $"- Вектор: {direction}\n" +
+                             $"- Уверенность: {Math.Round(confidence * 100, 1)}%\n\n" +
+                             $"📡 **Тех. Совпадение (Confluence):** {confluence}/3 уровней подтверждают ML-прогноз.\n\n" +
+                             $"*Рекомендация:* Рассмотреть позицию {direction}, с обязательным контролем риск-менеджмента.";
+            }
+            else
+            {
+                llmOutput += $"🧠 **Ансамбль ML:** Оффлайн или низкая уверенность. Используется чистая математика (Уровни 1-3).\n\n" +
+                             $"*Рекомендация:* Опирайтесь на математический скоринг и Риск-Менеджмент.";
+            }
 
             return llmOutput;
         }

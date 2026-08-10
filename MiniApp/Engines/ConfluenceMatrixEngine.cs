@@ -17,8 +17,7 @@ public record ConfluenceMatrixResult(
 
 public class ConfluenceMatrixEngine(
     MarketDataFetcher fetcher,
-    IMarketAnalyzer marketAnalyzer,
-    IAutoCalibrationEngine autoCalib) : IConfluenceMatrixEngine
+    IMarketAnalyzer marketAnalyzer) : IConfluenceMatrixEngine
 {
     // ── 4D Matrix ─────────────────────────────────────────────────────────────
 
@@ -98,15 +97,7 @@ public class ConfluenceMatrixEngine(
         catch (Exception ex)
         {
             BotLogger.Error($"[Confluence 4D] Error evaluating matrix for {asset}", ex);
-            return new ConfluenceMatrixResult(
-                ConfluenceRatio:     0.5,
-                IsGoldenSetup:       false,
-                ProbabilityBoost:    0,
-                ConfluenceLabel:     "\U0001f4ca СТАНДАРТ",
-                SummaryReasoning:    "\u2022 \U0001f3af 4D Матрица: Стандартный режим",
-                TimeframeDirections: new(),
-                DominantDirection:   "NEUTRAL"
-            );
+            throw new Exception($"ОТКАЗ API: Ошибка расчета 4D Матрицы. Недостаточно данных для {asset}. {ex.Message}");
         }
     }
 
@@ -132,7 +123,10 @@ public class ConfluenceMatrixEngine(
     /// </summary>
     private string ScoreDirection(double[] prices, double[] volumes)
     {
-        if (prices == null || prices.Length < 10) return "NEUTRAL";
+        if (prices == null || prices.Length < 10) 
+        {
+            throw new Exception($"ОТКАЗ API: Получено {(prices == null ? 0 : prices.Length)} свечей для матрицы (нужно мин 10).");
+        }
 
         double avgDiff = 0;
         if (prices.Length > 1) {
@@ -254,29 +248,26 @@ public class ConfluenceMatrixEngine(
 
         // 4. ML / Mathematical Consensus Matrix Layer (META-LABELING OVERRIDE)
         double scoreMath = Math.Clamp(totalScore, -2.5, 2.5) / 2.5; // Normalized to [-1.0, 1.0]
+        
+        bool isMlActive = (mlSignal.Direction == "BUY" || mlSignal.Direction == "PUT");
+        double finalConfidenceScore = scoreMath;
         string candidateDir = "NEUTRAL";
-        double finalConfidenceScore = 0.0;
 
-        bool isMlConfident = (mlSignal.Direction == "BUY" || mlSignal.Direction == "PUT");
-
-        if (isMlConfident)
+        if (isMlActive)
         {
-            // ML is highly confident and overrides Math entirely
-            candidateDir = mlSignal.Direction;
+            // True Ensemble: Blend Machine Learning (60% weight) with Pure Math (40% weight)
             double normLgbm = Math.Max(0, (mlSignal.Confidence - 0.5) * 2.0);
-            finalConfidenceScore = candidateDir == "BUY" ? normLgbm : -normLgbm;
-        }
-        else
-        {
-            // ML is weak or penalized, Math operates autonomously 100%
-            candidateDir = scoreMath > 0.0001 ? "BUY" : scoreMath < -0.0001 ? "PUT" : "NEUTRAL";
+            double mlScore = mlSignal.Direction == "BUY" ? normLgbm : -normLgbm;
             
-            // Elimination of NEUTRAL for Pocket Option (Always output a vector)
-            if (candidateDir == "NEUTRAL")
-            {
-                candidateDir = totalScore >= 0 ? "BUY" : "PUT";
-            }
-            finalConfidenceScore = scoreMath;
+            finalConfidenceScore = (mlScore * 0.6) + (scoreMath * 0.4);
+        }
+        
+        candidateDir = finalConfidenceScore > 0.0001 ? "BUY" : finalConfidenceScore < -0.0001 ? "PUT" : "NEUTRAL";
+        
+        // Elimination of NEUTRAL for Pocket Option (Always output a vector)
+        if (candidateDir == "NEUTRAL")
+        {
+            candidateDir = finalConfidenceScore >= 0 ? "BUY" : "PUT";
         }
 
         // 5. Final Decision

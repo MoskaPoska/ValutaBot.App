@@ -15,19 +15,19 @@ public class MarketAnalysisContext
     private readonly string _timeframe;
     
     // Properties to mimic local variables
-    private string _clean;
+    private string _clean = "";
     private string? _symbol;
     private bool _isForex;
     private bool _isMajor;
     private int _limit;
-    private string _tfLower;
+    private string _tfLower = "";
     private bool _useMultiTf;
-    private string _mainInterval;
+    private string _mainInterval = "";
     private string? _higherTf;
     private string? _lowerTf;
     private double[] _mainPrices = Array.Empty<double>();
     private double[] _mainVolumes = Array.Empty<double>();
-    private string _mainOhlcKey;
+    private string _mainOhlcKey = "";
     private MiniAppController.OhlcCandle[]? _ohlcCandles;
     private (double[] prices, double[] volumes)? _higherResultData;
     private (double[] prices, double[] volumes)? _lowerResultData;
@@ -118,14 +118,10 @@ public class MarketAnalysisContext
         _mainPrices = mainResultTuple.prices;
         _mainVolumes = mainResultTuple.volumes;
 
-        try
+        _ohlcCandles = await _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, _timeframe, _asset, _limit);
+        if (_ohlcCandles == null || _ohlcCandles.Length < 10)
         {
-            _ohlcCandles = await _handler._fetcher.FetchOhlcWithFallbackAsync(_symbol, _timeframe, _asset, _limit);
-        }
-        catch (Exception ex)
-        {
-            BotLogger.Warn($"[Analysis] Failed to fetch OHLC candles: {ex.Message}");
-            _ohlcCandles = Array.Empty<MiniAppController.OhlcCandle>();
+            throw new Exception($"ОТКАЗ API: Недостаточно свечей ({_timeframe}) для технического анализа.");
         }
 
         var higherTask = _higherTf != null ? SafeFetch(_higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
@@ -186,15 +182,14 @@ public class MarketAnalysisContext
                     _lgbmConfidence = (float)(prediction.Confidence * _wfResult.WeightMultiplier);
                     _lgbmConfidence = Math.Clamp(_lgbmConfidence, 0f, 1f);
 
-                    // META-LABELING: If ML confidence is weak (or heavily penalized by WalkForward), neutralize it entirely.
-                    if (_lgbmConfidence < 0.55f)
+                    if (_lgbmConfidence < 0.51f)
                     {
                         BotLogger.Info($"[ML Override] WalkForward suppressed ML confidence to {_lgbmConfidence:F2}. Reverting to pure Math.");
                         _lgbmDirection = "NEUTRAL";
                     }
                     else
                     {
-                        BotLogger.Info($"[ML Override] ML confident ({_lgbmConfidence:F2}). Taking full control of the directional vector.");
+                        BotLogger.Info($"[ML Override] ML confident ({_lgbmConfidence:F2}). Passing vector to Confluence Matrix.");
                     }
 
                     _lgbmModelVersion = prediction.ModelVersion;

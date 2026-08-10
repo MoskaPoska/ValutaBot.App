@@ -27,8 +27,8 @@ public interface IMonteCarloEngine
 public class MonteCarloEngine : IMonteCarloEngine
 {
     private readonly double _defaultPayoutRatio = 0.85;
-    private readonly double _expectedJumps = 0.15; // 15% chance of a black swan jump per simulation
-    private readonly double _jumpVolMultiplier = 3.0; // Jumps are 3x more volatile
+    private readonly double _expectedJumps = 0.05; // Reduced from 15% to 5% chance of a black swan
+    private readonly double _jumpVolMultiplier = 2.0; // Jumps are 2x more volatile (was 3x)
 
     /// <summary>
     /// Runs algorithmic Monte Carlo stochastic price path simulations with ATR volatility and calculates
@@ -84,7 +84,7 @@ public class MonteCarloEngine : IMonteCarloEngine
                 double jumpNormal = Math.Sqrt(-2.0 * Math.Log(j1)) * Math.Sin(2.0 * Math.PI * j2);
                 
                 // Jumps usually happen against the obvious crowd direction in crypto (liquidation hunting)
-                double jumpMean = -driftSign * totalVol * 1.5; 
+                double jumpMean = -driftSign * totalVol * 1.0; // Reduced from 1.5x penalty to 1.0x
                 jumpReturn = jumpMean + (jumpNormal * jumpVol);
             }
 
