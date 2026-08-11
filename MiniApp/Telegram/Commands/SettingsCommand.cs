@@ -33,7 +33,7 @@ namespace ValutaBot.App.MiniApp.Telegram.Commands
 
             string text = "⚙️ <b>Настройки анализатора</b>\n\nВключайте или отключайте модули анализа. Отключенные модули не будут отображаться в интерфейсе.";
 
-            await ValutaBot.MiniApp.TelegramBotService.SendMessageWithKeyboardInternal(token, chatId, text, inlineKeyboard);
+            await ValutaBot.MiniApp.TelegramBotService.SendMessageWithKeyboard(token, chatId, text, inlineKeyboard);
         }
     }
 }
