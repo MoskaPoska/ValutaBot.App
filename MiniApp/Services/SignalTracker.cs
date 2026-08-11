@@ -194,6 +194,13 @@ public static class SignalTracker
             }
 
             double? exitPrice = await FetchExitPriceAsync(record);
+            if (exitPrice == -1)
+            {
+                // Unverifiable (e.g. missing API key, or invalid OTC pair). Delete it.
+                await ValutaBot.App.MiniApp.Data.Repositories.TradeRepository.DeletePendingTradeAsync(record.Id);
+                Console.WriteLine($"[Tracker] ~ {record.Asset}/{record.Timeframe} — unverifiable, discarded");
+                continue;
+            }
             if (exitPrice == null || exitPrice <= 0)
                 continue; // try again next cycle
 
@@ -296,8 +303,11 @@ public static class SignalTracker
         // 2. TwelveData REST API (Forex)
         if (record.IsForex)
         {
-            var day = DateTime.UtcNow.DayOfWeek;
-            if (day == DayOfWeek.Saturday || day == DayOfWeek.Sunday)
+            if (string.IsNullOrEmpty(TwelveDataService.GetApiKey())) return -1;
+            string symbol = TwelveDataService.ConvertToTwelveSymbol(record.Asset) ?? "";
+            if (string.IsNullOrEmpty(symbol)) return -1;
+
+            if (DateTime.UtcNow.DayOfWeek == DayOfWeek.Saturday || DateTime.UtcNow.DayOfWeek == DayOfWeek.Sunday)
             {
                 Console.WriteLine($"[Tracker] Weekend detected. Skipping TwelveData fetch for {record.Asset} to avoid stale Friday prices.");
                 return null;

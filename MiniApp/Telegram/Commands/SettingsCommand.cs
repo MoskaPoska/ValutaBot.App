@@ -12,10 +12,9 @@ namespace ValutaBot.App.MiniApp.Telegram.Commands
 
         public async Task ExecuteAsync(long chatId, string command, string cleanText, bool isAdmin, string token, string webAppUrl)
         {
-            bool isAllowed = await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.IsUserAllowedAsync(chatId) || isAdmin;
-            if (!isAllowed)
+            if (!isAdmin)
             {
-                await ValutaBot.MiniApp.TelegramBotService.SendGatedWelcome(token, chatId);
+                // Optionally send a message or just ignore
                 return;
             }
 
