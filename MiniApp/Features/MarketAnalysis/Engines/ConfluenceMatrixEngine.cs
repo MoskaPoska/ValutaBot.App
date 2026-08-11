@@ -299,11 +299,13 @@ public class ConfluenceMatrixEngine(
 
         string lgbmText = !string.IsNullOrEmpty(mlSignal.Direction) && mlSignal.Direction != "NEUTRAL"
             ? $"\u2022 \u26a1 Нейросеть (LightGBM): {(mlSignal.Direction == "BUY" ? "ВВЕРХ \u2b06" : "ВНИЗ \u2b07")} ({Math.Round(mlSignal.Confidence * 100)}% уверенность){modelAccText}"
-            : $"\u2022 \u26a1 Нейросеть (LightGBM): НЕЙТРАЛЬНО (0% уверенность){modelAccText}";
+            : (mlSignal.ModelVersion == "disabled" 
+                ? $"\u2022 \u26a1 Нейросеть (LightGBM): Отключена пользователем"
+                : $"\u2022 \u26a1 Нейросеть (LightGBM): НЕЙТРАЛЬНО (0% уверенность){modelAccText}");
 
         string combinedReasoning = $"{smcText}\n{flowText}\n{lgbmText}";
 
         return new ConsensusDecision(candidateDir, candidateDir, probability, combinedReasoning, totalScore);
     }
-}
 
+}

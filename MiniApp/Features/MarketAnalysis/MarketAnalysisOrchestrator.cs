@@ -246,6 +246,14 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
 
     private async Task FetchMachineLearningAsync()
     {
+        bool isNewsActive = false;
+
+        _wfResult = _wfEngine.ValidateWalkForward(_asset, _timeframe, _mainPrices, isNewsActive);
+        if (_wfResult.IsOverfitted || _wfResult.IsCooloffActive)
+        {
+            BotLogger.Warn($"[Anti-Overfitting] {_asset} ({_timeframe}): {_wfResult.StatusReasoning} ML weight multiplier set to {_wfResult.WeightMultiplier}x.");
+        }
+
         if (!IsSettingEnabled(_settings.EnableMachineLearning, _userSettings?.EnableMl))
         {
             _lgbmDirection = "NEUTRAL";
@@ -253,14 +261,6 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
             _lgbmModelVersion = "disabled";
             BotLogger.Info($"[ML Engine] ML is disabled in settings for {_asset} ({_timeframe}).");
             return;
-        }
-
-        bool isNewsActive = false;
-
-        _wfResult = _wfEngine.ValidateWalkForward(_asset, _timeframe, _mainPrices, isNewsActive);
-        if (_wfResult.IsOverfitted || _wfResult.IsCooloffActive)
-        {
-            BotLogger.Warn($"[Anti-Overfitting] {_asset} ({_timeframe}): {_wfResult.StatusReasoning} ML weight multiplier set to {_wfResult.WeightMultiplier}x.");
         }
 
         if (_ohlcCandles != null && _ohlcCandles.Length >= 60)

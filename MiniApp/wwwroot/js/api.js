@@ -255,7 +255,8 @@ export async function executeAnalysis() {
                 sigCountEl.innerText = verified + (pending > 0 ? ' (+' + pending + ')' : '');
             }
 
-            // Monte Carlo & Risk Card
+            // Monte Carlo & Risk Card (Hidden by user request)
+            /*
             if (data.evLabel || data.kellyLabel) {
                 const mcCard = document.getElementById('mcCard');
                 if (mcCard) mcCard.style.display = 'block';
@@ -284,6 +285,7 @@ export async function executeAnalysis() {
                     }
                 }
             }
+            */
 
             // Reasoning Card
             if (data.claudeReasoning) {
@@ -298,7 +300,8 @@ export async function executeAnalysis() {
                 }
             }
 
-            // News Card
+            // News Card (Hidden by user request)
+            /*
             if (data.newsScore && Math.abs(data.newsScore) > 0.1 && data.newsSummary) {
                 const nCard = document.getElementById('newsCard');
                 if (nCard) nCard.style.display = 'block';
@@ -310,6 +313,7 @@ export async function executeAnalysis() {
                 const nSum = document.getElementById('newsSummaryEl');
                 if (nSum) nSum.innerText = data.newsSummary;
             }
+            */
 
             const probBars = pricesToBars(data.chartData, 16);
             if (probBars.length) renderMiniChart('probChart', probBars, '');
