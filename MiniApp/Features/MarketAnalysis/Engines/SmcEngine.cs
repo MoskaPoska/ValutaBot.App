@@ -112,3 +112,4 @@ public static class SmcEngine
         return new MtfSmcValidationResult(true, 1.0, "NEUTRAL");
     }
 }
+

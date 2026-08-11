@@ -306,3 +306,4 @@ public class ConfluenceMatrixEngine(
         return new ConsensusDecision(candidateDir, candidateDir, probability, combinedReasoning, totalScore);
     }
 }
+

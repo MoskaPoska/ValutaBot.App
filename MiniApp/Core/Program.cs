@@ -130,7 +130,7 @@ internal static class Program
             
             // Test weekend fallback for EUR/USD
             Console.WriteLine("Fetching EUR/USD (simulated weekend fallback)...");
-            var res = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, ta, ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine, new MonteCarloEngine()).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("EUR/USD OTC", "m1"), System.Threading.CancellationToken.None);
+            var res = await new ValutaBot.MiniApp.Features.MarketAnalysis.MarketAnalysisOrchestrator(new MarketDataFetcher(), ta, ta, ta, cmEngine, wfEngine, aeEngine, new MonteCarloEngine(), Microsoft.Extensions.Options.Options.Create(new ValutaBot.MiniApp.TradingBotSettings())).ExecuteAnalysisAsync("EUR/USD OTC", "m1");
             string resJson = JsonSerializer.Serialize(res, options);
             
             Assert("EUR/USD OTC fetching", resJson.Contains("direction") && !resJson.Contains("error"));
@@ -148,7 +148,7 @@ internal static class Program
                 BotLogger.Info("[Crash Test] Forced WebSocket socket disconnection executed successfully.");
 
                 // Request market analysis immediately after forced disconnect
-                var fallbackRes = await new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(ta, ta, ta, new MarketDataFetcher(), wfEngine, cmEngine, aeEngine, new MonteCarloEngine()).Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery("BTC/USDT OTC", "m1"), System.Threading.CancellationToken.None);
+                var fallbackRes = await new ValutaBot.MiniApp.Features.MarketAnalysis.MarketAnalysisOrchestrator(new MarketDataFetcher(), ta, ta, ta, cmEngine, wfEngine, aeEngine, new MonteCarloEngine(), Microsoft.Extensions.Options.Options.Create(new ValutaBot.MiniApp.TradingBotSettings())).ExecuteAnalysisAsync("BTC/USDT OTC", "m1");
                 string fallbackJson = JsonSerializer.Serialize(fallbackRes, options);
 
                 Assert("Post-Disconnect Fallback Resilience", fallbackJson.Contains("direction") && !fallbackJson.Contains("error"), "System seamlessly switched to REST fallback upon socket disconnect");

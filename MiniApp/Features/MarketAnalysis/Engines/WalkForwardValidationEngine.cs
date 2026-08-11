@@ -117,3 +117,4 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
         DateTime CooloffUntil = default
     );
 }
+

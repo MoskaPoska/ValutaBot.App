@@ -42,3 +42,4 @@ public record ConsensusDecision(
     double FinalTotalScore,
     string RecommendedExpiryText = ""
 );
+

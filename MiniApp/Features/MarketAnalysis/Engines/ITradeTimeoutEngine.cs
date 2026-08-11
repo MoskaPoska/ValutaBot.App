@@ -10,3 +10,4 @@ public interface ITradeTimeoutEngine
         SmcEngine.SmcAnalysisResult smc,
         double currentPrice);
 }
+

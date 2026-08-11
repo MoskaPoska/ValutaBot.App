@@ -1,4 +1,4 @@
-﻿namespace ValutaBot.MiniApp;
+namespace ValutaBot.MiniApp;
 
 public class TradingBotSettings
 {
@@ -7,4 +7,8 @@ public class TradingBotSettings
     public int FastFailTimeoutSeconds { get; set; } = 1;
     public int HttpRetryDelayMs { get; set; } = 500;
     public int MaxHttpRetries { get; set; } = 1;
+
+    public bool EnableMachineLearning { get; set; } = true;
+    public bool EnableSmc { get; set; } = true;
+    public bool EnableOrderFlow { get; set; } = true;
 }

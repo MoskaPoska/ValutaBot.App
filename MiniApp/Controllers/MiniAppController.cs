@@ -20,19 +20,6 @@ public static partial class MiniAppController
 {
     private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
 
-    // C1 FIX: Shared singleton instances — state persists across requests
-    // (AutoCalibration EMA weights, WFE drawdown cooloff, IndicatorCache incremental updates)
-    private static readonly TechnicalAnalysisEngine _sharedTaEngine = new();
-    private static readonly MarketDataFetcher _sharedFetcher = new();
-    private static readonly WalkForwardValidationEngine _sharedWfEngine = new();
-    private static readonly AutoCalibrationEngine _sharedAutoCalib = new();
-    private static readonly TradeTimeoutEngine _sharedTimeoutEngine = new();
-    private static readonly MonteCarloEngine _sharedMcEngine = new();
-
-    // Expose for TradeOutcomeTracker to restore calibration state on startup
-    public static AutoCalibrationEngine SharedAutoCalib => _sharedAutoCalib;
-    public static WalkForwardValidationEngine SharedWfEngine => _sharedWfEngine;
-
     public static string? LastExceptionMessage { get; set; }
 
     public record OhlcCandle(double Open, double High, double Low, double Close, double Volume, DateTime Timestamp = default);
@@ -50,6 +37,25 @@ public static partial class MiniAppController
         
         var botSettings = builder.Configuration.GetSection("TradingBotSettings").Get<TradingBotSettings>() ?? new TradingBotSettings();
         builder.Services.Configure<TradingBotSettings>(builder.Configuration.GetSection("TradingBotSettings"));
+
+        // Register Engines and Services in DI
+        builder.Services.AddSingleton<MarketDataFetcher>();
+        builder.Services.AddSingleton<TechnicalAnalysisEngine>();
+        builder.Services.AddSingleton<ITechnicalAnalysisEngine>(sp => sp.GetRequiredService<TechnicalAnalysisEngine>());
+        builder.Services.AddSingleton<IMathEngine>(sp => sp.GetRequiredService<TechnicalAnalysisEngine>());
+        builder.Services.AddSingleton<IMarketAnalyzer>(sp => sp.GetRequiredService<TechnicalAnalysisEngine>());
+        builder.Services.AddSingleton<IRiskGatekeeper>(sp => sp.GetRequiredService<TechnicalAnalysisEngine>());
+        builder.Services.AddSingleton<IWalkForwardValidationEngine, WalkForwardValidationEngine>();
+        builder.Services.AddSingleton<IAutoCalibrationEngine, AutoCalibrationEngine>();
+        builder.Services.AddSingleton<IConfluenceMatrixEngine, ConfluenceMatrixEngine>();
+        builder.Services.AddSingleton<TradeTimeoutEngine>();
+        builder.Services.AddSingleton<ITradeTimeoutEngine>(sp => sp.GetRequiredService<TradeTimeoutEngine>());
+        builder.Services.AddSingleton<MonteCarloEngine>();
+        builder.Services.AddSingleton<IMonteCarloEngine>(sp => sp.GetRequiredService<MonteCarloEngine>());
+        
+        // Register CQRS Handlers
+        builder.Services.AddTransient<ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler>();
+        builder.Services.AddTransient<ValutaBot.MiniApp.Features.MarketAnalysis.IMarketAnalysisOrchestrator, ValutaBot.MiniApp.Features.MarketAnalysis.MarketAnalysisOrchestrator>();
 
         builder.Services.AddCors(options =>
         {
@@ -137,13 +143,12 @@ public static partial class MiniAppController
         // Init LightGBM Python ML microservice URL
         MLPythonService.Init(builder.Configuration["MLService:BaseUrl"] ?? Environment.GetEnvironmentVariable("ML_SERVICE_URL") ?? "http://localhost:8765");
 
-        // C1 FIX: Inject shared singleton engines into TradeOutcomeTracker for production
-        // (previously only set in RunLocalTests, causing all online RL to be NOP in production)
-        TradeOutcomeTracker.CalibrationEngine = _sharedAutoCalib;
-        TradeOutcomeTracker.WfEngine = _sharedWfEngine;
-
         builder.Environment.WebRootPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "MiniApp", "wwwroot");
         var app = builder.Build();
+        
+        TradeOutcomeTracker.CalibrationEngine = app.Services.GetRequiredService<IAutoCalibrationEngine>();
+        TradeOutcomeTracker.WfEngine = app.Services.GetRequiredService<IWalkForwardValidationEngine>();
+
         HttpFactory = app.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>();
         app.UseStaticFiles();
         app.UseCors("AllowMiniApp");
@@ -202,12 +207,8 @@ public static partial class MiniAppController
 
             try
             {
-                // C1 FIX: Reuse shared singleton engines — state persists between requests
-                var handler = new ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler(
-                    _sharedTaEngine, _sharedTaEngine, _sharedTaEngine,
-                    _sharedFetcher, _sharedWfEngine,
-                    new ConfluenceMatrixEngine(_sharedFetcher, _sharedTaEngine, Microsoft.Extensions.Options.Options.Create(botSettings)),
-                    _sharedTimeoutEngine, _sharedMcEngine);
+                // C1 FIX: Reuse shared singleton engines from DI
+                var handler = context.RequestServices.GetRequiredService<ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler>();
                 var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
                 // Serialize manually to catch float.NaN or reference errors during serialization
                 var options = new JsonSerializerOptions

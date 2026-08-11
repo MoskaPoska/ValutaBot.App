@@ -10,3 +10,4 @@ public interface IWalkForwardValidationEngine
 
     void RecordTradeOutcome(string asset, string timeframe, bool isWin);
 }
+

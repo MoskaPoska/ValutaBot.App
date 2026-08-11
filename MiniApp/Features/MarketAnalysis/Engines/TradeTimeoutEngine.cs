@@ -70,3 +70,4 @@ public class TradeTimeoutEngine : ITradeTimeoutEngine
         return new TimeoutResult(baseCandles, timeoutText, reasoning);
     }
 }
+
