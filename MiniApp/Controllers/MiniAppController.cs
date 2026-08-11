@@ -43,7 +43,7 @@ public static partial class MiniAppController
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             Args = args,
-            WebRootPath = "MiniApp/wwwroot"
+            WebRootPath = System.IO.Path.Combine(AppContext.BaseDirectory, "MiniApp", "wwwroot")
         });
         
         var botSettings = builder.Configuration.GetSection("TradingBotSettings").Get<TradingBotSettings>() ?? new TradingBotSettings();
@@ -154,7 +154,7 @@ public static partial class MiniAppController
         // Init LightGBM Python ML microservice URL
         MLPythonService.Init(builder.Configuration["MLService:BaseUrl"] ?? Environment.GetEnvironmentVariable("ML_SERVICE_URL") ?? "http://localhost:8765");
 
-        builder.Environment.WebRootPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "MiniApp", "wwwroot");
+        builder.Environment.WebRootPath = System.IO.Path.Combine(AppContext.BaseDirectory, "MiniApp", "wwwroot");
         var app = builder.Build();
         
         TradeOutcomeTracker.CalibrationEngine = app.Services.GetRequiredService<IAutoCalibrationEngine>();
