@@ -212,21 +212,40 @@ public static partial class MiniAppController
             if (string.IsNullOrWhiteSpace(asset) || string.IsNullOrWhiteSpace(timeframe))
                 return Results.Json(new { error = "asset and timeframe are required" });
 
+            long userId = 0;
+            if (context.Items["userId"] is long uid) userId = uid;
+
+            var userSettings = await ValutaBot.App.MiniApp.Data.Repositories.UserRepository.GetSettingsAsync(userId);
+
             string cleanAsset = AssetSanitizer.Sanitize(asset);
             string tf = timeframe.ToLower().Trim();
-            Console.WriteLine($"[ANALYZE] {cleanAsset} | TF: {timeframe}");
+            Console.WriteLine($"[ANALYZE] {cleanAsset} | TF: {timeframe} | User: {userId}");
 
             try
             {
-                // C1 FIX: Reuse shared singleton engines from DI
                 var handler = context.RequestServices.GetRequiredService<ValutaBot.MiniApp.CQRS.Handlers.GetMarketAnalysisQueryHandler>();
-                var result = await handler.Handle(new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf), context.RequestAborted);
-                // Serialize manually to catch float.NaN or reference errors during serialization
+                var query = new ValutaBot.MiniApp.CQRS.Queries.GetMarketAnalysisQuery(cleanAsset, tf);
+                query.UserSettings = userSettings; // Pass settings to the query
+                
+                var result = await handler.Handle(query, context.RequestAborted);
+                
+                // Add config to the result for the frontend
+                var finalResult = new
+                {
+                    result = result,
+                    config = new 
+                    {
+                        ml = userSettings.EnableMl,
+                        smc = userSettings.EnableSmc,
+                        of = userSettings.EnableOf
+                    }
+                };
+
                 var options = new JsonSerializerOptions
                 {
                     NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
                 };
-                var json = JsonSerializer.Serialize(result, options);
+                var json = JsonSerializer.Serialize(finalResult, options);
                 return Results.Content(json, "application/json", Encoding.UTF8);
             }
             catch (Exception ex)

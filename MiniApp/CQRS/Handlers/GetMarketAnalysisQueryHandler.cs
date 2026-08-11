@@ -17,6 +17,6 @@ public class GetMarketAnalysisQueryHandler : IRequestHandler<GetMarketAnalysisQu
 
     public async Task<object> Handle(GetMarketAnalysisQuery request, CancellationToken cancellationToken)
     {
-        return await _orchestrator.ExecuteAnalysisAsync(request.Asset, request.Timeframe);
+        return await _orchestrator.ExecuteAnalysisAsync(request.Asset, request.Timeframe, request.UserSettings);
     }
 }

@@ -105,7 +105,14 @@ export async function executeAnalysis() {
                 'X-Telegram-Init-Data': tg && tg.initData ? tg.initData : getCustomInitData()
             }
         });
-        const data = await res.json();
+        const rawData = await res.json();
+        
+        let data = rawData;
+        let config = null;
+        if (rawData.result && rawData.config) {
+            data = rawData.result;
+            config = rawData.config;
+        }
 
         const elapsed = Date.now() - startTime;
         const remainingDelay = Math.max(0, 2000 - elapsed);
@@ -122,6 +129,18 @@ export async function executeAnalysis() {
                 const debugMsg = `• Длина токена: ${tg && tg.initData ? tg.initData.length : 0}\n• Платформа: ${tg ? tg.platform : 'unknown'}\n• Адрес: ${window.location.href}`;
                 renderError(data.error, debugMsg);
                 return;
+            }
+            
+            // Apply config to UI elements
+            if (config) {
+                const mlCard = document.getElementById('mlEnsembleCard');
+                if (mlCard) mlCard.style.display = config.ml ? 'block' : 'none';
+                
+                const smcCard = document.getElementById('smcCard');
+                if (smcCard) smcCard.style.display = config.smc ? 'block' : 'none';
+                
+                const ofCard = document.getElementById('orderFlowCard');
+                if (ofCard) ofCard.style.display = config.of ? 'block' : 'none';
             }
 
             const resDir = document.getElementById('resDir');
@@ -176,7 +195,7 @@ export async function executeAnalysis() {
             // ML Ensemble Card
             if (data.llmReport && !data.llmReport.includes('Оффлайн')) {
                 const mlCard = document.getElementById('mlEnsembleCard');
-                if (mlCard) mlCard.style.display = 'block';
+                if (mlCard) mlCard.style.display = (config && config.ml === false) ? 'none' : 'block';
                 const badge = document.getElementById('mlEnsembleBadge');
                 const isEnabled = data.lgbmModelVersion && data.lgbmModelVersion !== 'disabled';
                 if (badge) {
@@ -188,7 +207,11 @@ export async function executeAnalysis() {
                     dir.innerText = data.lgbmDirection === 'BUY' ? 'ВВЕРХ' : data.lgbmDirection === 'PUT' ? 'ВНИЗ' : '—';
                     dir.style.color = data.lgbmDirection === 'BUY' ? '#a78bfa' : data.lgbmDirection === 'PUT' ? '#f472b6' : 'var(--subtext)';
                 }
-                const rep = document.getElementById('mlEnsembleReport');
+                const conf = document.getElementById('mlEnsembleConf');
+                if (conf && data.lgbmConfidence) {
+                    conf.innerText = (data.lgbmConfidence * 100).toFixed(0) + '%';
+                }
+                const rep = document.getElementById('llmReportContent');
                 if (rep) {
                     rep.innerHTML = parseMd(data.llmReport);
                 }

@@ -114,6 +114,13 @@ namespace ValutaBot.App.MiniApp.Data
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    chat_id BIGINT PRIMARY KEY,
+                    enable_ml BOOLEAN DEFAULT false,
+                    enable_smc BOOLEAN DEFAULT true,
+                    enable_of BOOLEAN DEFAULT true
+                );
+
                 ALTER TABLE allowed_users ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT '';
                 ALTER TABLE all_users ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT '';
             ");

@@ -191,7 +191,7 @@ public partial class TelegramBotService : BackgroundService
         }
     }
 
-    private static async Task SendMessageWithKeyboard(string token, long chatId, string text, object keyboard)
+    internal static async Task SendMessageWithKeyboard(string token, long chatId, string text, object keyboard)
     {
         try
         {
@@ -211,7 +211,7 @@ public partial class TelegramBotService : BackgroundService
         }
     }
 
-    private static async Task EditMessageText(string token, long chatId, int messageId, string text)
+    internal static async Task EditMessageText(string token, long chatId, int messageId, string text)
     {
         var client = TelegramNotifier.GetBotClient() ?? new TelegramBotClient(token);
         try
@@ -221,6 +221,26 @@ public partial class TelegramBotService : BackgroundService
         catch (Exception ex)
         {
             Console.WriteLine($"[TG Bot] editMessageText SDK exception: {ex.Message}");
+        }
+    }
+
+    internal static async Task EditMessageTextWithKeyboard(string token, long chatId, int messageId, string text, object keyboard)
+    {
+        try
+        {
+            var payload = new { chat_id = chatId, message_id = messageId, text, parse_mode = "HTML", reply_markup = keyboard };
+            var json = JsonSerializer.Serialize(payload);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var resp = await MiniAppController.HttpFactory!.CreateClient("Telegram").PostAsync($"https://api.telegram.org/bot{token}/editMessageText", content);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                Console.WriteLine($"[TG Bot] editMessageTextWithKeyboard error: {err}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TG Bot] editMessageTextWithKeyboard exception: {ex.Message}");
         }
     }
 

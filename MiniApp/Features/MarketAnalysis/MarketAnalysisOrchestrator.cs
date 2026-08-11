@@ -91,10 +91,33 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
         return 1.0;
     }
 
-    public async Task<object> ExecuteAnalysisAsync(string asset, string timeframe)
+    private ValutaBot.App.MiniApp.Data.Repositories.UserSettings? _userSettings;
+
+    private bool IsSettingEnabled(bool globalSetting, bool? userSetting)
+    {
+        if (userSetting.HasValue) return userSetting.Value;
+        return globalSetting;
+    }
+
+    private double GetSafeLimit(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value)) return 0;
+        if (value > 1e6) return 1e6;
+        if (value < -1e6) return -1e6;
+        return value;
+    }
+
+    private double GetSafePenalty(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || value <= 0) return 1.0;
+        return value;
+    }
+
+    public async Task<object> ExecuteAnalysisAsync(string asset, string timeframe, ValutaBot.App.MiniApp.Data.Repositories.UserSettings? userSettings = null)
     {
         _asset = asset;
         _timeframe = timeframe;
+        _userSettings = userSettings;
         try
         {
             await InitializeDataAsync();
@@ -200,7 +223,7 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
 
     private async Task AnalyzeCoreMechanicsAsync()
     {
-        if (_settings.EnableSmc)
+        if (IsSettingEnabled(_settings.EnableSmc, _userSettings?.EnableSmc))
         {
             _smcResult = SmcEngine.AnalyzeSmcStructure(_asset, _mainInterval, _ohlcCandles ?? Array.Empty<MiniAppController.OhlcCandle>(), _mainPrices[^1]);
             BotLogger.Info($"[SMC Engine] Asset {_asset} ({_timeframe}): SMC Zones updated.");
@@ -210,7 +233,7 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
             _smcResult = new SmcEngine.SmcAnalysisResult();
         }
 
-        if (_settings.EnableOrderFlow)
+        if (IsSettingEnabled(_settings.EnableOrderFlow, _userSettings?.EnableOf))
         {
             _orderFlowResult = OrderFlowEngine.AnalyzeOrderFlow(_asset, _mainInterval, _ohlcCandles ?? Array.Empty<MiniAppController.OhlcCandle>(), _mainPrices[^1]);
             BotLogger.Info($"[Order Flow] Asset {_asset} ({_timeframe}): {_orderFlowResult.Description}");
@@ -223,7 +246,7 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
 
     private async Task FetchMachineLearningAsync()
     {
-        if (!_settings.EnableMachineLearning)
+        if (!IsSettingEnabled(_settings.EnableMachineLearning, _userSettings?.EnableMl))
         {
             _lgbmDirection = "NEUTRAL";
             _lgbmConfidence = 0.5;

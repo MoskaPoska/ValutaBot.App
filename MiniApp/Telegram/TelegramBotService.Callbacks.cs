@@ -141,5 +141,27 @@ public partial class TelegramBotService
 
             await EditMessageText(token, chatId, messageId, updatedText);
         }
+        else if (data.StartsWith("toggle_"))
+        {
+            string settingType = data.Replace("toggle_", "");
+            await UserRepository.ToggleSettingAsync(chatId, settingType);
+            
+            var settings = await UserRepository.GetSettingsAsync(chatId);
+            
+            var inlineKeyboard = new
+            {
+                inline_keyboard = new object[]
+                {
+                    new object[] { new { text = $"{(settings.EnableMl ? "🟢" : "🔴")} Нейросети (ИИ)", callback_data = "toggle_ml" } },
+                    new object[] { new { text = $"{(settings.EnableSmc ? "🟢" : "🔴")} SMC Структура", callback_data = "toggle_smc" } },
+                    new object[] { new { text = $"{(settings.EnableOf ? "🟢" : "🔴")} Order Flow", callback_data = "toggle_of" } }
+                }
+            };
+
+            string text = "⚙️ <b>Настройки анализатора</b>\n\nВключайте или отключайте модули анализа. Отключенные модули не будут отображаться в интерфейсе.";
+
+            await EditMessageTextWithKeyboard(token, chatId, messageId, text, inlineKeyboard);
+            await AnswerCallbackQuery(token, queryId, "Настройки обновлены!");
+        }
     }
 }

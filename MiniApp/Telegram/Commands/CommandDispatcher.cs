@@ -11,6 +11,7 @@ namespace ValutaBot.App.MiniApp.Telegram.Commands
         {
             new StartCommand(),
             new HelpCommand(),
+            new SettingsCommand(),
             new AdminStatsCommand(),
             new AdminAccessCommand(),
             new AdminAddUserCommand(),

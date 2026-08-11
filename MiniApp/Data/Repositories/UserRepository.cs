@@ -102,5 +102,47 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
             using var conn = DbConnectionFactory.GetConnection();
             await conn.ExecuteAsync("INSERT INTO all_users (chat_id, created_at) VALUES (@chatId, @now) ON CONFLICT (chat_id) DO NOTHING", new { chatId, now = DateTime.UtcNow.ToString("o") });
         }
+
+        public static async Task<UserSettings> GetSettingsAsync(long chatId)
+        {
+            if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return new UserSettings();
+            using var conn = DbConnectionFactory.GetConnection();
+            var settings = await conn.QueryFirstOrDefaultAsync<UserSettings>(
+                "SELECT enable_ml as EnableMl, enable_smc as EnableSmc, enable_of as EnableOf FROM user_settings WHERE chat_id = @chatId", 
+                new { chatId });
+            
+            if (settings == null)
+            {
+                settings = new UserSettings();
+                await conn.ExecuteAsync(
+                    "INSERT INTO user_settings (chat_id, enable_ml, enable_smc, enable_of) VALUES (@chatId, @EnableMl, @EnableSmc, @EnableOf)",
+                    new { chatId, settings.EnableMl, settings.EnableSmc, settings.EnableOf });
+            }
+            return settings;
+        }
+
+        public static async Task ToggleSettingAsync(long chatId, string settingType)
+        {
+            if (string.IsNullOrEmpty(DbConnectionFactory.GetConnectionString())) return;
+            using var conn = DbConnectionFactory.GetConnection();
+            var settings = await GetSettingsAsync(chatId); // ensures row exists
+
+            string column = settingType switch
+            {
+                "ml" => "enable_ml",
+                "smc" => "enable_smc",
+                "of" => "enable_of",
+                _ => throw new ArgumentException("Unknown setting type")
+            };
+
+            await conn.ExecuteAsync($"UPDATE user_settings SET {column} = NOT {column} WHERE chat_id = @chatId", new { chatId });
+        }
+    }
+
+    public class UserSettings
+    {
+        public bool EnableMl { get; set; } = false;
+        public bool EnableSmc { get; set; } = true;
+        public bool EnableOf { get; set; } = true;
     }
 }
