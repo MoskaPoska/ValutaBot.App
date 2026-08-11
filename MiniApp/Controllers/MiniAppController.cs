@@ -29,7 +29,14 @@ public static partial class MiniAppController
     public static void Start(string[] args, int port = 5000)
     {
         Console.WriteLine("=====================================================");
-        Console.WriteLine("[Live Core] TradeBE_bot вЂ” MiniApp Server");
+        Console.WriteLine("[Live Core] TradeBE_bot — MiniApp Server");
+
+        string? envPort = Environment.GetEnvironmentVariable("PORT");
+        if (!string.IsNullOrEmpty(envPort) && int.TryParse(envPort, out int parsedPort))
+        {
+            port = parsedPort;
+        }
+
         Console.WriteLine($"[+] Port: {port}");
         Console.WriteLine("=====================================================");
 
@@ -92,7 +99,7 @@ public static partial class MiniAppController
         builder.Services.AddHttpClient("FNG").AddStandardResilienceHandler();
         builder.Services.AddHttpClient("MLPythonService").AddStandardResilienceHandler(options =>
         {
-            options.Retry.MaxRetryAttempts = 0;
+            options.Retry.MaxRetryAttempts = 1;
             options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(botSettings.FastFailTimeoutSeconds);
             options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(botSettings.FastFailTimeoutSeconds);
         });

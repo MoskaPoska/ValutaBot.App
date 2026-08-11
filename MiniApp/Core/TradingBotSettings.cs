@@ -11,4 +11,5 @@ public class TradingBotSettings
     public bool EnableMachineLearning { get; set; } = true;
     public bool EnableSmc { get; set; } = true;
     public bool EnableOrderFlow { get; set; } = true;
+    public bool EnableAutoCalibration { get; set; } = true;
 }
