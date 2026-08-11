@@ -40,7 +40,11 @@ public static partial class MiniAppController
         Console.WriteLine($"[+] Port: {port}");
         Console.WriteLine("=====================================================");
 
-        var builder = WebApplication.CreateBuilder(args);
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = args,
+            WebRootPath = "MiniApp/wwwroot"
+        });
         
         var botSettings = builder.Configuration.GetSection("TradingBotSettings").Get<TradingBotSettings>() ?? new TradingBotSettings();
         builder.Services.Configure<TradingBotSettings>(builder.Configuration.GetSection("TradingBotSettings"));
