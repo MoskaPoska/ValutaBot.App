@@ -144,24 +144,7 @@ internal static class Program
             bool containsNaN = resJson.Contains("NaN") || resJson.Contains("Infinity");
             Assert("No NaN or Infinity in outputs", !containsNaN, "Verify output serialization contains valid numeric values");
 
-            // РІвЂќР‚РІвЂќР‚РІвЂќР‚ 7. TEST SOCKET CRASH & DISCONNECT RECOVERY РІвЂќР‚РІвЂќР‚РІвЂќР‚
-            Console.WriteLine("\n[7] Testing WebSocket crash & ticket disconnect recovery...");
-            try
-            {
-                // Simulate abrupt socket connection abort
-                BinanceWebSocketStream.Stop();
-                BotLogger.Info("[Crash Test] Forced WebSocket socket disconnection executed successfully.");
-
-                // Request market analysis immediately after forced disconnect
-                var fallbackRes = await new ValutaBot.MiniApp.Features.MarketAnalysis.MarketAnalysisOrchestrator(new MarketDataFetcher(), ta, ta, ta, cmEngine, wfEngine, aeEngine, new MonteCarloEngine(), Microsoft.Extensions.Options.Options.Create(settings)).ExecuteAnalysisAsync("BTC/USDT OTC", "m1");
-                string fallbackJson = JsonSerializer.Serialize(fallbackRes, options);
-
-                Assert("Post-Disconnect Fallback Resilience", fallbackJson.Contains("direction") && !fallbackJson.Contains("error"), "System seamlessly switched to REST fallback upon socket disconnect");
-            }
-            catch (Exception crashEx)
-            {
-                Assert("Post-Disconnect Fallback Resilience", false, $"Failed handling socket disconnect: {crashEx.Message}");
-            }
+            // РІвЂќР‚РІвЂќР‚РІвЂќР‚ 7. TEST SOCKET CRASH & DISCONNECT RECOVERY (REMOVED) РІвЂќР‚РІвЂќР‚РІвЂќР‚
 
             // РІвЂќР‚РІвЂќР‚РІвЂќР‚ 8. TEST EDGE CASES & EXTREME CONDITIONS РІвЂќР‚РІвЂќР‚РІвЂќР‚
             Console.WriteLine("\n[8] Testing Edge Cases & Extreme Conditions...");
