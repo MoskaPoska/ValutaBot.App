@@ -64,7 +64,7 @@ public static partial class TwelveDataService
             string tdInterval = ConvertInterval(interval) ?? "";
             if (string.IsNullOrEmpty(symbol) || string.IsNullOrEmpty(tdInterval)) return null;
 
-            string url = $"https://api.twelvedata.com/time_series?symbol={Uri.EscapeDataString(symbol)}&interval={tdInterval}&outputsize={limit}&apikey={apiKey}";
+            string url = $"https://api.twelvedata.com/time_series?symbol={Uri.EscapeDataString(symbol)}&interval={tdInterval}&outputsize={limit}&timezone=UTC&apikey={apiKey}";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.UserAgent.ParseAdd("ValutaBot/1.0");
 
@@ -90,7 +90,7 @@ public static partial class TwelveDataService
 
             var arr = doc.Values.Where(x => x != null).ToList();
             int count = arr.Count;
-            if (count < 10)
+            if (count < Math.Min(limit, 10) && count == 0)
             {
                 if (_memoryCache.TryGetValue(key, out (double[] prices, double[] volumes, MiniAppController.OhlcCandle[] candles) lastData))
                 {
@@ -111,7 +111,7 @@ public static partial class TwelveDataService
                 
                 prices[revIdx] = v.Close;
                 volumes[revIdx] = v.Volume;
-                ohlc[revIdx] = new MiniAppController.OhlcCandle(v.Open, v.High, v.Low, v.Close, v.Volume, string.IsNullOrEmpty(v.Datetime) ? DateTime.UtcNow.AddMinutes(revIdx - count) : DateTime.Parse(v.Datetime));
+                ohlc[revIdx] = new MiniAppController.OhlcCandle(v.Open, v.High, v.Low, v.Close, v.Volume, string.IsNullOrEmpty(v.Datetime) ? DateTime.UtcNow.AddMinutes(revIdx - count) : DateTime.SpecifyKind(DateTime.Parse(v.Datetime), DateTimeKind.Utc));
             }
 
             if (cacheTtlSeconds > 0)

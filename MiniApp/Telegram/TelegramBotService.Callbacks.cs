@@ -158,7 +158,7 @@ public partial class TelegramBotService
                 }
             };
 
-            string text = "⚙️ <b>Настройки анализатора</b>\n\nВключайте или отключайте модули анализа. Отключенные модули не будут отображаться в интерфейсе.";
+            string text = "⚙️ <b>Настройки</b>\n\nОтключенные модули скрыты из интерфейса и не тратят ресурсы сервера.";
 
             await EditMessageTextWithKeyboard(token, chatId, messageId, text, inlineKeyboard);
             await AnswerCallbackQuery(token, queryId, "Настройки обновлены!");

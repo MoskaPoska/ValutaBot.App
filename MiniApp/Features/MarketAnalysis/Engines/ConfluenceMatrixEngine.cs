@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
@@ -299,22 +299,22 @@ public class ConfluenceMatrixEngine(
 
         // 6. Reasoning text
         string modelAccText = mlSignal.Accuracy.HasValue
-            ? $" [РўРѕС‡РЅРѕСЃС‚СЊ: {Math.Round(mlSignal.Accuracy.Value * 100, 1)}%]"
+            ? $" [Точность: {Math.Round(mlSignal.Accuracy.Value * 100, 1)}%]"
             : "";
 
         string smcText = !string.IsNullOrEmpty(smcSignal.Reasoning)
-            ? $"\u2022 \U0001f6e1\ufe0f SMC РЎС‚СЂСѓРєС‚СѓСЂР°: {smcSignal.Reasoning}"
-            : "\u2022 \U0001f6e1\ufe0f SMC РЎС‚СЂСѓРєС‚СѓСЂР°: Р‘Р°Р»Р°РЅСЃРѕРІР°СЏ РєРѕРЅСЃРѕР»РёРґР°С†РёСЏ РґРёР°РїР°Р·РѕРЅР°";
+            ? $"\u2022 \U0001f6e1\ufe0f SMC Структура: {smcSignal.Reasoning}"
+            : "\u2022 \U0001f6e1\ufe0f SMC Структура: недостаточно данных";
 
         string flowText = !string.IsNullOrEmpty(ofSignal.Description)
             ? $"\u2022 \U0001f30a Order Flow & CVD: {ofSignal.Description}"
-            : "\u2022 \U0001f30a Order Flow & CVD: РџРѕС‚РѕРє РѕСЂРґРµСЂРѕРІ СЃР±Р°Р»Р°РЅСЃРёСЂРѕРІР°РЅ";
+            : "\u2022 \U0001f30a Order Flow & CVD: нет выраженных объемов";
 
         string lgbmText = !string.IsNullOrEmpty(mlSignal.Direction) && mlSignal.Direction != "NEUTRAL"
-            ? $"\u2022 \u26a1 РќРµР№СЂРѕСЃРµС‚СЊ (LightGBM): {(mlSignal.Direction == "BUY" ? "Р’Р’Р•Р РҐ \u2b06" : "Р’РќРР— \u2b07")} ({Math.Round(mlSignal.Confidence * 100)}% СѓРІРµСЂРµРЅРЅРѕСЃС‚СЊ){modelAccText}"
+            ? $"\u2022 \u26a1 Нейросеть (LightGBM): {(mlSignal.Direction == "BUY" ? "ВВЕРХ \u2b06" : "ВНИЗ \u2b07")} ({Math.Round(mlSignal.Confidence * 100)}% уверенности){modelAccText}"
             : (mlSignal.ModelVersion == "disabled" 
-                ? $"\u2022 \u26a1 РќРµР№СЂРѕСЃРµС‚СЊ (LightGBM): РћС‚РєР»СЋС‡РµРЅР° РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј"
-                : $"\u2022 \u26a1 РќРµР№СЂРѕСЃРµС‚СЊ (LightGBM): РќР•Р™РўР РђР›Р¬РќРћ (0% СѓРІРµСЂРµРЅРЅРѕСЃС‚СЊ){modelAccText}");
+                ? $"\u2022 \u26a1 Нейросеть (LightGBM): Отключена пользователем"
+                : $"\u2022 \u26a1 Нейросеть (LightGBM): НЕЙТРАЛЬНО (0% уверенности){modelAccText}");
 
         string combinedReasoning = $"{smcText}\n{flowText}\n{lgbmText}";
 
