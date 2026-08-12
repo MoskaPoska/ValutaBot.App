@@ -84,9 +84,9 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
                     Asset = r.Asset,
                     Timeframe = r.Timeframe,
                     Direction = r.Direction,
-                    EntryPrice = (double)r.EntryPrice,
-                    ExitPrice = (double)r.ExitPrice,
-                    PnlBps = (double)r.PnlBps,
+                    EntryPrice = r.EntryPrice != null ? Convert.ToDouble(r.EntryPrice) : 0.0,
+                    ExitPrice = r.ExitPrice != null ? Convert.ToDouble(r.ExitPrice) : 0.0,
+                    PnlBps = r.PnlBps != null ? Convert.ToDouble(r.PnlBps) : 0.0,
                     WasWin = Convert.ToBoolean(r.WasWin),
                     CreatedAt = r.CreatedAt ?? "",
                     VerifiedAt = r.VerifiedAt ?? ""
@@ -141,10 +141,10 @@ namespace ValutaBot.App.MiniApp.Data.Repositories
                 Asset = r.Asset,
                 Timeframe = r.Timeframe,
                 BinanceSymbol = r.BinanceSymbol,
-                EntryPrice = (double)r.EntryPrice,
+                EntryPrice = r.EntryPrice != null ? Convert.ToDouble(r.EntryPrice) : 0.0,
                 CreatedAt = DateTime.Parse(r.CreatedAtStr).ToUniversalTime(),
                 VerifyAt = DateTime.Parse(r.VerifyAtStr).ToUniversalTime(),
-                IsForex = (bool)r.IsForex,
+                IsForex = r.IsForex != null ? Convert.ToBoolean(r.IsForex) : false,
                 SourceDirections = System.Text.Json.JsonSerializer.Deserialize(r.SourceDirectionsStr, ValutaBotJsonContext.Default.DictionaryStringString) ?? new Dictionary<string, string>()
             }).ToList();
         }
