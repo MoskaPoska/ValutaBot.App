@@ -105,7 +105,13 @@ public static partial class MiniAppController
         {
             options.Retry.MaxRetryAttempts = 1;
             options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(botSettings.FastFailTimeoutSeconds);
-            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(botSettings.FastFailTimeoutSeconds);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(botSettings.FastFailTimeoutSeconds + 1);
+            // Circuit Breaker: открывается после 3 отказов подряд, закрывается через 30 секунд.
+            // До этого фикса: дефолтный порог = 10 отказов, что при 10 пользователях = 10 секунд ожидания.
+            options.CircuitBreaker.SamplingDuration          = TimeSpan.FromSeconds(15);
+            options.CircuitBreaker.MinimumThroughput         = 3;
+            options.CircuitBreaker.FailureRatio              = 0.5;  // 50% отказов в окне = открыть
+            options.CircuitBreaker.BreakDuration             = TimeSpan.FromSeconds(30);
         });
         builder.Services.AddHttpClient("Telegram", client => 
         {
@@ -161,6 +167,9 @@ public static partial class MiniAppController
         TradeOutcomeTracker.WfEngine = app.Services.GetRequiredService<IWalkForwardValidationEngine>();
 
         HttpFactory = app.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>();
+
+        // Запускаем фоновый зонд измерения RTT до Binance для динамической компенсации задержки
+        LatencyProbe.StartBackground(HttpFactory, app.Lifetime.ApplicationStopping);
         app.UseStaticFiles();
         app.UseCors("AllowMiniApp");
         
@@ -229,7 +238,7 @@ public static partial class MiniAppController
                 
                 var result = await handler.Handle(query, context.RequestAborted);
                 
-                // Add config to the result for the frontend
+                // Add config and latency compensation data to the result for the frontend
                 var finalResult = new
                 {
                     result = result,
@@ -238,7 +247,12 @@ public static partial class MiniAppController
                         ml = userSettings.EnableMl,
                         smc = userSettings.EnableSmc,
                         of = userSettings.EnableOf
-                    }
+                    },
+                    // Pre-execution latency compensation:
+                    // Фронтенд использует эти значения для таймера упреждения.
+                    // Формула: открыть сделку за send_at_offset_ms до закрытия свечи.
+                    latency_ms = (int)Math.Round(LatencyProbe.LastRttMs),
+                    send_at_offset_ms = LatencyProbe.SendAtOffsetMs
                 };
 
                 var options = new JsonSerializerOptions

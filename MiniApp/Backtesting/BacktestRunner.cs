@@ -110,12 +110,12 @@ namespace ValutaBot.App.MiniApp.Backtesting
                 var regime = calibOn.DetectMarketRegime(20, volRatio, rsiVal, closePrices.AsSpan());
                 string regimeName = regime.ToString();
 
-                // ── Walk-Forward guard (CalibON) ─────────────────────────────
-                var wfResultOn = wfOn.ValidateWalkForward(Asset, timeframe, closePrices);
+                // Walk-Forward guard (CalibON)
+                var wfResultOn = wfOn.ValidateWalkForward(Asset, timeframe);
                 bool cooloffOn = wfResultOn.IsCooloffActive;
 
-                // ── Walk-Forward guard (CalibOFF) ─────────────────────────────
-                var wfResultOff = wfOff.ValidateWalkForward(Asset, timeframe, closePrices);
+                // Walk-Forward guard (CalibOFF)
+                var wfResultOff = wfOff.ValidateWalkForward(Asset, timeframe);
                 bool cooloffOff = wfResultOff.IsCooloffActive;
 
                 // ── Читаем откалиброванные веса (CalibON) ────────────────────

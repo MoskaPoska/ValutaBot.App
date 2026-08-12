@@ -39,7 +39,10 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             throw new Exception($"ОТКАЗ API: Недостаточно свечей для технического анализа. Получено {prices.Length}. Нужно минимум 14.");
         }
 
-        double rsi = ComputeConnorsRsi(asset, timeframe, candles);
+        // Стандартный RSI(14) — базовый сигнал (стабилен на всех таймфреймах).
+        // ConnorsRSI — подтверждающий сигнал (нестабилен на M1, даёт крайние значения при нормальном рынке).
+        double rsi        = ComputeRsi(asset, timeframe, candles, 14);
+        double connorsRsi = ComputeConnorsRsi(asset, timeframe, candles);
         double hma = ComputeHma(asset, timeframe, candles, 9);
         double lastPrice = prices[^1];
 
@@ -61,14 +64,13 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
         {
             // Ranging Market: Boost Mean-Reversion (INVERTED RSI)
             hmaWeight = 0.0;
-            // RSI > 50 generates a negative score (SELL/PUT) because we are hitting the ceiling
+            // Стандартный RSI > 50 = отрицательный скор (продажа от потолка диапазона)
             score -= ((rsi - 50.0) / 40.0) * 2.0;
         }
         else if (adxVal > 25.0)
         {
             // Trending Market: Boost Trend-Following
             hmaWeight = 0.30;
-            // RSI > 50 generates a positive score (BUY/CALL) indicating momentum
             score += ((rsi - 50.0) / 40.0) * 0.5;
         }
         else 
@@ -76,6 +78,14 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             // Neutral zone
             score += ((rsi - 50.0) / 40.0) * 1.0;
         }
+
+        // ConnorsRSI как подтверждающий сигнал (вес 0.2 — не доминирует, только подтверждает).
+        // Нормализован в [-0.15, +0.15] чтобы не перебивать основной RSI сигнал.
+        double connorsSignal = (connorsRsi - 50.0) / 50.0;
+        if (adxVal > 25.0)
+            score += Math.Clamp(connorsSignal * 0.15, -0.15, 0.15); // тренд: подтверждение направления
+        else if (adxVal < 20.0)
+            score -= Math.Clamp(connorsSignal * 0.10, -0.10, 0.10); // флэт: лёгкий mean-reversion
 
         if (lastPrice > hma) score += hmaWeight;
         else if (lastPrice < hma) score -= hmaWeight;
@@ -88,6 +98,8 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             else if (mdiVal > pdiVal && mdiVal > 0) score -= 0.25;
         }
 
+        // Исправление: volStrength считается по rolling CVD (5 свечей) вместо разницы одного тика.
+        // Предыдущая версия брала sign(prices[^1] - prices[^2]) — чистый шум при нейтральном рынке.
         double volStrength = 0.0;
         if (volumes.Length >= 5)
         {
@@ -103,9 +115,21 @@ public class TechnicalAnalysisEngine : ITechnicalAnalysisEngine
             double lastVol = volumes[^1];
             if (avgVol > 1e-9)
             {
+                // Rolling CVD: накопленное давление покупателей/продавцов за 5 свечей вместо 1 тика
+                double rollingCvd = 0;
+                int cvdLookback = Math.Min(5, prices.Length - 1);
+                for (int i = 1; i <= cvdLookback; i++)
+                {
+                    double pc = prices[^i] - prices[^(i + 1)];
+                    double v  = i <= volumes.Length ? volumes[^i] : 0;
+                    rollingCvd += pc >= 0 ? v : -v;
+                }
+
                 double ratio = lastVol / avgVol;
-                double priceChange = prices.Length >= 2 ? prices[^1] - prices[^2] : 0.0;
-                volStrength = (priceChange >= 0 ? 1.0 : -1.0) * Math.Max(0.0, Math.Min(ratio - 1.0, 1.0));
+                // Нормализуем CVD по среднему объёму для масштабируемости
+                double cvdNorm = avgVol > 1e-9 ? Math.Clamp(rollingCvd / (avgVol * cvdLookback), -1.0, 1.0) : 0;
+                volStrength = cvdNorm * Math.Max(0.0, Math.Min(ratio - 0.8, 1.0));
+
                 // Volume bonus: up to +10 confidence points
                 double volBonus = Math.Abs(volStrength) * 10.0;
                 confidence += Math.Min(volBonus, 10.0);

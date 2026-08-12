@@ -14,65 +14,49 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
     {
         public int ConsecutiveLosses { get; set; }
         public DateTime CooloffUntil { get; set; } = DateTime.MinValue;
+
+        // Скользящее окно последних 10 сделок для расчёта rolling win rate.
+        // Ring buffer: true = победа, false = поражение.
+        public readonly bool[] RecentOutcomes = new bool[10];
+        public int OutcomeIndex { get; set; }
+        public int OutcomeCount { get; set; }
     }
 
     private readonly ConcurrentDictionary<SignalKey, CooloffState> _cooloffMap = new();
 
     /// <summary>
-    /// Validates current performance to prevent drawdown losses during regime shifts.
+    /// Проверяет активен ли cooloff для данного актива/таймфрейма.
     /// </summary>
-    public WalkForwardResult ValidateWalkForward(
-        string asset,
-        string timeframe,
-        double[] prices,
-        bool isNewsActive = false)
+    public WalkForwardResult ValidateWalkForward(string asset, string timeframe)
     {
         var key = new SignalKey(asset, timeframe);
         var cooloff = _cooloffMap.GetOrAdd(key, _ => new CooloffState());
 
-        // 1. Check if Cooloff Phase is active (triggered after 3 consecutive losses)
         bool isCooloffActive;
         DateTime cooloffUntil;
         lock (cooloff)
         {
-            cooloffUntil = cooloff.CooloffUntil;
+            cooloffUntil    = cooloff.CooloffUntil;
             isCooloffActive = DateTime.UtcNow < cooloffUntil;
         }
 
         if (isCooloffActive)
         {
-            BotLogger.Warn($"[Drawdown Protection] Cooloff active for {key} until {cooloffUntil:HH:mm:ss}. ML weight suppressed to 0.1x.");
+            BotLogger.Warn($"[Drawdown Protection] Cooloff active for {key} until {cooloffUntil:HH:mm:ss}.");
             return new WalkForwardResult(
-                IsOverfitted: true,
-                IsCooloffActive: true,
+                IsOverfitted:     true,
+                IsCooloffActive:  true,
                 WeightMultiplier: 0.10,
-                StatusReasoning: "Фаза охлаждения после серии убытков (Drawdown Protection Active).",
-                CooloffUntil: cooloffUntil
+                StatusReasoning:  "Фаза охлаждения после серии убытков (Drawdown Protection Active).",
+                CooloffUntil:     cooloffUntil
             );
-        }
-
-        // 2. If High-Impact News is active, suppress ML and rely on SMC / Quant Math
-        if (isNewsActive)
-        {
-            BotLogger.Warn($"[News Blackout] High-Impact News active for {key}. Clamping ML weight.");
-            return new WalkForwardResult(
-                IsOverfitted: true,
-                IsCooloffActive: false,
-                WeightMultiplier: 0.20,
-                StatusReasoning: "Выход новостей высокой важности (News Blackout Active)."
-            );
-        }
-
-        if (prices == null || prices.Length < 30)
-        {
-            return new WalkForwardResult(false, false, 1.0, "Недостаточно свечей.");
         }
 
         return new WalkForwardResult(
-            IsOverfitted: false,
-            IsCooloffActive: false,
+            IsOverfitted:     false,
+            IsCooloffActive:  false,
             WeightMultiplier: 1.0,
-            StatusReasoning: "Авто-калибровка весов (AutoCalibrationEngine активен)."
+            StatusReasoning:  "Авто-калибровка весов (AutoCalibrationEngine активен)."
         );
     }
 
@@ -97,8 +81,29 @@ public class WalkForwardValidationEngine : IWalkForwardValidationEngine
                 if (state.ConsecutiveLosses >= 3)
                 {
                     state.CooloffUntil = DateTime.UtcNow.AddMinutes(15);
-                    state.ConsecutiveLosses = 0; // Reset after triggering cooloff
-                    BotLogger.Warn($"[Drawdown Protection] 3 consecutive losses detected for {key}. Triggering 15-minute cooloff until {state.CooloffUntil:HH:mm:ss}");
+                    state.ConsecutiveLosses = 0;
+                    BotLogger.Warn($"[Drawdown Protection] 3 consecutive losses for {key}. Cooloff until {state.CooloffUntil:HH:mm:ss}");
+                }
+            }
+
+            // Rolling win-rate защита: обновляем ring buffer и проверяем win rate последних 10 сделок.
+            // Если < 35% побед — триггер cooloff (10 минут).
+            // До этого: 5 потерь из 7 (результат 71% lose) не триггерил систему если между ними были победы.
+            state.RecentOutcomes[state.OutcomeIndex] = isWin;
+            state.OutcomeIndex = (state.OutcomeIndex + 1) % 10;
+            if (state.OutcomeCount < 10) state.OutcomeCount++;
+
+            if (state.OutcomeCount >= 10 && DateTime.UtcNow >= state.CooloffUntil)
+            {
+                int wins = 0;
+                for (int i = 0; i < state.OutcomeCount; i++) if (state.RecentOutcomes[i]) wins++;
+                double rollingWinRate = (double)wins / state.OutcomeCount;
+
+                if (rollingWinRate < 0.35)
+                {
+                    state.CooloffUntil = DateTime.UtcNow.AddMinutes(10);
+                    state.ConsecutiveLosses = 0;
+                    BotLogger.Warn($"[Drawdown Protection] Rolling win rate {rollingWinRate:P0} < 35% for {key}. Cooloff 10 min until {state.CooloffUntil:HH:mm:ss}");
                 }
             }
         }

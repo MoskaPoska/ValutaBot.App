@@ -73,7 +73,22 @@ public class StatefulSmc
 
             // Live mitigation on current open candle
             MitigateZones(candles[^1]);
+
+            // Очистка устаревших зон: FVG и OB старше 50 свечей удаляются.
+            // Без этого: списки растут бесконечно, GetNearestFvg/Ob замедляются.
+            if (_lastProcessedTime != default)
+                PruneStaleZones(_lastProcessedTime.AddMinutes(-50));
         }
+    }
+
+    /// <summary>
+    /// Удаляет FVG и OrderBlock зоны, созданные раньше cutoffTime.
+    /// Вызывается под _lockObj.
+    /// </summary>
+    private void PruneStaleZones(DateTime cutoffTime)
+    {
+        _activeFvgs.RemoveAll(z => z.CreationTime < cutoffTime);
+        _activeObs.RemoveAll(z => z.CreationTime < cutoffTime);
     }
 
     private double GetAtrAt(ReadOnlySpan<MiniAppController.OhlcCandle> candles, int currentIdx, int period)
@@ -240,7 +255,7 @@ public class StatefulSmc
         }
     }
 
-    public (bool hasBullishOb, bool hasBearishOb, OrderBlockZone? nearestOb) GetNearestOb(double currentPrice)
+    public (bool hasBullishOb, bool hasBearishOb, OrderBlockZone? nearestOb) GetNearestOb(double currentPrice, int maxAgeBars = 30)
     {
         lock (_lockObj)
         {
@@ -249,8 +264,19 @@ public class StatefulSmc
             OrderBlockZone? nearest = null;
             double minDistance = double.MaxValue;
 
+            // Временной фильтр: OB старше maxAgeBars свечей исключается из скоринга.
+            // CreationTime хранится как DateTime последней свечи в момент формирования OB.
+            // Для m1: 30 свечей = 30 минут; для m5: 30 свечей = 2.5 часа.
+            // OB, сформированный давно, с высокой вероятностью уже отработан или стал неактуальным.
+            DateTime cutoff = _lastProcessedTime != default
+                ? _lastProcessedTime.AddMinutes(-maxAgeBars)
+                : DateTime.MinValue;
+
             foreach (var ob in _activeObs)
             {
+                // Пропускаем устаревшие OB
+                if (ob.CreationTime < cutoff) continue;
+
                 if (ob.IsBullish) bull = true;
                 else              bear = true;
 

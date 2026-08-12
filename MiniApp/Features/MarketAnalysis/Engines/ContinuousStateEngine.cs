@@ -81,6 +81,15 @@ public static class ContinuousStateEngine
             desc = $"Непрерывный вектор: Стабильное ламинарное движение (Velocity={instantVelocity:F1} bps/s).";
         }
 
+        // Интеграция Kalman-фильтра в скоринг:
+        // Отклонение текущей цены от kalmanState в базисных пунктах — ведущий сигнал перегрева/недогрева.
+        // Цена выше Калмана → импульс вверх; ниже → вниз. Ранее kalmanState вычислялся вхолостую.
+        double kalmanDevBps = currentPrice > 1e-8
+            ? ((currentPrice - kalmanState) / currentPrice) * 10_000.0
+            : 0;
+        double kalmanContribution = Math.Clamp(kalmanDevBps / 10.0, -0.15, 0.15);
+        momentumContribution = Math.Clamp(momentumContribution + kalmanContribution, -0.60, 0.60);
+
         return new ContinuousStateResult(
             VelocityBpsPerSec: Math.Round(instantVelocity, 2),
             AccelerationBpsPerSec2: Math.Round(instantAcceleration, 2),

@@ -198,8 +198,9 @@ public class AutoCalibrationEngine : IAutoCalibrationEngine
         {
             stats.TotalTrades++;
             
-            // EMA calculation for win rate (Alpha = 0.1, roughly last 10 trades have heaviest impact)
-            double alpha = 0.1;
+            // EMA: alpha=0.2 (период ~5 сделок). Прежний alpha=0.1 (~10 сделок) был слишком
+            // медленным при редкой торговле — режим менялся раньше, чем EMA успевала адаптироваться.
+            double alpha = 0.2;
             double outcomeVal = isWin ? 1.0 : 0.0;
             
             stats.EmaWinRate = (alpha * outcomeVal) + ((1.0 - alpha) * stats.EmaWinRate);

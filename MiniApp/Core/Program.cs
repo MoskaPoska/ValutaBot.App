@@ -14,7 +14,11 @@ internal static class Program
 
         if (args.Length >= 2 && args[0] == "--backtest")
         {
+#if DEBUG
             ValutaBot.App.MiniApp.Backtesting.BacktestEntryPoint.RunAsync(args).GetAwaiter().GetResult();
+#else
+            Console.WriteLine("[Backtest] Not available in production build. Use Debug configuration.");
+#endif
             return;
         }
 
@@ -173,11 +177,9 @@ internal static class Program
             var gatekeeperRes = (new TechnicalAnalysisEngine()).ValidateMarketGatekeeper("TEST", "m1", flatPrices, flatCandles);
             Assert("Gatekeeper detects flat market", gatekeeperRes.IsTradeable == false && gatekeeperRes.Reason.Contains("Р В·Р В°РЎРѓРЎвЂљР С•"), $"Expected false/Р В·Р В°РЎРѓРЎвЂљР С•Р в„–, got {gatekeeperRes.IsTradeable}/{gatekeeperRes.Reason}");
 
-            // 8.2 Walk-Forward with too few candles
-            double[] shortPrices = new double[10];
-            for (int i = 0; i < 10; i++) shortPrices[i] = 1.0;
-            var wfRes = wfEngine.ValidateWalkForward("TEST", "m1", shortPrices, false);
-            Assert("WalkForward handles insufficient data", wfRes.IsOverfitted == false && wfRes.StatusReasoning.Contains("Р СњР ВµР Т‘Р С•РЎРѓРЎвЂљР В°РЎвЂљР С•РЎвЂЎР Р…Р С•"), $"Expected false/Р СњР ВµР Т‘Р С•РЎРѓРЎвЂљР В°РЎвЂљР С•РЎвЂЎР Р…Р С•, got {wfRes.IsOverfitted}");
+            // 8.2 Walk-Forward — test cooloff check
+            var wfRes = wfEngine.ValidateWalkForward("TEST", "m1");
+            Assert("WalkForward returns valid result", !wfRes.IsCooloffActive, $"Expected no cooloff, got {wfRes.IsCooloffActive}");
 
             // 8.3 Order Flow Spoofing Trap Detection
             double[] spoofPrices = new double[10];

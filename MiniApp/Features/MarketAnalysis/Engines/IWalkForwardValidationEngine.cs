@@ -4,10 +4,7 @@ public interface IWalkForwardValidationEngine
 {
     WalkForwardValidationEngine.WalkForwardResult ValidateWalkForward(
         string asset,
-        string timeframe,
-        double[] prices,
-        bool isNewsActive = false);
+        string timeframe);
 
     void RecordTradeOutcome(string asset, string timeframe, bool isWin);
 }
-
