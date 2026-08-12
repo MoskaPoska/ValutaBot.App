@@ -52,7 +52,31 @@ public class LiveCandleAggregator : IHostedService
         
         try
         {
-            var options = ConfigurationOptions.Parse(redisUrl);
+            ConfigurationOptions options;
+            if (redisUrl.StartsWith("redis://") || redisUrl.StartsWith("rediss://"))
+            {
+                var uri = new Uri(redisUrl);
+                options = new ConfigurationOptions
+                {
+                    EndPoints = { { uri.Host, uri.Port > 0 ? uri.Port : 6379 } },
+                    AbortOnConnectFail = false
+                };
+                var userInfo = uri.UserInfo.Split(':');
+                if (userInfo.Length == 2)
+                {
+                    options.User = userInfo[0];
+                    options.Password = userInfo[1];
+                }
+                else if (userInfo.Length == 1 && !string.IsNullOrEmpty(userInfo[0]))
+                {
+                    options.Password = userInfo[0];
+                }
+            }
+            else
+            {
+                options = ConfigurationOptions.Parse(redisUrl);
+                options.AbortOnConnectFail = false;
+            }
             _redis = await ConnectionMultiplexer.ConnectAsync(options);
             _subscriber = _redis.GetSubscriber();
 
