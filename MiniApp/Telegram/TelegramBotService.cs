@@ -128,7 +128,12 @@ public partial class TelegramBotService : BackgroundService
                             _ = Task.Run(async () =>
                             {
                                 try { await HandleMessage(token, chatId, text, username, _webAppUrl); }
-                                catch (Exception ex) { Console.WriteLine($"[TG Bot] HandleMessage error ({chatId}): {ex.Message}"); }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"[TG Bot] HandleMessage error ({chatId}): {ex.Message}");
+                                    try { await SendTextMessageAsync(token, chatId, $"⚠️ Ошибка: {ex.Message}"); }
+                                    catch { /* ignore send error */ }
+                                }
                             }, stoppingToken);
                         }
                         else if (update.TryGetProperty("callback_query", out var callbackQuery))
@@ -160,7 +165,12 @@ public partial class TelegramBotService : BackgroundService
                             _ = Task.Run(async () =>
                             {
                                 try { await HandleCallback(token, queryId, chatId, data, messageId, username, _webAppUrl); }
-                                catch (Exception ex) { Console.WriteLine($"[TG Bot] HandleCallback error ({chatId}): {ex.Message}"); }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"[TG Bot] HandleCallback error ({chatId}): {ex.Message}");
+                                    try { await SendTextMessageAsync(token, chatId, $"⚠️ Ошибка: {ex.Message}"); }
+                                    catch { /* ignore send error */ }
+                                }
                             }, stoppingToken);
                         }
                     }
