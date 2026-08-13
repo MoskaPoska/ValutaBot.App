@@ -1,9 +1,11 @@
 using System;
-using System.Net.Http;
-using System.Text.Json;
 using System.Threading.Tasks;
 using ValutaBot.MiniApp;
 using ValutaBot.App.MiniApp;
+using ValutaBot.MiniApp.Features.MarketAnalysis;
+using ValutaBot.MiniApp.CQRS.Handlers;
+using ValutaBot.MiniApp.CQRS.Queries;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ValutaBot.App.MiniApp.Telegram.Commands
 {
@@ -21,18 +23,13 @@ namespace ValutaBot.App.MiniApp.Telegram.Commands
                                        bool isAdmin, string token, string webAppUrl)
         {
             if (!isAdmin)
-            {
-                await TelegramBotService.SendMessage(token, chatId,
-                    "⛔ Команда доступна только администраторам.");
-                return;
-            }
+                return; // non-admins silently ignored
 
-            // Parse: /signal ASSET [timeframe]
             var parts = cleanText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2)
             {
                 await TelegramBotService.SendMessage(token, chatId,
-                    "ℹ️ Использование:\n<code>/signal EURUSD_OTC</code>\n<code>/signal EURUSD_OTC m5</code>");
+                    "ℹ️ Использование: <code>/signal EURUSD_OTC</code> или <code>/signal EURUSD_OTC m5</code>");
                 return;
             }
 
@@ -44,75 +41,33 @@ namespace ValutaBot.App.MiniApp.Telegram.Commands
 
             try
             {
-                // Use HttpFactory to call the existing /api/analysis endpoint
-                var http = MiniAppController.HttpFactory!.CreateClient();
-                string baseUrl = "http://localhost:5000";
-                string url = $"{baseUrl}/api/analyze?asset={Uri.EscapeDataString(asset)}&timeframe={timeframe}";
+                using var scope = MiniAppController.Services!.CreateScope();
+                var handler = scope.ServiceProvider
+                    .GetRequiredService<GetMarketAnalysisQueryHandler>();
 
-                var response = await http.GetAsync(url);
-                if (!response.IsSuccessStatusCode)
-                {
-                    string err = await response.Content.ReadAsStringAsync();
-                    await TelegramBotService.SendMessage(token, chatId,
-                        $"⚠️ Ошибка API ({response.StatusCode}): {err[..Math.Min(300, err.Length)]}");
-                    return;
-                }
+                var query = new GetMarketAnalysisQuery(asset, timeframe);
+                var result = await handler.Handle(query, default);
 
-                string json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-
-                // Extract key fields from the analysis result
-                string text = FormatAnalysisResult(asset, timeframe, doc.RootElement);
+                string text = FormatResult(asset, timeframe, result);
                 await TelegramBotService.SendMessage(token, chatId, text);
             }
             catch (Exception ex)
             {
-                await TelegramBotService.SendMessage(token, chatId,
-                    $"⚠️ Ошибка анализа: {ex.Message}");
+                Console.WriteLine($"[SignalCommand] Error for {asset}: {ex.Message}");
+                // errors go to Railway logs only — no noise in Telegram
             }
         }
 
-        private static string FormatAnalysisResult(string asset, string timeframe, JsonElement root)
+        private static string FormatResult(string asset, string timeframe, object result)
         {
-            // Try to extract the most important fields
-            string direction  = TryGet(root, "direction", "confluenceSignal", "signal", "recommendation");
-            string confidence = TryGet(root, "confidence", "confluenceScore", "score");
-            string summary    = TryGet(root, "summary", "reasoning", "description", "confluenceText");
+            if (result == null)
+                return $"❌ Нет данных для <b>{asset}</b>";
 
-            if (string.IsNullOrEmpty(direction) && string.IsNullOrEmpty(summary))
-            {
-                // Fallback: return raw JSON (truncated)
-                string raw = root.ToString();
-                if (raw.Length > 3500) raw = raw[..3500] + "\n…";
-                return $"📊 <b>{asset}</b> | {timeframe}\n\n<pre>{raw}</pre>";
-            }
+            string raw = result.ToString() ?? "";
+            if (raw.Length > 3800)
+                raw = raw[..3800] + "\n…";
 
-            string emoji = direction?.ToUpper() switch
-            {
-                "UP" or "BUY" or "CALL"   => "📈",
-                "DOWN" or "SELL" or "PUT" => "📉",
-                _                          => "⚖️"
-            };
-
-            return $"{emoji} <b>{asset}</b> | {timeframe}\n" +
-                   $"Сигнал: <b>{direction}</b>" +
-                   (string.IsNullOrEmpty(confidence) ? "" : $" ({confidence}%)") +
-                   (string.IsNullOrEmpty(summary) ? "" : $"\n\n{summary[..Math.Min(1000, summary.Length)]}");
-        }
-
-        private static string TryGet(JsonElement root, params string[] keys)
-        {
-            foreach (var key in keys)
-            {
-                if (root.TryGetProperty(key, out var val))
-                {
-                    var str = val.ValueKind == JsonValueKind.String
-                        ? val.GetString() ?? ""
-                        : val.ToString();
-                    if (!string.IsNullOrWhiteSpace(str)) return str;
-                }
-            }
-            return "";
+            return $"📊 <b>{asset}</b> | {timeframe}\n\n{raw}";
         }
     }
 }

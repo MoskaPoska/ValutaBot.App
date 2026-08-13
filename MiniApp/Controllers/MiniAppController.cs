@@ -25,6 +25,7 @@ public static partial class MiniAppController
     public record OhlcCandle(double Open, double High, double Low, double Close, double Volume, DateTime Timestamp = default);
 
     public static System.Net.Http.IHttpClientFactory? HttpFactory { get; set; }
+    public static IServiceProvider? Services { get; set; }
 
     public static void Start(string[] args, int port = 5000)
     {
@@ -159,6 +160,7 @@ public static partial class MiniAppController
         TradeOutcomeTracker.WfEngine = app.Services.GetRequiredService<IWalkForwardValidationEngine>();
 
         HttpFactory = app.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>();
+        Services    = app.Services;
 
         // Запускаем фоновый зонд измерения RTT до Binance для динамической компенсации задержки
         LatencyProbe.StartBackground(HttpFactory, app.Lifetime.ApplicationStopping);
