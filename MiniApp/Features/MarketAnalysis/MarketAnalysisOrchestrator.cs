@@ -207,7 +207,7 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
         _mainVolumes = mainResultTuple.volumes;
 
         _ohlcCandles = await _fetcher.FetchOhlcWithFallbackAsync(_symbol, _timeframe, _asset, _limit);
-        if (_ohlcCandles == null || _ohlcCandles.Length < 10)
+        if (_ohlcCandles == null || _ohlcCandles.Length < 2)
         {
             throw new Exception($"ОТКАЗ API: Недостаточно свечей ({_timeframe}) для технического анализа.");
         }
