@@ -113,13 +113,16 @@ public class LiveCandleAggregator : IHostedService
 
     private void ProcessQuote(RedisQuote quote)
     {
+        // Normalize symbol to uppercase for consistent lookups
+        string normalizedSymbol = quote.Symbol.ToUpper();
+        
         // For every supported interval, update the candle
         string[] intervals = { "1m", "5m", "15m", "30m", "1h" };
         DateTime quoteTime = DateTimeOffset.FromUnixTimeSeconds(quote.Timestamp).UtcDateTime;
 
         foreach (var interval in intervals)
         {
-            UpdateCandle(quote.Symbol, interval, quote.Price, quoteTime);
+            UpdateCandle(normalizedSymbol, interval, quote.Price, quoteTime);
         }
     }
 
