@@ -131,7 +131,7 @@ public partial class TelegramBotService : BackgroundService
                                 catch (Exception ex)
                                 {
                                     Console.WriteLine($"[TG Bot] HandleMessage error ({chatId}): {ex.Message}");
-                                    try { await SendTextMessageAsync(token, chatId, $"⚠️ Ошибка: {ex.Message}"); }
+                                    try { await SendMessage(token, chatId, $"⚠️ Ошибка: {ex.Message}"); }
                                     catch { /* ignore send error */ }
                                 }
                             }, stoppingToken);
@@ -168,7 +168,7 @@ public partial class TelegramBotService : BackgroundService
                                 catch (Exception ex)
                                 {
                                     Console.WriteLine($"[TG Bot] HandleCallback error ({chatId}): {ex.Message}");
-                                    try { await SendTextMessageAsync(token, chatId, $"⚠️ Ошибка: {ex.Message}"); }
+                                    try { await SendMessage(token, chatId, $"⚠️ Ошибка: {ex.Message}"); }
                                     catch { /* ignore send error */ }
                                 }
                             }, stoppingToken);
