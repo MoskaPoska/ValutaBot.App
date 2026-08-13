@@ -189,33 +189,30 @@ public class LiveCandleAggregator : IHostedService
 
     public MiniAppController.OhlcCandle[] GetCandles(string symbol, string interval, int limit)
     {
-        if (_historicalCandles.TryGetValue(symbol, out var symbolHist) && symbolHist.TryGetValue(interval, out var histList))
+        var result = new List<MiniAppController.OhlcCandle>();
+
+        // Add historical closed candles
+        if (_historicalCandles.TryGetValue(symbol, out var symbolHist) &&
+            symbolHist.TryGetValue(interval, out var histList))
         {
             lock (histList)
             {
-                var result = new List<MiniAppController.OhlcCandle>();
-                
-                // Add historical
                 int skip = Math.Max(0, histList.Count - limit);
                 result.AddRange(histList.Skip(skip));
-
-                // Add current open candle if we still need one or if we want the most recent price
-                if (_currentCandles.TryGetValue(symbol, out var symbolCurr) && symbolCurr.TryGetValue(interval, out var current))
-                {
-                    result.Add(current);
-                }
-
-                // If result is larger than limit (e.g. histList gave exactly limit, and we added 1 current), take last 'limit'
-                if (result.Count > limit)
-                {
-                    result = result.Skip(result.Count - limit).ToList();
-                }
-
-                return result.ToArray();
             }
         }
-        
-        // No history yet
-        return Array.Empty<MiniAppController.OhlcCandle>();
+
+        // Always add the current open candle if it exists (even if history is empty)
+        if (_currentCandles.TryGetValue(symbol, out var symbolCurr) &&
+            symbolCurr.TryGetValue(interval, out var current))
+        {
+            result.Add(current);
+        }
+
+        // Trim to limit
+        if (result.Count > limit)
+            result = result.Skip(result.Count - limit).ToList();
+
+        return result.ToArray();
     }
 }

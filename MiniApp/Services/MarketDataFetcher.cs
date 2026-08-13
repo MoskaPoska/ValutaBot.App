@@ -85,6 +85,9 @@ public class MarketDataFetcher
             "AUDUSD" or "AUDUSDT" => "AUDUSD_otc",
             _ => cleanAsset.EndsWith("_otc") ? cleanAsset : cleanAsset + "_otc"
         });
+
+        // Normalize to uppercase to match LiveCandleAggregator storage
+        finalSymbol = finalSymbol.ToUpper();
         
         var aggregator = Services.LiveCandleAggregator.Instance;
         if (aggregator == null)
@@ -94,6 +97,16 @@ public class MarketDataFetcher
         }
 
         var candles = aggregator.GetCandles(finalSymbol, interval, limit);
+        
+        // Fallback: try without _OTC suffix if not found
+        if (candles.Length == 0 && finalSymbol.EndsWith("_OTC"))
+        {
+            string noOtc = finalSymbol[..^4]; // remove "_OTC"
+            candles = aggregator.GetCandles(noOtc, interval, limit);
+            if (candles.Length > 0)
+                BotLogger.Info($"[MarketDataFetcher] Fallback: found candles for {noOtc} instead of {finalSymbol}");
+        }
+
         if (candles.Length == 0)
         {
             BotLogger.Warn($"[MarketDataFetcher] No candles available yet in Redis for {finalSymbol} ({interval}).");
