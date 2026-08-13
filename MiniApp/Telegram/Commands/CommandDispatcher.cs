@@ -9,6 +9,7 @@ namespace ValutaBot.App.MiniApp.Telegram.Commands
     {
         private static readonly List<ITelegramCommand> _commands = new()
         {
+            new SignalCommand(),         // /signal EURUSD_OTC [m1|m5|m15]
             new StartCommand(),
             new HelpCommand(),
             new SettingsCommand(),
