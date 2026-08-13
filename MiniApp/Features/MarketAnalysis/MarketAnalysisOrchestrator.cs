@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using ValutaBot.MiniApp.CQRS.Handlers;
 using ValutaBot.App.MiniApp.Services;
@@ -207,9 +208,15 @@ public class MarketAnalysisOrchestrator : IMarketAnalysisOrchestrator
         _mainVolumes = mainResultTuple.volumes;
 
         _ohlcCandles = await _fetcher.FetchOhlcWithFallbackAsync(_symbol, _timeframe, _asset, _limit);
-        if (_ohlcCandles == null || _ohlcCandles.Length < 2)
+        if (_ohlcCandles == null || _ohlcCandles.Length == 0)
         {
-            throw new Exception($"ОТКАЗ API: Недостаточно свечей ({_timeframe}) для технического анализа.");
+            // OTC candles not yet accumulated — use main prices as synthetic OHLC
+            BotLogger.Warn($"[Orchestrator] No OTC candles for {_asset} ({_timeframe}) — using synthetic OHLC from main prices.");
+            _ohlcCandles = _mainPrices.Select(p => new MiniAppController.OhlcCandle(p, p, p, p, 0)).ToArray();
+        }
+        else if (_ohlcCandles.Length < 2)
+        {
+            BotLogger.Warn($"[Orchestrator] Only {_ohlcCandles.Length} candle(s) for {_asset} ({_timeframe}) — analysis may be limited.");
         }
 
         var higherTask = _higherTf != null ? SafeFetch(_higherTf) : Task.FromResult<(double[] prices, double[] volumes)?>(null);
