@@ -85,15 +85,21 @@ public class LiveCandleAggregator : IHostedService
                 if (message.IsNullOrEmpty) return;
                 try
                 {
+                    _logger.LogInformation($"[LiveCandleAggregator] RAW message on {channel}: {((string)message!)[..Math.Min(100, ((string)message!).Length)]}");
                     var quote = JsonSerializer.Deserialize<RedisQuote>((string)message!);
                     if (quote != null)
                     {
+                        _logger.LogInformation($"[LiveCandleAggregator] Parsed quote: symbol={quote.Symbol} price={quote.Price} ts={quote.Timestamp}");
                         ProcessQuote(quote);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"[LiveCandleAggregator] Deserialized quote is null for message on {channel}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"[LiveCandleAggregator] Failed to parse quote: {ex.Message}");
+                    _logger.LogError($"[LiveCandleAggregator] Failed to parse quote: {ex.Message} | raw={(string)message!}");
                 }
             });
 
